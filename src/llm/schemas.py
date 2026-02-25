@@ -13,11 +13,30 @@ from pydantic import BaseModel, Field, field_validator
 class LLMExtractedData(BaseModel):
     """Data extracted from email content by the LLM."""
 
+    # PROMISE_TO_PAY
     promise_date: Optional[str] = None  # String from LLM, parsed to date in engine
     promise_amount: Optional[float] = None
+    # DISPUTE
     dispute_type: Optional[str] = None
     dispute_reason: Optional[str] = None
-    redirect_contact: Optional[str] = None
+    invoice_refs: Optional[list[str]] = None
+    disputed_amount: Optional[float] = None
+    # ALREADY_PAID
+    claimed_amount: Optional[float] = None
+    claimed_date: Optional[str] = None
+    claimed_reference: Optional[str] = None
+    claimed_details: Optional[str] = None
+    # INSOLVENCY
+    insolvency_type: Optional[str] = None
+    insolvency_details: Optional[str] = None
+    administrator_name: Optional[str] = None
+    administrator_email: Optional[str] = None
+    reference_number: Optional[str] = None
+    # OUT_OF_OFFICE
+    return_date: Optional[str] = None
+    # REDIRECT
+    redirect_name: Optional[str] = None
+    redirect_contact: Optional[str] = None  # Kept for backward compat
     redirect_email: Optional[str] = None
 
 

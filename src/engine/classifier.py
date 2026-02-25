@@ -103,11 +103,39 @@ class EmailClassifier:
                             f"Could not parse promise_date: {extracted_raw.promise_date}"
                         )
 
+                # Parse claimed_date and return_date strings to date
+                claimed_date_parsed = None
+                if extracted_raw.claimed_date:
+                    try:
+                        claimed_date_parsed = date.fromisoformat(extracted_raw.claimed_date)
+                    except ValueError:
+                        logger.warning(f"Could not parse claimed_date: {extracted_raw.claimed_date}")
+
+                return_date_parsed = None
+                if extracted_raw.return_date:
+                    try:
+                        return_date_parsed = date.fromisoformat(extracted_raw.return_date)
+                    except ValueError:
+                        logger.warning(f"Could not parse return_date: {extracted_raw.return_date}")
+
                 extracted = ExtractedData(
                     promise_date=promise_date_parsed,
                     promise_amount=extracted_raw.promise_amount,
                     dispute_type=extracted_raw.dispute_type,
                     dispute_reason=extracted_raw.dispute_reason,
+                    invoice_refs=extracted_raw.invoice_refs,
+                    disputed_amount=extracted_raw.disputed_amount,
+                    claimed_amount=extracted_raw.claimed_amount,
+                    claimed_date=claimed_date_parsed,
+                    claimed_reference=extracted_raw.claimed_reference,
+                    claimed_details=extracted_raw.claimed_details,
+                    insolvency_type=extracted_raw.insolvency_type,
+                    insolvency_details=extracted_raw.insolvency_details,
+                    administrator_name=extracted_raw.administrator_name,
+                    administrator_email=extracted_raw.administrator_email,
+                    reference_number=extracted_raw.reference_number,
+                    return_date=return_date_parsed,
+                    redirect_name=extracted_raw.redirect_name,
                     redirect_contact=extracted_raw.redirect_contact,
                     redirect_email=extracted_raw.redirect_email,
                 )

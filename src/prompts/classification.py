@@ -23,8 +23,11 @@ Classifications (in priority order for multi-intent emails):
 
 Data Extraction Rules:
 - If PROMISE_TO_PAY: Extract promise_date (YYYY-MM-DD) and promise_amount (if specified)
-- If DISPUTE or ALREADY_PAID: Extract dispute_type (goods_not_received, quality_issue, pricing_error, already_paid, wrong_customer, other) and dispute_reason
-- If REDIRECT: Extract redirect_contact (name) and redirect_email (email address)
+- If DISPUTE: Extract dispute_type (goods_not_received, quality_issue, pricing_error, wrong_customer, other), dispute_reason, invoice_refs (list of invoice numbers mentioned), and disputed_amount (if specified)
+- If ALREADY_PAID: Extract claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment/transaction reference), and claimed_details (any other payment info mentioned)
+- If INSOLVENCY: Extract insolvency_type (administration, liquidation, bankruptcy, cva, iva, receivership), insolvency_details, administrator_name, administrator_email, and reference_number
+- If OUT_OF_OFFICE: Extract return_date (YYYY-MM-DD)
+- If REDIRECT: Extract redirect_name (person's name), redirect_contact (name, kept for compat), and redirect_email (email address)
 
 Industry Context Usage:
 When industry context is provided, use it to better interpret the email:
@@ -48,6 +51,19 @@ Respond in JSON format:
     "promise_amount": null,
     "dispute_type": null,
     "dispute_reason": null,
+    "invoice_refs": null,
+    "disputed_amount": null,
+    "claimed_amount": null,
+    "claimed_date": null,
+    "claimed_reference": null,
+    "claimed_details": null,
+    "insolvency_type": null,
+    "insolvency_details": null,
+    "administrator_name": null,
+    "administrator_email": null,
+    "reference_number": null,
+    "return_date": null,
+    "redirect_name": null,
     "redirect_contact": null,
     "redirect_email": null
   }

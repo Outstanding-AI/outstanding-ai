@@ -7,10 +7,29 @@ from pydantic import BaseModel, Field
 class ExtractedData(BaseModel):
     """Data extracted from email by AI."""
 
+    # PROMISE_TO_PAY
     promise_date: Optional[date] = None
     promise_amount: Optional[float] = None
+    # DISPUTE
     dispute_type: Optional[str] = None
     dispute_reason: Optional[str] = None
+    invoice_refs: Optional[List[str]] = None
+    disputed_amount: Optional[float] = None
+    # ALREADY_PAID
+    claimed_amount: Optional[float] = None
+    claimed_date: Optional[date] = None
+    claimed_reference: Optional[str] = None
+    claimed_details: Optional[str] = None
+    # INSOLVENCY
+    insolvency_type: Optional[str] = None
+    insolvency_details: Optional[str] = None
+    administrator_name: Optional[str] = None
+    administrator_email: Optional[str] = None
+    reference_number: Optional[str] = None
+    # OUT_OF_OFFICE
+    return_date: Optional[date] = None
+    # REDIRECT
+    redirect_name: Optional[str] = None
     redirect_contact: Optional[str] = None
     redirect_email: Optional[str] = None
 
