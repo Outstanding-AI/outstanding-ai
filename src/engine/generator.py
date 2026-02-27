@@ -84,6 +84,9 @@ class DraftGenerator:
         # Build industry context section
         industry_context = self._format_industry_context(request.context.industry)
 
+        # Build sender persona context section
+        sender_persona_context = self._format_sender_persona(request)
+
         # Build base user prompt
         base_user_prompt = GENERATE_DRAFT_USER.format(
             party_name=request.context.party.name,
@@ -111,6 +114,7 @@ class DraftGenerator:
             else "Unknown",
             avg_days_to_pay=behavior.avg_days_to_pay if behavior else "Unknown",
             industry_context=industry_context,
+            sender_persona_context=sender_persona_context,
             tone=request.tone,
             objective=request.objective or "collect payment",
             brand_tone=request.context.brand_tone,
@@ -256,6 +260,24 @@ class DraftGenerator:
             model=response.model,
             is_fallback=(response.provider != llm_client.primary_provider_name),
         )
+
+    def _format_sender_persona(self, request: GenerateDraftRequest) -> str:
+        """Format sender persona context for prompt inclusion."""
+        persona = request.sender_persona
+        if not persona or not persona.communication_style:
+            # No persona — use name/title if available
+            name = request.sender_name or "[SENDER_NAME]"
+            title = request.sender_title or "[SENDER_TITLE]"
+            return f"Name: {name}, Title: {title} (no persona profile — use neutral professional voice)"
+
+        lines = [
+            f"- Name: {persona.name}",
+            f"- Title: {persona.title or 'Team Member'}",
+            f"- Communication Style: {persona.communication_style}",
+            f"- Formality Level: {persona.formality_level}",
+            f"- Emphasis: {persona.emphasis}",
+        ]
+        return "\n".join(lines)
 
     def _format_industry_context(self, industry) -> str:
         """Format industry context for prompt inclusion."""

@@ -63,6 +63,31 @@ class ClassifyResponse(BaseModel):
     is_fallback: bool = False
 
 
+class PersonaResult(BaseModel):
+    """Generated persona for a single contact."""
+
+    name: str
+    level: int
+    communication_style: Optional[str] = None
+    formality_level: Optional[str] = None
+    emphasis: Optional[str] = None
+
+
+class GeneratePersonaResponse(BaseModel):
+    """Response from persona generation."""
+
+    personas: List[PersonaResult]
+
+
+class RefinePersonaResponse(BaseModel):
+    """Response from persona refinement."""
+
+    communication_style: str
+    formality_level: str
+    emphasis: str
+    reasoning: str
+
+
 class GenerateDraftResponse(BaseModel):
     """Response from draft generation."""
 

@@ -1,5 +1,7 @@
 """Draft generation prompt templates."""
 
+from src.config.constants import SENDER_PERSONA_INSTRUCTIONS
+
 # =============================================================================
 # DRAFT GENERATION PROMPTS
 # =============================================================================
@@ -64,6 +66,8 @@ HTML Formatting Requirements:
 - Do NOT include <html>, <head>, or <body> tags - just the email content HTML
 - Signature should be formatted as: <p>Best regards,</p><p>[SENDER_NAME]<br>[SENDER_TITLE]</p>
 
+""" + SENDER_PERSONA_INSTRUCTIONS + """
+
 Respond in JSON format:
 {
   "subject": "Email subject line",
@@ -104,6 +108,9 @@ GENERATE_DRAFT_USER = """Generate a collection email draft.
 
 **Industry Context:**
 {industry_context}
+
+**Sender:**
+{sender_persona_context}
 
 **Instructions:**
 - Tone: {tone}

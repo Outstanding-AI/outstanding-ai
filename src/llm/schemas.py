@@ -109,3 +109,64 @@ class DraftGenerationLLMResponse(BaseModel):
         min_length=1,
         description="Email body content",
     )
+
+
+class PersonaLLMResponse(BaseModel):
+    """Expected response from persona generation LLM calls (cold start)."""
+
+    communication_style: str = Field(
+        ...,
+        max_length=200,
+        description="Voice direction, e.g. 'direct and authoritative'",
+    )
+    formality_level: str = Field(
+        ...,
+        description="Register: casual, conversational, professional, or formal",
+    )
+    emphasis: str = Field(
+        ...,
+        max_length=200,
+        description="Focus area, e.g. 'building rapport and finding solutions'",
+    )
+
+    @field_validator("formality_level")
+    @classmethod
+    def validate_formality(cls, v: str) -> str:
+        valid = {"casual", "conversational", "professional", "formal"}
+        lower_v = v.lower()
+        if lower_v not in valid:
+            raise ValueError(f"formality_level must be one of: {', '.join(sorted(valid))}")
+        return lower_v
+
+
+class PersonaRefinementLLMResponse(BaseModel):
+    """Expected response from persona refinement LLM calls."""
+
+    communication_style: str = Field(
+        ...,
+        max_length=200,
+        description="Updated voice direction",
+    )
+    formality_level: str = Field(
+        ...,
+        description="Updated register",
+    )
+    emphasis: str = Field(
+        ...,
+        max_length=200,
+        description="Updated focus area",
+    )
+    reasoning: str = Field(
+        ...,
+        max_length=300,
+        description="Brief explanation of what changed and why",
+    )
+
+    @field_validator("formality_level")
+    @classmethod
+    def validate_formality(cls, v: str) -> str:
+        valid = {"casual", "conversational", "professional", "formal"}
+        lower_v = v.lower()
+        if lower_v not in valid:
+            raise ValueError(f"formality_level must be one of: {', '.join(sorted(valid))}")
+        return lower_v

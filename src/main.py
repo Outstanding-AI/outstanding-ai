@@ -24,7 +24,7 @@ from slowapi.util import get_remote_address
 
 from src.api.errors import ErrorCode, ErrorResponse, SolvixBaseError
 from src.api.middleware import RequestIDMiddleware, ServiceAuthMiddleware, get_request_id
-from src.api.routes import classify, gates, generate, health
+from src.api.routes import classify, gates, generate, health, persona
 from src.config.settings import settings
 
 # Configure logging
@@ -128,6 +128,7 @@ app.include_router(health.router, tags=["Health"])
 app.include_router(classify.router, tags=["Classification"])
 app.include_router(generate.router, tags=["Generation"])
 app.include_router(gates.router, tags=["Gates"])
+app.include_router(persona.router, tags=["Persona"])
 
 
 if __name__ == "__main__":
