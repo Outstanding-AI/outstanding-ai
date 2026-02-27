@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Service-to-service authentication
+    # When set, all requests (except /health) must include Authorization: Bearer <token>
+    service_auth_token: Optional[str] = None
+
     # Rate Limiting (per-IP, per-minute)
     # Higher limits for internal service-to-service calls
     rate_limit_classify: str = "100/minute"

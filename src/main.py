@@ -23,7 +23,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.api.errors import ErrorCode, ErrorResponse, SolvixBaseError
-from src.api.middleware import RequestIDMiddleware, get_request_id
+from src.api.middleware import RequestIDMiddleware, ServiceAuthMiddleware, get_request_id
 from src.api.routes import classify, gates, generate, health
 from src.config.settings import settings
 
@@ -70,7 +70,10 @@ app.state.limiter = limiter
 # Add rate limit exceeded handler
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Request ID middleware (must be added first to capture all requests)
+# Service-to-service auth middleware (outermost — runs before request ID)
+app.add_middleware(ServiceAuthMiddleware, token=settings.service_auth_token)
+
+# Request ID middleware
 app.add_middleware(RequestIDMiddleware)
 
 # CORS middleware - configured via settings

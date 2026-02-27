@@ -35,7 +35,9 @@ COPY --chown=appuser:appuser pyproject.toml uv.lock ./
 USER appuser
 
 # Install dependencies using uv (production only, no dev deps)
-RUN uv sync --no-dev --frozen
+# Cache mount avoids re-downloading packages on every rebuild
+RUN --mount=type=cache,target=/home/appuser/.cache/uv,uid=1000 \
+    uv sync --no-dev --frozen
 
 # Copy source code (only src/ needed in production)
 COPY --chown=appuser:appuser src/ src/

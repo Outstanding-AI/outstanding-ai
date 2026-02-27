@@ -1,7 +1,7 @@
 """
 Custom middleware for the Solvix AI Engine.
 
-Provides request tracing and error handling capabilities.
+Provides request tracing, error handling, and authentication capabilities.
 """
 
 import logging
@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse as StarletteJSONResponse
 
 logger = logging.getLogger(__name__)
 
@@ -107,3 +108,49 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             # Reset context variable
             request_id_var.reset(token)
+
+
+# Paths that bypass authentication
+_PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+
+
+class ServiceAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware that enforces service-to-service authentication.
+
+    When SERVICE_AUTH_TOKEN is set, all requests (except health/docs)
+    must include a valid Authorization: Bearer <token> header.
+
+    If SERVICE_AUTH_TOKEN is not configured, authentication is disabled
+    (allows local development without a token).
+    """
+
+    def __init__(self, app, token: str | None = None):
+        super().__init__(app)
+        self.token = token
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        # Skip auth if no token configured (local dev)
+        if not self.token:
+            return await call_next(request)
+
+        # Allow public paths without auth
+        if request.url.path in _PUBLIC_PATHS:
+            return await call_next(request)
+
+        # Check Authorization header
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return StarletteJSONResponse(
+                status_code=401,
+                content={"error": "Missing or invalid Authorization header"},
+            )
+
+        provided_token = auth_header[7:]  # len("Bearer ") == 7
+        if provided_token != self.token:
+            return StarletteJSONResponse(
+                status_code=401,
+                content={"error": "Invalid service token"},
+            )
+
+        return await call_next(request)
