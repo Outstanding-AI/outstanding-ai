@@ -109,7 +109,9 @@ class EmailClassifier:
                     try:
                         claimed_date_parsed = date.fromisoformat(extracted_raw.claimed_date)
                     except ValueError:
-                        logger.warning(f"Could not parse claimed_date: {extracted_raw.claimed_date}")
+                        logger.warning(
+                            f"Could not parse claimed_date: {extracted_raw.claimed_date}"
+                        )
 
                 return_date_parsed = None
                 if extracted_raw.return_date:

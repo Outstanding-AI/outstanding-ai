@@ -46,9 +46,6 @@ logs/
 Thumbs.db
 
 # Documentation (generated/local only)
-docs/
 
 # Claude Code context
-CLAUDE.md
-QUICKSTART.md
 .claude/

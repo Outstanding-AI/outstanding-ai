@@ -44,13 +44,9 @@ async def generate_persona(
 
     Called when admin saves the escalation hierarchy.
     """
-    logger.info(
-        "Generating personas for %d contacts", len(persona_request.contacts)
-    )
+    logger.info("Generating personas for %d contacts", len(persona_request.contacts))
     contacts = [c.model_dump() for c in persona_request.contacts]
-    results = await persona_generator.generate_personas(
-        contacts, persona_request.total_levels
-    )
+    results = await persona_generator.generate_personas(contacts, persona_request.total_levels)
 
     personas = [
         PersonaResult(
@@ -99,7 +95,9 @@ async def refine_persona(
     performance = refine_request.performance.model_dump()
 
     result = await persona_generator.refine_persona(
-        contact, current_persona, performance,
+        contact,
+        current_persona,
+        performance,
         persona_version=refine_request.persona_version,
     )
 

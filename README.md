@@ -1,33 +1,42 @@
 # Solvix AI Engine
 
-Stateless AI service for the Solvix debt collection platform. Provides email classification, response draft generation, and gate evaluation for automated collections workflows.
+Stateless AI service for the Solvix debt collection platform. Provides email classification, response draft generation, compliance gate evaluation, and sender persona management for automated collections workflows.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
 [![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet.svg)](https://github.com/astral-sh/uv)
 
-> **📚 Documentation Hub:** For comprehensive platform documentation, see the [Solvix docs](../Solvix/docs/) directory, including [Codebase Analysis](../Solvix/docs/CODEBASE_ANALYSIS.md), [Cross-Repo Integration](../Solvix/docs/architecture/CROSS_REPO_INTEGRATION.md), and [Development Guide](../Solvix/docs/DEVELOPMENT_GUIDE.md).
+> **Documentation Hub:** For comprehensive platform documentation, see the [Solvix docs](../Solvix/docs/) directory, including [Codebase Analysis](../Solvix/docs/CODEBASE_ANALYSIS.md), [Cross-Repo Integration](../Solvix/docs/architecture/CROSS_REPO_INTEGRATION.md), and [Development Guide](../Solvix/docs/DEVELOPMENT_GUIDE.md).
 
 ---
 
 ## Features
 
-- **Email Classification**: Classify inbound customer emails into categories (HARDSHIP, DISPUTE, PROMISE_TO_PAY, etc.)
-- **Draft Generation**: Generate contextual response drafts with appropriate tone and HTML formatting
-- **Gate Evaluation**: Evaluate compliance gates before outbound actions (touch cap, cooling off, etc.)
+- **Email Classification**: Classify inbound customer emails into 13 categories (HARDSHIP, DISPUTE, PROMISE_TO_PAY, etc.) with extracted data
+- **Draft Generation**: Generate contextual response drafts with appropriate tone, HTML formatting, and optional sender persona voice
+- **Gate Evaluation**: Evaluate 6 deterministic compliance gates before outbound actions (touch cap, cooling off, unsubscribe, etc.)
+- **Sender Persona Management**: Generate and refine sender personas for a 4-level escalation hierarchy
 - **Guardrails Pipeline**: Validate AI outputs with 5 parallel guardrails (factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence)
-- **Dual LLM Support**: Primary Gemini, fallback to OpenAI
+- **Dual LLM Support**: Primary Gemini 2.5 Pro, fallback to OpenAI gpt-5-nano
+- **Service Authentication**: Bearer token auth for service-to-service calls
+- **Rate Limiting**: Per-IP rate limits via slowapi
 - **Robust JSON Parsing**: Multi-strategy JSON extraction from LLM responses (handles markdown blocks, trailing commas, etc.)
 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  Solvix Backend │────▶│  Solvix AI Engine │────▶│   Gemini    │
-│   (Django)      │◀────│   (FastAPI)       │◀────│  (Primary)  │
-│                 │     │   Port 8001       │     │   OpenAI    │
-└─────────────────┘     └──────────────────┘     │  (Fallback) │
-                                                  └─────────────┘
+┌─────────────────┐     ┌──────────────────┐     ┌───────────────┐
+│  Solvix Backend │────▶│  Solvix AI Engine │────▶│   Gemini 2.5  │
+│   (Django)      │◀────│   (FastAPI)       │◀────│   (Primary)   │
+│                 │     │   Port 8001       │     │   gpt-5-nano  │
+└─────────────────┘     └──────────────────┘     │   (Fallback)  │
+                               │                  └───────────────┘
+                               │
+                        ┌──────┴──────┐
+                        │  Middleware  │
+                        │  Auth + RID  │
+                        │  Rate Limit  │
+                        └─────────────┘
 ```
 
 The AI Engine is stateless - it receives all context via HTTP requests and does not access the database directly.
@@ -36,10 +45,13 @@ The AI Engine is stateless - it receives all context via HTTP requests and does 
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/classify` | POST | Classify inbound email |
-| `/generate-draft` | POST | Generate response draft |
-| `/evaluate-gates` | POST | Evaluate compliance gates |
+| `/ping` | GET | Simple liveness check (no LLM calls) |
+| `/health` | GET | Full health check with LLM provider verification |
+| `/classify` | POST | Classify inbound email into 13 categories |
+| `/generate-draft` | POST | Generate response draft with optional sender persona |
+| `/evaluate-gates` | POST | Evaluate 6 compliance gates (deterministic) |
+| `/generate-persona` | POST | Generate initial personas for escalation contacts |
+| `/refine-persona` | POST | Refine persona based on performance data |
 
 ---
 
@@ -47,7 +59,7 @@ The AI Engine is stateless - it receives all context via HTTP requests and does 
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - [uv](https://github.com/astral-sh/uv) (fast Python package manager)
 - Google API key (Gemini) or OpenAI API key
 
@@ -62,12 +74,13 @@ make install
 
 # Configure environment
 cp .env.example .env
-# Edit .env and add your GOOGLE_API_KEY or OPENAI_API_KEY
+# Edit .env and add your GEMINI_API_KEY (or OPENAI_API_KEY for fallback)
 
 # Run the server with auto-reload
 make dev
 # API: http://localhost:8001
 # Health: http://localhost:8001/health
+# Ping: http://localhost:8001/ping
 ```
 
 ### Docker
@@ -111,6 +124,7 @@ make docker-build     # Build image
 make docker-run       # Run container
 make docker-up        # Start with docker-compose
 make docker-down      # Stop docker-compose
+make docker-logs      # View docker-compose logs
 ```
 
 ---
@@ -121,9 +135,15 @@ Environment variables (in `.env`):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GOOGLE_API_KEY` | Google Gemini API key | Primary LLM |
+| `GEMINI_API_KEY` | Google Gemini API key | Primary LLM |
 | `OPENAI_API_KEY` | OpenAI API key | Fallback LLM |
-| `OPENAI_MODEL` | OpenAI model to use | `gpt-4o` |
+| `GEMINI_MODEL` | Gemini model | `gemini-2.5-pro` |
+| `OPENAI_MODEL` | OpenAI model | `gpt-5-nano` |
+| `GEMINI_MAX_TOKENS` | Gemini max tokens | `8192` |
+| `OPENAI_MAX_TOKENS` | OpenAI max tokens | `32768` |
+| `LLM_TIMEOUT_SECONDS` | Per-call timeout | `60` |
+| `SERVICE_AUTH_TOKEN` | Bearer token for auth | Empty (disabled) |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated origins | Empty (all in debug) |
 | `LOG_LEVEL` | Logging level | `INFO` |
 
 ## Classification Categories
@@ -154,60 +174,60 @@ Environment variables (in `.env`):
 
 ## Gate Types
 
-| Gate | Description |
-|------|-------------|
-| `touch_cap` | Maximum contacts per period |
-| `cooling_off` | Minimum days between touches |
-| `dispute_active` | Block if dispute pending |
-| `hardship` | Special handling required |
-| `unsubscribe` | Contact opted out |
-| `escalation_appropriate` | Valid escalation path |
+| Gate | Type | Description |
+|------|------|-------------|
+| `touch_cap` | Block | Maximum contacts per month |
+| `cooling_off` | Block | Minimum days between touches; enforces do_not_contact_until |
+| `dispute_active` | Block | Block if dispute pending |
+| `hardship` | Warning | Special handling required (does not block) |
+| `unsubscribe` | Block | Contact opted out |
+| `escalation_appropriate` | Block | Valid escalation path (considers industry patience) |
+
+Gate evaluation is **deterministic** (Python logic, no LLM calls) for reliability and speed.
 
 ## Guardrails
 
-The guardrail pipeline validates AI-generated content before it's stored. Guardrails run in parallel using a thread pool for performance.
+The guardrail pipeline validates AI-generated content before it's returned. Guardrails run in parallel using a thread pool for performance.
 
 | Guardrail | Severity | Description |
 |-----------|----------|-------------|
 | `factual_grounding` | Critical | Validates invoice numbers and amounts match context |
-| `numerical_consistency` | High | Ensures calculations are correct (totals = sum of parts) |
+| `numerical_consistency` | Critical | Ensures calculations are correct (totals = sum of parts) |
 | `entity_verification` | High | Verifies customer code and company name match |
 | `temporal_consistency` | Medium | Validates date references are accurate |
 | `contextual_coherence` | Low | Checks overall response coherence |
 
 **Blocking Behavior:**
-- `Critical` and `High` severity failures block the draft from being stored
-- `Medium` severity issues generate warnings but allow the draft
+- `Critical` and `High` severity failures block the output
+- `Medium` severity issues generate warnings but allow the output
 - `Low` severity issues are logged only
 
-## Case Context
+## Sender Personas
 
-The `CaseContext` model (in `src/api/models/requests.py`) provides context for AI decisions:
+The persona system supports a 4-level escalation hierarchy:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `party_id` | `str` | Debtor party identifier |
-| `obligations` | `list` | Outstanding obligations |
-| `promise_grace_days` | `int` | Days before promise is broken (default: 3) |
-| ... | ... | Other context fields |
+| Level | Typical Role | Default Tone |
+|-------|-------------|--------------|
+| 1 | AR Coordinator / Credit Controller | friendly_reminder |
+| 2 | AR Manager / Senior Credit Controller | professional |
+| 3 | Finance Manager / Head of Credit | firm |
+| 4 | CFO / Finance Director | final_notice |
 
-The `promise_grace_days` value is resolved by the backend:
-1. Party-level override (if set)
-2. Organization default
-3. System default (3 days)
+Personas define **how** a person writes (communication_style, formality_level, emphasis), not **what** they write. They are:
+- **Generated** via cold start when admin saves escalation hierarchy
+- **Refined** based on performance data during sync cycles
+- **Injected** into draft generation prompts to control voice
 
 ## Testing
 
-### Unit tests (no OpenAI calls)
+### Unit tests (no API calls)
 
-The default unit tests **mock** the LLM layer (e.g. patching `llm_client.complete`) so they are fast, deterministic, and do **not** call OpenAI.
+The default unit tests **mock** the LLM layer so they are fast, deterministic, and do **not** call external APIs.
 
 ```bash
-# If your venv is activated and pytest is on PATH
-pytest tests/
-
-# Or run via the repo venv directly
-./venv/bin/pytest tests/
+make test
+# or directly:
+uv run pytest tests/ -v --ignore=tests/test_live_integration.py
 ```
 
 ### Test Suite
@@ -217,23 +237,24 @@ pytest tests/
 | `test_api.py` | API endpoint routing and response formats |
 | `test_classifier.py` | Email classification with all 13 categories |
 | `test_generator.py` | Draft generation with 5 tone types |
-| `test_gate_evaluator.py` | 6 gate evaluations (touch_cap, cooling_off, etc.) |
-| `test_live_integration.py` | Real OpenAI integration (requires API key) |
+| `test_gate_evaluator.py` | 6 deterministic gate evaluations |
+| `test_guardrail_severities.py` | Guardrail severity level verification |
+| `test_provider_metadata.py` | Provider/model metadata in responses |
+| `test_llm_providers.py` | LLM provider and fallback mechanism |
+| `test_live_integration.py` | Real LLM integration (requires API key) |
+| `test_guardrails/` | Individual guardrail and pipeline tests |
+| `test_evals/` | Evaluation system tests |
 
-### Live integration tests (real OpenAI calls)
+### Live integration tests (real API calls)
 
-`tests/test_live_integration.py` makes **real network calls** to OpenAI via `src/llm/client.py`. These tests:
+`tests/test_live_integration.py` makes **real network calls** to LLM providers. These tests:
 
-- require `OPENAI_API_KEY`
+- require `GEMINI_API_KEY` or `OPENAI_API_KEY`
 - may incur cost and take longer
-- validate that we are not just returning dummy responses
+- validate real LLM responses
 
 ```bash
-# Run only the live tests
-./venv/bin/pytest tests/test_live_integration.py
-
-# To see evidence of real HTTP requests (debug logs)
-./venv/bin/pytest tests/test_live_integration.py -s --log-cli-level=DEBUG
+make test-live
 ```
 
 ## Project Structure
@@ -243,48 +264,64 @@ solvix-ai/
 ├── src/
 │   ├── api/
 │   │   ├── models/          # Pydantic request/response models
-│   │   │   ├── requests.py
-│   │   │   └── responses.py
+│   │   │   ├── requests.py  # ClassifyRequest, GenerateDraftRequest, persona models, etc.
+│   │   │   └── responses.py # ClassifyResponse, GuardrailValidation, persona responses, etc.
 │   │   ├── routes/          # FastAPI route handlers
 │   │   │   ├── classify.py
 │   │   │   ├── generate.py
 │   │   │   ├── gates.py
-│   │   │   └── health.py
+│   │   │   ├── health.py    # /ping + /health
+│   │   │   └── persona.py   # /generate-persona + /refine-persona
 │   │   ├── errors.py        # Custom API exceptions
-│   │   └── middleware.py    # Request logging middleware
+│   │   └── middleware.py     # RequestIDMiddleware + ServiceAuthMiddleware
 │   ├── config/
-│   │   └── settings.py      # Pydantic settings
+│   │   ├── settings.py      # Pydantic settings (LLM, auth, CORS, rate limits)
+│   │   └── constants.py     # Persona prompts and level descriptions
 │   ├── engine/              # Core AI logic
-│   │   ├── classifier.py    # Email classification
-│   │   ├── generator.py     # Draft generation
-│   │   └── gate_evaluator.py # Gate evaluation
+│   │   ├── classifier.py    # Email classification (13 categories)
+│   │   ├── generator.py     # Draft generation (with persona support)
+│   │   ├── gate_evaluator.py # Deterministic gate evaluation (6 gates, no LLM)
+│   │   └── persona.py       # Persona generation and refinement
 │   ├── guardrails/          # Output validation
 │   │   ├── base.py          # Base classes and result types
 │   │   ├── pipeline.py      # Parallel guardrail orchestration
-│   │   ├── factual_grounding.py  # Invoice/amount validation
-│   │   ├── numerical.py     # Calculation verification
-│   │   ├── entity.py        # Customer code/name validation
-│   │   ├── temporal.py      # Date reference validation
-│   │   └── contextual.py    # Coherence checking
+│   │   ├── factual_grounding.py  # Invoice/amount validation (CRITICAL)
+│   │   ├── numerical.py     # Calculation verification (CRITICAL)
+│   │   ├── entity.py        # Customer code/name validation (HIGH)
+│   │   ├── temporal.py      # Date reference validation (MEDIUM)
+│   │   └── contextual.py    # Coherence checking (LOW)
 │   ├── llm/
-│   │   ├── factory.py       # LLM client factory (Gemini/OpenAI)
+│   │   ├── base.py          # BaseLLMProvider abstract class
+│   │   ├── factory.py       # LLM client factory (Gemini→OpenAI fallback)
 │   │   ├── gemini_provider.py
 │   │   ├── openai_provider.py
-│   │   └── schemas.py       # LLM response schemas
+│   │   └── schemas.py       # LLM response validation schemas
 │   ├── prompts/             # Prompt templates
 │   │   ├── classification.py
-│   │   ├── draft_generation.py
-│   │   └── gate_evaluation.py
+│   │   └── draft_generation.py
 │   ├── utils/
-│   │   ├── __init__.py
-│   │   └── json_extractor.py # Robust JSON parsing
+│   │   ├── json_extractor.py # Robust JSON parsing
+│   │   └── metrics.py        # Metrics utilities
+│   ├── evals/
+│   │   ├── metrics.py        # Evaluation metrics
+│   │   ├── batch.py          # Batch evaluation runner
+│   │   └── realtime.py       # Real-time evaluation tracking
 │   └── main.py              # FastAPI app entrypoint
 ├── tests/
-│   ├── conftest.py          # Shared fixtures
+│   ├── conftest.py           # Shared fixtures
 │   ├── test_api.py
 │   ├── test_classifier.py
 │   ├── test_generator.py
-│   └── test_gate_evaluator.py
+│   ├── test_gate_evaluator.py
+│   ├── test_guardrail_severities.py
+│   ├── test_provider_metadata.py
+│   ├── test_llm_providers.py
+│   ├── test_live_integration.py
+│   ├── test_guardrails/
+│   └── test_evals/
+├── docs/
+│   ├── implementation_plan.md
+│   └── memory_context_analysis.md
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pyproject.toml
@@ -302,56 +339,57 @@ async with AIEngineClient() as client:
     # Classify email
     result = await client.classify_email(email_content, context)
 
-    # Generate draft
-    draft = await client.generate_draft(context, classification, tone)
+    # Generate draft (with optional persona)
+    draft = await client.generate_draft(context, persona, tone)
 
-    # Check gates
-    gates = await client.evaluate_gates(context, action)
+    # Check gates (deterministic, fast)
+    gates = await client.evaluate_gates(context, action, tone)
+
+    # Generate personas (cold start)
+    personas = await client.generate_personas(contacts)
+
+    # Refine persona (performance-based)
+    refined = await client.refine_persona(contact, persona, performance)
+```
+
+### Authentication
+
+When `SERVICE_AUTH_TOKEN` is set, all requests (except `/health`, `/ping`, `/docs`) must include:
+```
+Authorization: Bearer <token>
 ```
 
 ### Docker Connectivity
 
-The Solvix backend runs inside Docker and needs to connect to the AI Engine. Since the AI Engine runs on the host machine (not in Docker), use:
+The Solvix backend runs inside Docker and needs to connect to the AI Engine:
 
 **macOS / Windows (Docker Desktop):**
-
 ```bash
-# In Solvix/.env
 AI_ENGINE_URL=http://host.docker.internal:8001
 ```
 
 **Linux:**
-
 ```bash
-# In Solvix/.env
 AI_ENGINE_URL=http://172.17.0.1:8001
-# Or use the host's actual IP address
 ```
-
-The special hostname `host.docker.internal` resolves to the host machine from within Docker containers.
 
 ### Running with Solvix Backend
 
 1. **Start the AI Engine** (runs on host):
-
    ```bash
    cd solvix-ai
-   source venv/bin/activate
-   uvicorn src.main:app --reload --port 8001
+   make dev
    ```
 
 2. **Start Solvix Backend** (runs in Docker):
-
    ```bash
    cd Solvix
    make dev-backend
    ```
 
 3. **Verify connectivity**:
-
    ```bash
-   # From inside the Docker container
-   docker exec solvix_web curl http://host.docker.internal:8001/health
+   curl http://localhost:8001/ping
    ```
 
 ## License

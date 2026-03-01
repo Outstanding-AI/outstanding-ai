@@ -27,9 +27,7 @@ logger = logging.getLogger(__name__)
 class PersonaGenerator:
     """Generates and refines sender personas using LLM."""
 
-    async def generate_personas(
-        self, contacts: list, total_levels: int = 4
-    ) -> list:
+    async def generate_personas(self, contacts: list, total_levels: int = 4) -> list:
         """
         Generate initial personas for a list of contacts (cold start).
 
@@ -53,13 +51,15 @@ class PersonaGenerator:
                     e,
                 )
                 # Return empty persona on failure — non-fatal
-                results.append({
-                    "name": contact.get("name", ""),
-                    "level": contact.get("level", 1),
-                    "communication_style": None,
-                    "formality_level": None,
-                    "emphasis": None,
-                })
+                results.append(
+                    {
+                        "name": contact.get("name", ""),
+                        "level": contact.get("level", 1),
+                        "communication_style": None,
+                        "formality_level": None,
+                        "emphasis": None,
+                    }
+                )
         return results
 
     async def _generate_single(self, contact: dict, total_levels: int) -> dict:
