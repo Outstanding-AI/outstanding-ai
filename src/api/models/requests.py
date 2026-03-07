@@ -54,6 +54,9 @@ class BehaviorInfo(BaseModel):
     on_time_rate: Optional[float] = None
     partial_payment_rate: Optional[float] = None
     segment: Optional[str] = None
+    # Enhanced behaviour context
+    behaviour_profile: Optional[dict] = None
+    behaviour_segment: Optional[str] = None
 
 
 class ObligationInfo(BaseModel):
@@ -154,8 +157,17 @@ class CaseContext(BaseModel):
     relationship_tier: str = "standard"  # From party (vip, standard, high_risk)
     unsubscribe_requested: bool = False  # True if debtor opted out of communications
 
-    # Industry context (NEW - for draft generation and gate evaluation)
+    # Industry context
     industry: Optional[IndustryInfo] = None
+
+    # Extended tenant settings (passed through from Django)
+    tenant_settings: Optional[dict] = None
+
+    # Debtor contact details
+    debtor_contact: Optional[dict] = None
+
+    # Sender context (R&R, style)
+    sender_context: Optional[dict] = None
 
 
 # Dangerous patterns that indicate potential prompt injection
@@ -256,6 +268,14 @@ class ClassifyRequest(BaseModel):
     context: CaseContext
 
 
+class SenderContext(BaseModel):
+    """Extended sender context for style-aware draft generation."""
+
+    roles_responsibilities: Optional[str] = None
+    style_description: Optional[str] = None
+    style_examples: Optional[List[str]] = None
+
+
 class GenerateDraftRequest(BaseModel):
     """Request to generate a collection email draft."""
 
@@ -263,6 +283,7 @@ class GenerateDraftRequest(BaseModel):
     sender_persona: Optional[SenderPersona] = None
     sender_name: Optional[str] = Field(None, max_length=255)
     sender_title: Optional[str] = Field(None, max_length=100)
+    sender_context: Optional[SenderContext] = None
     tone: str = Field(
         default="professional",
         pattern=r"^(friendly_reminder|professional|firm|final_notice|concerned_inquiry)$",
@@ -271,6 +292,8 @@ class GenerateDraftRequest(BaseModel):
         default=None,
         pattern=r"^(follow_up|promise_reminder|escalation|initial_contact)$",
     )
+    closure_mode: bool = False
+    tone_preference: Optional[str] = Field(None, pattern=r"^(diplomatic|professional|direct)$")
     # SECURITY: Limited to 1000 chars with prompt injection detection
     custom_instructions: Optional[str] = Field(default=None, max_length=1000)
 

@@ -59,6 +59,12 @@ class Settings(BaseSettings):
         32768  # Very high for reasoning models (reasoning tokens eat this budget)
     )
 
+    # Anthropic Configuration (OPTIONAL third provider)
+    anthropic_api_key: Optional[str] = None
+    anthropic_model: str = "claude-sonnet-4-20250514"
+    anthropic_temperature: float = 0.3
+    anthropic_classification_model: str = "claude-haiku-4-5-20251001"
+
     # Timeouts and Retries
     llm_timeout_seconds: int = 60  # Per-LLM-call timeout (increased for concurrent calls)
     llm_max_retries: int = 3  # Used by tenacity retry decorator

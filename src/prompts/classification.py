@@ -8,26 +8,44 @@ CLASSIFY_EMAIL_SYSTEM = """You are an AI assistant for a B2B debt collection pla
 
 Classifications (in priority order for multi-intent emails):
 1. INSOLVENCY: Mentions administration, liquidation, bankruptcy, CVA, IVA, receivership - LEGAL implications, immediate pause required
-2. DISPUTE: Debtor disputes the invoice, claims error, goods not received, quality issue, wrong amount, already paid claim
+2. DISPUTE: Debtor disputes the invoice, claims error, goods not received, quality issue, wrong amount
 3. ALREADY_PAID: Specifically claims payment has already been made (high priority - relationship risk)
-4. UNSUBSCRIBE: Requesting to stop receiving emails - MUST honour
-5. HOSTILE: Aggressive, threatening, or abusive language
-6. PROMISE_TO_PAY: Debtor commits to a specific payment date or amount
-7. HARDSHIP: Indicates financial difficulty, cash flow problems, struggling - adapt tone, offer plan
-8. PLAN_REQUEST: Requesting to pay in instalments
-9. REDIRECT: Asking to contact a different person or department
-10. REQUEST_INFO: Asking for invoice copy, statement, or other information
-11. OUT_OF_OFFICE: Auto-reply, vacation message - note return date as context
-12. COOPERATIVE: Debtor is willing to work with us, acknowledges debt, positive tone
-13. UNCLEAR: Cannot confidently classify - flag for human review
+4. PAYMENT_CONFIRMATION: Confirms payment sent/processed, provides remittance details
+5. REMITTANCE_ADVICE: Formal remittance advice with payment breakdown
+6. UNSUBSCRIBE: Requesting to stop receiving emails - MUST honour
+7. HOSTILE: Aggressive, threatening, or abusive language
+8. PROMISE_TO_PAY: Debtor commits to a specific payment date or amount
+9. HARDSHIP: Indicates financial difficulty, cash flow problems, struggling - adapt tone, offer plan
+10. PLAN_REQUEST: Requesting to pay in instalments
+11. REDIRECT: Asking to contact a different person or department
+12. REQUEST_INFO: Asking for invoice copy, statement, or other information
+13. AMOUNT_DISAGREEMENT: Agrees invoice is owed but disputes the amount
+14. RETENTION_CLAIM: Claims a contractual retention percentage
+15. LEGAL_RESPONSE: Response from a legal representative
+16. OUT_OF_OFFICE: Auto-reply, vacation message - note return date as context
+17. EMAIL_BOUNCE: Delivery failure notification, invalid address
+18. COOPERATIVE: Debtor is willing to work with us, acknowledges debt, positive tone
+19. GENERIC_ACKNOWLEDGEMENT: Brief acknowledgement without actionable content ("noted", "received", "thanks")
+20. QUERY_QUESTION: Asks a specific question about the account/invoice
+21. ESCALATION_REQUEST: Debtor requests to speak with someone more senior
+22. PARTIAL_PAYMENT_NOTIFICATION: Notifies of a partial payment made
+23. UNCLEAR: Cannot confidently classify - flag for human review
 
 Data Extraction Rules:
 - If PROMISE_TO_PAY: Extract promise_date (YYYY-MM-DD) and promise_amount (if specified)
 - If DISPUTE: Extract dispute_type (goods_not_received, quality_issue, pricing_error, wrong_customer, other), dispute_reason, invoice_refs (list of invoice numbers mentioned), and disputed_amount (if specified)
 - If ALREADY_PAID: Extract claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment/transaction reference), and claimed_details (any other payment info mentioned)
+- If PAYMENT_CONFIRMATION: Extract claimed_amount, claimed_reference, claimed_date
+- If REMITTANCE_ADVICE: Extract claimed_amount, claimed_reference, invoice_refs
 - If INSOLVENCY: Extract insolvency_type (administration, liquidation, bankruptcy, cva, iva, receivership), insolvency_details, administrator_name, administrator_email, and reference_number
 - If OUT_OF_OFFICE: Extract return_date (YYYY-MM-DD)
 - If REDIRECT: Extract redirect_name (person's name), redirect_contact (name, kept for compat), and redirect_email (email address)
+- If AMOUNT_DISAGREEMENT: Extract disputed_amount, invoice_refs
+- If RETENTION_CLAIM: Extract disputed_amount, dispute_reason
+- If LEGAL_RESPONSE: Extract redirect_name (legal representative), redirect_email
+- If EMAIL_BOUNCE: Extract bounce_reason (in dispute_reason field)
+- If ESCALATION_REQUEST: Extract redirect_name (if specified)
+- If PARTIAL_PAYMENT_NOTIFICATION: Extract claimed_amount, claimed_reference, invoice_refs
 
 Industry Context Usage:
 When industry context is provided, use it to better interpret the email:

@@ -39,20 +39,7 @@ class LLMProviderWithFallback:
     def primary(self):
         """Lazy-initialize primary provider."""
         if self._primary is None:
-            if self.primary_provider_name == "gemini":
-                self._primary = GeminiProvider(
-                    model=settings.gemini_model,
-                    temperature=settings.gemini_temperature,
-                    max_tokens=settings.gemini_max_tokens,
-                )
-            elif self.primary_provider_name == "openai":
-                self._primary = OpenAIProvider(
-                    model=settings.openai_model,
-                    temperature=settings.openai_temperature,
-                    max_tokens=settings.openai_max_tokens,
-                )
-            else:
-                raise ValueError(f"Unknown primary provider: {self.primary_provider_name}")
+            self._primary = self._create_provider(self.primary_provider_name)
         return self._primary
 
     @property
@@ -60,18 +47,7 @@ class LLMProviderWithFallback:
         """Lazy-initialize fallback provider."""
         if self._fallback is None and self.fallback_provider_name:
             try:
-                if self.fallback_provider_name == "openai":
-                    self._fallback = OpenAIProvider(
-                        model=settings.openai_model,
-                        temperature=settings.openai_temperature,
-                        max_tokens=settings.openai_max_tokens,
-                    )
-                elif self.fallback_provider_name == "gemini":
-                    self._fallback = GeminiProvider(
-                        model=settings.gemini_model,
-                        temperature=settings.gemini_temperature,
-                        max_tokens=settings.gemini_max_tokens,
-                    )
+                self._fallback = self._create_provider(self.fallback_provider_name)
             except ValueError as e:
                 # API key not configured - disable fallback gracefully
                 logger.warning("Fallback provider unavailable: %s", e)
@@ -82,6 +58,29 @@ class LLMProviderWithFallback:
     @property
     def fallback_enabled(self):
         return self.fallback_provider_name is not None
+
+    def _create_provider(self, name: str):
+        """Create a provider instance by name."""
+        if name == "gemini":
+            return GeminiProvider(
+                model=settings.gemini_model,
+                temperature=settings.gemini_temperature,
+                max_tokens=settings.gemini_max_tokens,
+            )
+        elif name == "openai":
+            return OpenAIProvider(
+                model=settings.openai_model,
+                temperature=settings.openai_temperature,
+                max_tokens=settings.openai_max_tokens,
+            )
+        elif name == "anthropic":
+            from .anthropic_provider import AnthropicProvider
+
+            return AnthropicProvider(
+                model=settings.anthropic_model,
+                temperature=settings.anthropic_temperature,
+            )
+        raise ValueError(f"Unknown provider: {name}")
 
     async def complete(self, system_prompt: str, user_prompt: str, **kwargs) -> LLMResponse:
         """

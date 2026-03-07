@@ -7,7 +7,7 @@
 - **Name**: Solvix AI Engine
 - **Purpose**: Stateless AI microservice for debt collection workflows
 - **Core Capabilities**: Email classification, draft generation, compliance gate evaluation, sender persona management
-- **Architecture**: FastAPI + LangChain with Gemini (primary) / OpenAI (fallback)
+- **Architecture**: FastAPI + LangChain with Gemini (primary) / OpenAI (fallback) / Anthropic (optional)
 - **Port**: 8001 (default)
 
 ---
@@ -39,7 +39,7 @@ solvix-ai/
 │   │   └── constants.py             # Persona prompts and level descriptions
 │   ├── engine/
 │   │   ├── __init__.py
-│   │   ├── classifier.py            # EmailClassifier - 13-category classification
+│   │   ├── classifier.py            # EmailClassifier - 23-category classification
 │   │   ├── generator.py             # DraftGenerator - collection email drafts with persona support
 │   │   ├── gate_evaluator.py        # GateEvaluator - 6 deterministic compliance gates (no LLM)
 │   │   └── persona.py              # PersonaGenerator - cold start generation and refinement
@@ -55,9 +55,10 @@ solvix-ai/
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── base.py                  # BaseLLMProvider abstract class
-│   │   ├── factory.py               # LLMProviderWithFallback - Gemini→OpenAI
+│   │   ├── factory.py               # LLMProviderWithFallback - Gemini→OpenAI (+ optional Anthropic)
 │   │   ├── gemini_provider.py       # Gemini implementation via LangChain
 │   │   ├── openai_provider.py       # OpenAI implementation via LangChain
+│   │   ├── anthropic_provider.py    # Anthropic implementation (optional third provider)
 │   │   └── schemas.py               # LLM response validation schemas (classification, draft, persona)
 │   ├── prompts/
 │   │   ├── __init__.py
@@ -114,6 +115,7 @@ Pydantic Settings class that loads configuration from `.env`:
 - `llm_provider` - "gemini" or "openai"
 - `gemini_api_key`, `gemini_model`, `gemini_temperature`, `gemini_max_tokens` - Gemini config
 - `openai_api_key`, `openai_model`, `openai_temperature`, `openai_max_tokens` - OpenAI config
+- `anthropic_api_key`, `anthropic_model`, `anthropic_temperature`, `anthropic_classification_model` - Anthropic config (optional)
 - `llm_timeout_seconds`, `llm_max_retries` - Reliability settings
 - `service_auth_token` - Service-to-service authentication
 - `rate_limit_classify`, `rate_limit_generate`, `rate_limit_gates` - Per-IP rate limits
@@ -216,27 +218,37 @@ Two health check endpoints:
 ### Engine Layer (`src/engine/`)
 
 #### `classifier.py` - EmailClassifier
-Classifies inbound customer emails into 13 categories with confidence scoring.
+Classifies inbound customer emails into 23 categories with confidence scoring.
 
 **Categories** (in priority order):
 1. INSOLVENCY - Bankruptcy, liquidation, administration
 2. DISPUTE - Invoice/amount/service disputes
 3. ALREADY_PAID - Claims payment was already made
-4. UNSUBSCRIBE - Request to stop communications
-5. HOSTILE - Threatening, abusive language
-6. PROMISE_TO_PAY - Commitment to pay by date
-7. HARDSHIP - Financial difficulty claims
-8. PLAN_REQUEST - Request for payment plan
-9. REDIRECT - Points to different contact
-10. REQUEST_INFO - Asks for invoice copies, statements
-11. OUT_OF_OFFICE - Auto-reply, vacation
-12. COOPERATIVE - Willing to engage positively
-13. UNCLEAR - Cannot determine intent
+4. PAYMENT_CONFIRMATION - Confirms payment with reference/amount
+5. REMITTANCE_ADVICE - Formal remittance details
+6. UNSUBSCRIBE - Request to stop communications
+7. HOSTILE - Threatening, abusive language
+8. PROMISE_TO_PAY - Commitment to pay by date
+9. HARDSHIP - Financial difficulty claims
+10. PLAN_REQUEST - Request for payment plan
+11. REDIRECT - Points to different contact
+12. REQUEST_INFO - Asks for invoice copies, statements
+13. AMOUNT_DISAGREEMENT - Disputes specific amounts (not the invoice itself)
+14. RETENTION_CLAIM - Retention percentage withheld
+15. LEGAL_RESPONSE - Response from legal representative
+16. OUT_OF_OFFICE - Auto-reply, vacation
+17. EMAIL_BOUNCE - Delivery failure notification
+18. COOPERATIVE - Willing to engage positively
+19. GENERIC_ACKNOWLEDGEMENT - Simple acknowledgement without action
+20. QUERY_QUESTION - Asks a question about the debt/account
+21. ESCALATION_REQUEST - Debtor requests to speak with someone senior
+22. PARTIAL_PAYMENT_NOTIFICATION - Notifies of partial payment made
+23. UNCLEAR - Cannot determine intent
 
 **Extracted Data**:
 - promise_date, promise_amount (for PROMISE_TO_PAY)
 - dispute_type, dispute_reason, invoice_refs, disputed_amount (for DISPUTE)
-- claimed_amount, claimed_date, claimed_reference (for ALREADY_PAID)
+- claimed_amount, claimed_date, claimed_reference (for ALREADY_PAID, PAYMENT_CONFIRMATION, PARTIAL_PAYMENT_NOTIFICATION)
 - insolvency_type, administrator_name/email (for INSOLVENCY)
 - return_date (for OUT_OF_OFFICE)
 - redirect_name, redirect_contact, redirect_email (for REDIRECT)

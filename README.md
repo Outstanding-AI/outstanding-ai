@@ -12,12 +12,12 @@ Stateless AI service for the Solvix debt collection platform. Provides email cla
 
 ## Features
 
-- **Email Classification**: Classify inbound customer emails into 13 categories (HARDSHIP, DISPUTE, PROMISE_TO_PAY, etc.) with extracted data
-- **Draft Generation**: Generate contextual response drafts with appropriate tone, HTML formatting, and optional sender persona voice
-- **Gate Evaluation**: Evaluate 6 deterministic compliance gates before outbound actions (touch cap, cooling off, unsubscribe, etc.)
+- **Email Classification**: Classify inbound customer emails into 23 categories with extracted data
+- **Draft Generation**: Generate contextual response drafts with `{INVOICE_TABLE}` placeholder, closure email mode, and sender style injection
+- **Gate Evaluation**: Evaluate compliance gates (deterministic, deprecated — gates now run in Django backend)
 - **Sender Persona Management**: Generate and refine sender personas for a 4-level escalation hierarchy
 - **Guardrails Pipeline**: Validate AI outputs with 5 parallel guardrails (factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence)
-- **Dual LLM Support**: Primary Gemini 2.5 Pro, fallback to OpenAI gpt-5-nano
+- **Triple LLM Support**: Primary Gemini 2.5 Pro, fallback OpenAI gpt-5-nano, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
 - **Service Authentication**: Bearer token auth for service-to-service calls
 - **Rate Limiting**: Per-IP rate limits via slowapi
 - **Robust JSON Parsing**: Multi-strategy JSON extraction from LLM responses (handles markdown blocks, trailing commas, etc.)
@@ -141,12 +141,15 @@ Environment variables (in `.env`):
 | `OPENAI_MODEL` | OpenAI model | `gpt-5-nano` |
 | `GEMINI_MAX_TOKENS` | Gemini max tokens | `8192` |
 | `OPENAI_MAX_TOKENS` | OpenAI max tokens | `32768` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | Optional 3rd provider |
+| `ANTHROPIC_MODEL` | Anthropic model (drafts) | `claude-sonnet-4-20250514` |
+| `ANTHROPIC_CLASSIFICATION_MODEL` | Anthropic model (classify) | `claude-haiku-4-5-20251001` |
 | `LLM_TIMEOUT_SECONDS` | Per-call timeout | `60` |
 | `SERVICE_AUTH_TOKEN` | Bearer token for auth | Empty (disabled) |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated origins | Empty (all in debug) |
 | `LOG_LEVEL` | Logging level | `INFO` |
 
-## Classification Categories
+## Classification Categories (23)
 
 | Category | Description |
 |----------|-------------|
@@ -163,6 +166,16 @@ Environment variables (in `.env`):
 | `OUT_OF_OFFICE` | Auto-reply |
 | `COOPERATIVE` | Positive engagement |
 | `UNCLEAR` | Cannot determine intent |
+| `PAYMENT_CONFIRMATION` | Confirms payment made with details |
+| `REMITTANCE_ADVICE` | Formal remittance document |
+| `EMAIL_BOUNCE` | Delivery failure notification |
+| `AMOUNT_DISAGREEMENT` | Disputes the amount owed |
+| `RETENTION_CLAIM` | Claims contractual retention |
+| `LEGAL_RESPONSE` | Response via legal representative |
+| `GENERIC_ACKNOWLEDGEMENT` | Simple acknowledgement without action |
+| `QUERY_QUESTION` | Asks a question about the account |
+| `ESCALATION_REQUEST` | Debtor requests to speak to someone senior |
+| `PARTIAL_PAYMENT` | Notifies of partial payment |
 
 ## Draft Tones
 

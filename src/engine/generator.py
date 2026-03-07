@@ -87,6 +87,9 @@ class DraftGenerator:
         # Build sender persona context section
         sender_persona_context = self._format_sender_persona(request)
 
+        # Build extended context sections
+        extra_sections = self._build_extra_sections(request, behavior)
+
         # Build base user prompt
         base_user_prompt = GENERATE_DRAFT_USER.format(
             party_name=request.context.party.name,
@@ -122,6 +125,9 @@ class DraftGenerator:
             if request.custom_instructions
             else "",
         )
+
+        # Append extended sections
+        base_user_prompt += extra_sections
 
         # Retry loop for guardrail failures
         guardrail_feedback = None
@@ -306,6 +312,69 @@ class DraftGenerator:
                 lines.append(f"- Current Season ({quarter}): {industry.seasonal_patterns[quarter]}")
 
         return "\n".join(lines)
+
+    def _build_extra_sections(self, request, behavior) -> str:
+        """Build extended prompt sections for new context layers."""
+        sections = []
+
+        # Behaviour segment
+        if behavior and behavior.behaviour_segment:
+            sections.append(f"\n\n**Behaviour Segment:** {behavior.behaviour_segment}")
+            if behavior.behaviour_profile and isinstance(behavior.behaviour_profile, dict):
+                profile = behavior.behaviour_profile
+                profile_lines = []
+                for k in (
+                    "responsiveness_trend",
+                    "promise_fulfilment_rate",
+                    "dispute_frequency",
+                    "avg_response_time",
+                ):
+                    if k in profile:
+                        profile_lines.append(f"- {k.replace('_', ' ').title()}: {profile[k]}")
+                if profile_lines:
+                    sections.append("\n".join(profile_lines))
+
+        # Sender style context
+        if request.sender_context:
+            sc = request.sender_context
+            style_lines = []
+            if sc.roles_responsibilities:
+                style_lines.append(f"- Level R&R: {sc.roles_responsibilities}")
+            if sc.style_description:
+                style_lines.append(f"- Writing Style: {sc.style_description}")
+            if sc.style_examples:
+                style_lines.append("- Style Examples:")
+                for i, ex in enumerate(sc.style_examples[:2], 1):
+                    snippet = ex[:300] if len(ex) > 300 else ex
+                    style_lines.append(f"  Example {i}: {snippet}")
+            if style_lines:
+                sections.append("\n\n**Sender Style:**\n" + "\n".join(style_lines))
+
+        # Tone preference
+        if request.tone_preference:
+            sections.append(f"\n\n**Tone Preference:** {request.tone_preference}")
+
+        # Closure mode
+        if request.closure_mode:
+            sections.append(
+                "\n\n**CLOSURE EMAIL MODE**: This is a closure/thank-you email. "
+                "The debtor has paid in full or the case is resolved. "
+                "Use a grateful, relationship-preserving tone. "
+                "Do NOT include any collection language, payment demands, "
+                "or references to other invoices. Keep it brief and positive."
+            )
+        else:
+            # Invoice table instruction (non-closure only)
+            sections.append(
+                "\n\nIMPORTANT: Do NOT write invoice numbers, amounts, or dates "
+                "in the email body. Instead, include the exact placeholder "
+                "{INVOICE_TABLE} where invoice details should appear. "
+                "The system will replace this with a programmatic table. "
+                "You may reference 'the invoices listed below' or "
+                "'the outstanding items' in your prose."
+            )
+
+        return "".join(sections)
 
     def _build_guardrail_feedback(self, guardrail_result: GuardrailPipelineResult) -> str:
         """
