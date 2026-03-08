@@ -41,6 +41,17 @@ When industry context is provided, adapt your communication style:
 - Be mindful of seasonal patterns (e.g., retail Q4 holiday, construction winter slowdown)
 - Match the industry's preferred communication tone
 
+Behaviour Segment Usage:
+Adapt your language and urgency based on the debtor's behaviour segment:
+- ghost: Be more direct, note lack of prior responses, set a specific payment deadline. Do not soften the language.
+- escalation_responsive: Use firmer language — this debtor responds to escalation. Mention potential next steps.
+- strategic_non_payer: Reference obligations clearly, state consequences. This debtor deliberately avoids payment.
+- dispute_delayer: Acknowledge prior issues briefly but redirect firmly to payment. This debtor uses disputes to stall.
+- first_time_late: Acknowledge their good payment history, frame the overdue as unusual, offer help.
+- reliable_late_payer: Note appreciation for eventual payment but stress timeliness expectations.
+- genuine_hardship: Show empathy, offer payment plan discussion, avoid aggressive language.
+- habitual_slow_payer: Be clear about expectations, set specific timeline, emphasize impact of late payment.
+
 Verification Status Handling:
 - If party is NOT verified (is_verified=false): Use cautious language, include identity verification request
   Example: "If you are not the correct contact for accounts receivable matters, please let us know..."
@@ -51,21 +62,32 @@ Call-to-Action Options:
 - Request a payment timeline
 - Offer payment plan discussion
 
+Greeting Style:
+- ALWAYS use "Hello" or "Hi" as the greeting — NEVER use "Dear"
+- Examples: "Hello [Company Name]," or "Hi [Contact Name]," or "Hello,"
+- For friendly_reminder/concerned_inquiry tones, prefer "Hi"
+- For professional/firm/final_notice tones, prefer "Hello"
+
 Email Structure:
-1. Professional greeting
+1. Greeting (Hello/Hi — never Dear)
 2. Clear statement of outstanding amount
-3. List of overdue invoices (invoice number, amount, days overdue)
+3. Invoice details: use the EXACT placeholder {INVOICE_TABLE} where the invoice table should appear
 4. Reference to previous communication if applicable
 5. Specific call-to-action
 6. Contact details for queries
-7. Professional sign-off with [SENDER_NAME] and [SENDER_TITLE] placeholders
+7. Professional sign-off with [SENDER_NAME], [SENDER_TITLE], and [SENDER_COMPANY] placeholders
 
 HTML Formatting Requirements:
 - Use <p> tags for paragraphs (NOT <br> tags)
 - Each paragraph should be wrapped in <p>...</p>
-- Invoice lists should use <ul> and <li> tags
 - Do NOT include <html>, <head>, or <body> tags - just the email content HTML
-- Signature should be formatted as: <p>Best regards,</p><p>[SENDER_NAME]<br>[SENDER_TITLE]</p>
+- Signature should be formatted as: <p>Best regards,</p><p>[SENDER_NAME]<br>[SENDER_TITLE]<br>[SENDER_COMPANY]</p>
+
+CRITICAL — Placeholder Rules:
+- The ONLY allowed placeholders are: {INVOICE_TABLE}, [SENDER_NAME], [SENDER_TITLE], [SENDER_COMPANY]
+- Do NOT invent any other placeholders — no [CONTACT_NAME], [COMPANY_PHONE], [SENDER_COMPANY_NAME], [DEADLINE_DATE], etc.
+- Use ACTUAL values from the context provided (debtor company name, invoice numbers, amounts, dates)
+- If information is not available, omit it — do NOT create a placeholder for it
 
 """
     + SENDER_PERSONA_INSTRUCTIONS
@@ -74,7 +96,15 @@ HTML Formatting Requirements:
 Respond in JSON format:
 {
   "subject": "Email subject line",
-  "body": "HTML-formatted email body with <p> tags for paragraphs"
+  "body": "HTML-formatted email body with <p> tags for paragraphs",
+  "reasoning": {
+    "tone_rationale": "Brief explanation of why this tone fits the debtor's situation",
+    "strategy": "The approach being taken given the debtor's behavior profile and history",
+    "key_factors": ["factor1", "factor2"]
+  },
+  "primary_cta": "request_payment or request_call or offer_plan or request_timeline",
+  "follow_up_days": 7,
+  "invoices_referenced": ["INV-001", "INV-002"]
 }"""
 )
 
@@ -109,6 +139,8 @@ GENERATE_DRAFT_USER = """Generate a collection email draft.
 - Payment Segment: {segment}
 - On-Time Rate: {on_time_rate}
 - Avg Days to Pay: {avg_days_to_pay}
+- Max Days Overdue: {max_days_overdue}
+- Total Overdue Invoices: {obligation_count}
 
 **Industry Context:**
 {industry_context}

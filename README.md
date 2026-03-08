@@ -47,9 +47,9 @@ The AI Engine is stateless - it receives all context via HTTP requests and does 
 |----------|--------|-------------|
 | `/ping` | GET | Simple liveness check (no LLM calls) |
 | `/health` | GET | Full health check with LLM provider verification |
-| `/classify` | POST | Classify inbound email into 13 categories |
+| `/classify` | POST | Classify inbound email into 23 categories |
 | `/generate-draft` | POST | Generate response draft with optional sender persona |
-| `/evaluate-gates` | POST | Evaluate 6 compliance gates (deterministic) |
+| `/evaluate-gates` | POST | Evaluate compliance gates (deterministic, deprecated — gates now in Django) |
 | `/generate-persona` | POST | Generate initial personas for escalation contacts |
 | `/refine-persona` | POST | Refine persona based on performance data |
 

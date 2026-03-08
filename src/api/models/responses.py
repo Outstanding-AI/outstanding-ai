@@ -102,6 +102,10 @@ class GenerateDraftResponse(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     is_fallback: bool = False
+    # Structured reasoning from LLM
+    reasoning: Optional[Dict[str, Any]] = None
+    primary_cta: Optional[str] = None
+    follow_up_days: Optional[int] = None
 
 
 class GateResult(BaseModel):

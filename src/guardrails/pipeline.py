@@ -12,6 +12,7 @@ from .contextual import ContextualCoherenceGuardrail
 from .entity import EntityVerificationGuardrail
 from .factual_grounding import FactualGroundingGuardrail
 from .numerical import NumericalConsistencyGuardrail
+from .placeholder import PlaceholderValidationGuardrail
 from .temporal import TemporalConsistencyGuardrail
 
 logger = logging.getLogger(__name__)
@@ -19,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Default max retries for failed guardrails
 DEFAULT_MAX_RETRIES = 2
 
-# Thread pool for parallel guardrail execution (5 guardrails = 5 workers)
-_guardrail_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="guardrail")
+# Thread pool for parallel guardrail execution (6 guardrails = 6 workers)
+_guardrail_executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="guardrail")
 
 
 class GuardrailPipeline:
@@ -63,6 +64,7 @@ class GuardrailPipeline:
     def _get_default_guardrails(self) -> list[BaseGuardrail]:
         """Get the default set of guardrails."""
         return [
+            PlaceholderValidationGuardrail(),  # Deterministic, zero-cost — runs first
             FactualGroundingGuardrail(),
             NumericalConsistencyGuardrail(),
             EntityVerificationGuardrail(),
@@ -367,7 +369,17 @@ class GuardrailPipeline:
 
         for result in pipeline_result.results:
             if not result.passed:
-                if result.guardrail_name == "factual_grounding":
+                if result.guardrail_name == "placeholder_validation":
+                    additions.append(
+                        "- Do NOT invent placeholders like [SOMETHING] or {SOMETHING}. "
+                        "The ONLY allowed placeholder is {INVOICE_TABLE}. "
+                        "Use actual values from the context provided."
+                    )
+                    if result.found:
+                        additions.append(
+                            f"- Remove these hallucinated placeholders: {result.found}"
+                        )
+                elif result.guardrail_name == "factual_grounding":
                     additions.append(
                         "- ONLY use invoice numbers and amounts from the provided context"
                     )

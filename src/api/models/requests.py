@@ -65,8 +65,8 @@ class ObligationInfo(BaseModel):
     invoice_number: str
     original_amount: float
     amount_due: float
-    due_date: str
-    days_past_due: int
+    due_date: Optional[str] = None
+    days_past_due: int = 0
     state: str = "open"
 
 
@@ -80,23 +80,25 @@ class CommunicationInfo(BaseModel):
     last_tone_used: Optional[str] = None
     last_response_at: Optional[datetime] = None
     last_response_type: Optional[str] = None
+    last_response_subject: Optional[str] = None
+    last_response_snippet: Optional[str] = None
 
 
 class TouchHistory(BaseModel):
     """Single touch record."""
 
     sent_at: datetime
-    tone: str
-    sender_level: int
-    had_response: bool
+    tone: Optional[str] = None
+    sender_level: Optional[int] = None
+    had_response: bool = False
 
 
 class PromiseHistory(BaseModel):
     """Single promise record."""
 
-    promise_date: str
+    promise_date: Optional[str] = None
     promise_amount: Optional[float] = None
-    outcome: str  # kept, broken, pending
+    outcome: Optional[str] = None  # kept, broken, pending
 
 
 class IndustryInfo(BaseModel):
@@ -168,6 +170,18 @@ class CaseContext(BaseModel):
 
     # Sender context (R&R, style)
     sender_context: Optional[dict] = None
+
+    # Per-obligation collection statuses
+    obligation_statuses: Optional[list] = None
+
+    # Obligation snapshot for staleness detection
+    obligation_snapshot: Optional[list] = None
+
+    # Recent message excerpts for reply context
+    recent_messages: Optional[list] = None
+
+    # Currency symbol for invoice table formatting
+    currency_symbol: Optional[str] = None
 
 
 # Dangerous patterns that indicate potential prompt injection
@@ -283,6 +297,7 @@ class GenerateDraftRequest(BaseModel):
     sender_persona: Optional[SenderPersona] = None
     sender_name: Optional[str] = Field(None, max_length=255)
     sender_title: Optional[str] = Field(None, max_length=100)
+    sender_company: Optional[str] = Field(None, max_length=255)
     sender_context: Optional[SenderContext] = None
     tone: str = Field(
         default="professional",

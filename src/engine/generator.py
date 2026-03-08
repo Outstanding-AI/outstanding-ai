@@ -49,6 +49,8 @@ class DraftGenerator:
         """
         # Calculate derived values
         total_outstanding = sum(o.amount_due for o in request.context.obligations)
+        max_days_overdue = max((o.days_past_due for o in request.context.obligations), default=0)
+        obligation_count = len(request.context.obligations)
 
         # Build invoices list (top 10 by days overdue)
         sorted_obligations = sorted(
@@ -58,7 +60,8 @@ class DraftGenerator:
         invoices_list = (
             "\n".join(
                 [
-                    f"- {o.invoice_number}: {request.context.party.currency} {o.amount_due:,.2f} "
+                    f"- {o.invoice_number or '(no invoice number)'}: "
+                    f"{request.context.party.currency} {o.amount_due:,.2f} "
                     f"({o.days_past_due} days overdue)"
                     for o in sorted_obligations
                 ]
@@ -111,11 +114,13 @@ class DraftGenerator:
             broken_promises_count=request.context.broken_promises_count,
             active_dispute=request.context.active_dispute,
             hardship_indicated=request.context.hardship_indicated,
-            segment=behavior.segment if behavior else "standard",
+            segment=behavior.behaviour_segment or behavior.segment if behavior else "standard",
             on_time_rate=f"{behavior.on_time_rate:.0%}"
             if behavior and behavior.on_time_rate
             else "Unknown",
             avg_days_to_pay=behavior.avg_days_to_pay if behavior else "Unknown",
+            max_days_overdue=max_days_overdue,
+            obligation_count=obligation_count,
             industry_context=industry_context,
             sender_persona_context=sender_persona_context,
             tone=request.tone,
@@ -204,7 +209,9 @@ class DraftGenerator:
 
         # Extract referenced invoices from generated body
         invoices_referenced = [
-            o.invoice_number for o in request.context.obligations if o.invoice_number in result.body
+            o.invoice_number
+            for o in request.context.obligations
+            if o.invoice_number and o.invoice_number in result.body
         ]
 
         # Calculate factual accuracy
@@ -255,34 +262,60 @@ class DraftGenerator:
             },
         )
 
+        # Build reasoning dict for Django consumption
+        reasoning_dict = None
+        if result.reasoning:
+            reasoning_dict = result.reasoning.model_dump()
+
+        # Use LLM-provided invoices_referenced if available, fall back to body scan,
+        # then fall back to all context obligations (since {INVOICE_TABLE} includes them all)
+        # Filter out empty strings (obligations with no invoice number in source data)
+        llm_refs = [r for r in (result.invoices_referenced or []) if r]
+        final_invoices = llm_refs or invoices_referenced
+        if not final_invoices:
+            final_invoices = [
+                o.invoice_number for o in request.context.obligations if o.invoice_number
+            ]
+
         return GenerateDraftResponse(
             subject=result.subject,
             body=result.body,
             tone_used=request.tone,
-            invoices_referenced=invoices_referenced,
+            invoices_referenced=final_invoices,
             tokens_used=total_tokens_used,
             guardrail_validation=guardrail_validation,
             provider=response.provider,
             model=response.model,
             is_fallback=(response.provider != llm_client.primary_provider_name),
+            reasoning=reasoning_dict,
+            primary_cta=result.primary_cta,
+            follow_up_days=result.follow_up_days,
         )
 
     def _format_sender_persona(self, request: GenerateDraftRequest) -> str:
         """Format sender persona context for prompt inclusion."""
+        company = request.sender_company or ""
         persona = request.sender_persona
         if not persona or not persona.communication_style:
-            # No persona — use name/title if available
+            # No persona — use name/title/company if available
             name = request.sender_name or "[SENDER_NAME]"
             title = request.sender_title or "[SENDER_TITLE]"
-            return f"Name: {name}, Title: {title} (no persona profile — use neutral professional voice)"
+            company_line = f", Company: {company}" if company else ""
+            return f"Name: {name}, Title: {title}{company_line} (no persona profile — use neutral professional voice)"
 
         lines = [
             f"- Name: {persona.name}",
             f"- Title: {persona.title or 'Team Member'}",
-            f"- Communication Style: {persona.communication_style}",
-            f"- Formality Level: {persona.formality_level}",
-            f"- Emphasis: {persona.emphasis}",
         ]
+        if company:
+            lines.append(f"- Company: {company}")
+        lines.extend(
+            [
+                f"- Communication Style: {persona.communication_style}",
+                f"- Formality Level: {persona.formality_level}",
+                f"- Emphasis: {persona.emphasis}",
+            ]
+        )
         return "\n".join(lines)
 
     def _format_industry_context(self, industry) -> str:

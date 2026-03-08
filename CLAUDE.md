@@ -167,7 +167,7 @@ Input Pydantic models:
 - **TouchHistory**: sent_at, tone, sender_level, had_response
 - **PromiseHistory**: promise_date, promise_amount, outcome
 - **IndustryInfo**: code, name, typical_dso_days, alarm_dso_days, payment_cycle, escalation_patience, common_dispute_types, hardship_indicators, preferred_tone, ai_context_notes, seasonal_patterns, dispute_handling_notes, hardship_handling_notes, communication_notes
-- **CaseContext**: Aggregates all above with case_state, days_in_state, active_dispute, hardship_indicated, broken_promises_count, brand_tone, touch_cap, touch_interval_days, grace_days, promise_grace_days, do_not_contact_until, monthly_touch_count, relationship_tier, unsubscribe_requested, industry
+- **CaseContext**: Aggregates all above with case_state, days_in_state, active_dispute, hardship_indicated, broken_promises_count, brand_tone, touch_cap, touch_interval_days, grace_days, promise_grace_days, do_not_contact_until, monthly_touch_count, relationship_tier, unsubscribe_requested, industry, obligation_statuses (list), obligation_snapshot (list), recent_messages (list), currency_symbol (str)
 - **SenderPersona**: name, title, communication_style, formality_level, emphasis
 - **PersonaContact**: name, title, level (1-4)
 - **SenderPerformanceStats**: 25+ performance metrics for persona refinement
@@ -392,7 +392,7 @@ Abstract `BaseLLMProvider` with:
 #### `schemas.py`
 Pydantic schemas for LLM response validation:
 - `LLMExtractedData` - Extracted fields for all classification categories
-- `ClassificationLLMResponse` - Validates classification in 13 categories, confidence 0-1
+- `ClassificationLLMResponse` - Validates classification in 23 categories, confidence 0-1
 - `DraftGenerationLLMResponse` - Validates subject and body strings
 - `PersonaLLMResponse` - Validates communication_style, formality_level, emphasis
 - `PersonaRefinementLLMResponse` - Validates updated persona fields + reasoning
@@ -402,14 +402,15 @@ Pydantic schemas for LLM response validation:
 ### Prompts (`src/prompts/`)
 
 #### `classification.py`
-- **System Prompt**: Defines 13 categories in priority order with extraction rules
+- **System Prompt**: Defines 23 categories in priority order with extraction rules
 - **User Prompt**: Includes debtor context, party verification status, industry context, and email content
 - Output: JSON with classification, confidence, reasoning, extracted_data
 
 #### `draft_generation.py`
-- **System Prompt**: Defines 5 tones, relationship tier adjustments, verification handling, industry context usage, sender persona instructions
+- **System Prompt**: Defines 5 tones, relationship tier adjustments, verification handling, industry context usage, sender persona instructions, greeting style (Hello/Hi — never Dear)
 - **User Prompt**: Includes debtor info, invoice list (top 10 by days overdue), communication history, sender persona
 - Output: JSON with subject and HTML body
+- **Greeting Rule**: Always "Hello" or "Hi" — never "Dear". friendly/concerned tones prefer "Hi", professional/firm/final tones prefer "Hello"
 
 **Note**: Gate evaluation prompts no longer exist - gates are deterministic (no LLM).
 Persona prompts are in `src/config/constants.py`.
@@ -457,7 +458,7 @@ Shared pytest fixtures:
 API endpoint tests for request/response models and status codes
 
 #### `test_classifier.py`
-Classification engine tests for all 13 categories, extracted data parsing, guardrail integration
+Classification engine tests for all 23 categories, extracted data parsing, guardrail integration
 
 #### `test_generator.py`
 Draft generation tests for 5 tone types, HTML formatting, invoice reference tracking
@@ -574,7 +575,7 @@ Generate collection email draft with optional sender persona.
 ```json
 {
   "subject": "Outstanding Balance - ABC Corp",
-  "body": "<p>Dear John,</p><p>We hope this message finds you well...</p>",
+  "body": "<p>Hello John,</p><p>We hope this message finds you well...</p>",
   "tone_used": "professional",
   "invoices_referenced": ["INV-001", "INV-002"],
   "guardrail_validation": {

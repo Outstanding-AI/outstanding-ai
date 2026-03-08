@@ -5,7 +5,7 @@ These models ensure type safety when parsing LLM outputs and provide
 clear error messages when the LLM returns malformed data.
 """
 
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -102,6 +102,16 @@ class ClassificationLLMResponse(BaseModel):
         return upper_v
 
 
+class DraftReasoningResponse(BaseModel):
+    """Structured reasoning from the LLM about its draft generation decisions."""
+
+    tone_rationale: str = Field(default="", description="Why this tone fits the debtor's situation")
+    strategy: str = Field(default="", description="Approach given debtor behavior and history")
+    key_factors: List[str] = Field(
+        default_factory=list, description="Key factors that influenced the draft"
+    )
+
+
 class DraftGenerationLLMResponse(BaseModel):
     """
     Expected response structure from draft generation LLM calls.
@@ -118,6 +128,22 @@ class DraftGenerationLLMResponse(BaseModel):
         ...,
         min_length=1,
         description="Email body content",
+    )
+    reasoning: Optional[DraftReasoningResponse] = Field(
+        default=None,
+        description="Structured reasoning about tone, strategy, and key factors",
+    )
+    primary_cta: Optional[str] = Field(
+        default=None,
+        description="Primary call-to-action type",
+    )
+    follow_up_days: Optional[int] = Field(
+        default=None,
+        description="Suggested follow-up period in days",
+    )
+    invoices_referenced: Optional[List[str]] = Field(
+        default=None,
+        description="Invoice numbers referenced in the email",
     )
 
 

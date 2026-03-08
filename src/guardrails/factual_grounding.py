@@ -48,8 +48,8 @@ class FactualGroundingGuardrail(BaseGuardrail):
             r"#(\d{4,})",  # #12345 (4+ digits to avoid false positives)
         ]
 
-        # Get valid invoice numbers from context
-        valid_invoices = {o.invoice_number.upper() for o in context.obligations}
+        # Get valid invoice numbers from context (skip empty/null invoice numbers)
+        valid_invoices = {o.invoice_number.upper() for o in context.obligations if o.invoice_number}
 
         # Also create a set of just the numeric parts for flexible matching
         valid_invoice_numbers = set()
