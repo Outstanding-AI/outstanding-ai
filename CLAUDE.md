@@ -46,8 +46,9 @@ solvix-ai/
 │   ├── guardrails/
 │   │   ├── __init__.py
 │   │   ├── base.py                  # Base classes, GuardrailSeverity enum
-│   │   ├── pipeline.py              # GuardrailPipeline - parallel execution
-│   │   ├── factual_grounding.py     # Validates invoices/amounts exist in context
+│   │   ├── pipeline.py              # GuardrailPipeline - parallel execution (6 workers)
+│   │   ├── placeholder.py           # Detects hallucinated placeholders (CRITICAL)
+│   │   ├── factual_grounding.py     # Validates invoices/amounts exist in context (skips empty invoice numbers)
 │   │   ├── numerical.py             # Validates calculations and totals
 │   │   ├── entity.py                # Validates customer codes/names
 │   │   ├── temporal.py              # Validates date references
@@ -271,7 +272,13 @@ Generates professional collection email drafts with 5 tone levels and optional s
 - Uses industry context for tone/escalation calibration
 - Writes in sender persona voice when provided
 
-**Output**: HTML format with `<p>` tags (not `<br>`)
+**Output**: HTML format with `<p>` tags (not `<br>`), `{INVOICE_TABLE}` placeholder for invoice details
+
+**Behaviour Segment Adaptation**: Prompt includes instructions per segment (ghost, escalation_responsive, strategic_non_payer, dispute_delayer, first_time_late, reliable_late_payer, genuine_hardship, habitual_slow_payer)
+
+**Context Fields**: max_days_overdue and obligation_count passed to prompt for urgency calibration
+
+**Empty Invoice Handling**: Obligations with no invoice_number shown as "(no invoice number)" in prompt context
 
 **Temperature**: 0.7 (higher for creativity)
 
@@ -327,14 +334,20 @@ Defines severity levels and base classes:
 - **BaseGuardrail**: Abstract base class for all guardrails
 
 #### `pipeline.py` - GuardrailPipeline
-Runs 5 guardrails in parallel using ThreadPoolExecutor (5 workers).
+Runs 6 guardrails in parallel using ThreadPoolExecutor (6 workers).
 - Supports sequential mode with fail-fast on critical failures
 - Sorts results by severity: CRITICAL → HIGH → MEDIUM → LOW
 - Blocks output if any CRITICAL or HIGH guardrail fails
 - Separates warnings (MEDIUM/LOW) from blocking failures
 
+#### `placeholder.py` - PlaceholderValidationGuardrail (CRITICAL)
+- Detects hallucinated placeholders like `[CONTACT_NAME]`, `[COMPANY_PHONE]`, `{DEADLINE_DATE}`
+- Whitelist: `{INVOICE_TABLE}`, `[SENDER_NAME]`, `[SENDER_TITLE]`, `[SENDER_COMPANY]`
+- Pure regex, deterministic, runs first (cheapest guardrail)
+
 #### `factual_grounding.py` - FactualGroundingGuardrail (CRITICAL)
 - Validates invoice numbers mentioned exist in context
+- **Skips obligations with empty/null invoice numbers** (won't crash on None.upper())
 - Validates monetary amounts match obligations or their sum
 - Flexible invoice matching (INV-123, #123, Invoice 123)
 - Amount matching with rounding tolerance
@@ -407,10 +420,11 @@ Pydantic schemas for LLM response validation:
 - Output: JSON with classification, confidence, reasoning, extracted_data
 
 #### `draft_generation.py`
-- **System Prompt**: Defines 5 tones, relationship tier adjustments, verification handling, industry context usage, sender persona instructions, greeting style (Hello/Hi — never Dear)
-- **User Prompt**: Includes debtor info, invoice list (top 10 by days overdue), communication history, sender persona
-- Output: JSON with subject and HTML body
+- **System Prompt**: Defines 5 tones, relationship tier adjustments, verification handling, industry context usage, behaviour segment usage (10 segments with specific instructions), sender persona instructions, greeting style (Hello/Hi — never Dear), placeholder rules
+- **User Prompt**: Includes debtor info, invoice list (top 10 by days overdue), communication history, behavioural context (segment, on_time_rate, avg_days_to_pay, max_days_overdue, obligation_count), industry context, sender persona
+- Output: JSON with subject, HTML body, reasoning (tone_rationale, strategy, key_factors), primary_cta, follow_up_days, invoices_referenced
 - **Greeting Rule**: Always "Hello" or "Hi" — never "Dear". friendly/concerned tones prefer "Hi", professional/firm/final tones prefer "Hello"
+- **Placeholder Rules**: Only allowed: `{INVOICE_TABLE}`, `[SENDER_NAME]`, `[SENDER_TITLE]`, `[SENDER_COMPANY]` — no invented placeholders
 
 **Note**: Gate evaluation prompts no longer exist - gates are deterministic (no LLM).
 Persona prompts are in `src/config/constants.py`.
