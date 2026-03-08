@@ -61,6 +61,10 @@ class ClassificationLLMResponse(BaseModel):
         None,
         description="Explanation for the classification",
     )
+    secondary_intents: Optional[list[str]] = Field(
+        default=None,
+        description="Additional intents detected in multi-intent emails",
+    )
     extracted_data: Optional[LLMExtractedData] = Field(
         None,
         description="Data extracted from the email",

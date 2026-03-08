@@ -53,6 +53,7 @@ class ClassifyResponse(BaseModel):
     )
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: Optional[str] = None
+    secondary_intents: Optional[List[str]] = None
     extracted_data: Optional[ExtractedData] = None
     tokens_used: Optional[int] = None
     # Guardrail validation results

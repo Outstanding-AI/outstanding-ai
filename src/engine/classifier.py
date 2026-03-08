@@ -44,6 +44,9 @@ class EmailClassifier:
         # Build industry context section
         industry_context = self._format_industry_context(request.context.industry)
 
+        # Build per-invoice table for the prompt
+        invoice_table = self._format_invoice_table(request.context)
+
         # Build user prompt with context
         user_prompt = CLASSIFY_EMAIL_USER.format(
             party_name=request.context.party.name,
@@ -55,6 +58,7 @@ class EmailClassifier:
             segment=request.context.behavior.segment if request.context.behavior else "unknown",
             active_dispute=request.context.active_dispute,
             hardship_indicated=request.context.hardship_indicated,
+            invoice_table=invoice_table,
             is_verified=request.context.party.is_verified,
             party_source=request.context.party.source,
             industry_context=industry_context,
@@ -187,6 +191,7 @@ class EmailClassifier:
             classification=result.classification,
             confidence=result.confidence,
             reasoning=result.reasoning,
+            secondary_intents=result.secondary_intents,
             extracted_data=extracted,
             tokens_used=tokens_used,
             guardrail_validation=guardrail_validation,
@@ -194,6 +199,45 @@ class EmailClassifier:
             model=response.model,
             is_fallback=(response.provider != llm_client.primary_provider_name),
         )
+
+    def _format_invoice_table(self, context) -> str:
+        """Format per-invoice details for the classification prompt."""
+        if not context.obligations:
+            return "No outstanding invoices on record."
+
+        currency = context.party.currency or "GBP"
+        lines = []
+        for o in context.obligations:
+            inv_num = o.invoice_number or "—"
+            due = o.due_date or "—"
+            lines.append(
+                f"- {inv_num}: {currency} {o.amount_due:,.2f} due {due} "
+                f"({o.days_past_due} days overdue)"
+            )
+
+        # Include obligation-level collection statuses if available
+        if context.obligation_statuses:
+            status_map = {}
+            for s in context.obligation_statuses:
+                if isinstance(s, dict):
+                    oid = s.get("obligation_id")
+                    cs = s.get("collection_status", "open")
+                    if oid:
+                        status_map[str(oid)] = cs
+
+            if status_map:
+                enhanced = []
+                for i, o in enumerate(context.obligations):
+                    status = status_map.get(str(o.id), "open") if hasattr(o, "id") else "open"
+                    inv_num = o.invoice_number or "—"
+                    due = o.due_date or "—"
+                    enhanced.append(
+                        f"- {inv_num}: {currency} {o.amount_due:,.2f} due {due} "
+                        f"({o.days_past_due} days overdue) [status: {status}]"
+                    )
+                return "\n".join(enhanced)
+
+        return "\n".join(lines)
 
     def _format_industry_context(self, industry) -> str:
         """Format industry context for prompt inclusion."""
