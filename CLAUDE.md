@@ -170,10 +170,10 @@ Input Pydantic models:
 - **IndustryInfo**: code, name, typical_dso_days, alarm_dso_days, payment_cycle, escalation_patience, common_dispute_types, hardship_indicators, preferred_tone, ai_context_notes, seasonal_patterns, dispute_handling_notes, hardship_handling_notes, communication_notes
 - **CaseContext**: Aggregates all above with case_state, days_in_state, active_dispute, hardship_indicated, broken_promises_count, brand_tone, touch_cap, touch_interval_days, grace_days, promise_grace_days, do_not_contact_until, monthly_touch_count, relationship_tier, unsubscribe_requested, industry, obligation_statuses (list), obligation_snapshot (list), recent_messages (list), currency_symbol (str)
 - **SenderPersona**: name, title, communication_style, formality_level, emphasis
-- **PersonaContact**: name, title, level (1-4)
+- **PersonaContact**: name, title, level (1-4), style_description (optional), style_examples (optional list)
 - **SenderPerformanceStats**: 25+ performance metrics for persona refinement
-- **GeneratePersonaRequest**: contacts list, total_levels
-- **RefinePersonaRequest**: contact info, current_persona, performance stats, persona_version
+- **GeneratePersonaRequest**: contacts list (with style fields), total_levels
+- **RefinePersonaRequest**: contact info, current_persona, performance stats, persona_version, style_description (optional anchor), style_examples (optional)
 - **ClassifyRequest**: email, context
 - **GenerateDraftRequest**: context, sender_persona, sender_name, sender_title, tone, objective, custom_instructions (with prompt injection detection)
 - **EvaluateGatesRequest**: context, proposed_action, proposed_tone
@@ -311,13 +311,16 @@ Evaluates 6 compliance gates using **deterministic Python logic** (no LLM calls)
 Manages sender persona lifecycle:
 
 **Cold Start Generation** (`generate_personas`):
-- Takes list of contacts with name, title, level (1-4)
+- Takes list of contacts with name, title, level (1-4), style_description (optional), style_examples (optional)
+- style_description anchors the persona voice (e.g., "warm but firm, uses first names")
+- style_examples provide few-shot patterns for sentence structure, greetings, sign-offs
 - LLM generates communication_style, formality_level, emphasis for each
 - Temperature: 0.7 (creative)
 
 **Performance-Based Refinement** (`refine_persona`):
-- Takes current persona + 25+ performance metrics
+- Takes current persona + 25+ performance metrics + style_description (anchor) + style_examples
 - LLM suggests evolutionary adjustments based on debtor response patterns
+- style_description acts as immutable anchor — refinement evolves WITHIN the user's intended voice
 - Temperature: 0.5 (more conservative)
 
 **4-Level Escalation Hierarchy**:
@@ -650,7 +653,7 @@ Generate initial personas for escalation contacts (cold start).
 ```json
 {
   "contacts": [
-    {"name": "Sarah Williams", "title": "Credit Controller", "level": 1},
+    {"name": "Sarah Williams", "title": "Credit Controller", "level": 1, "style_description": "Warm but firm, uses first names, keeps paragraphs short", "style_examples": ["Hi John, ..."]},
     {"name": "James Chen", "title": "AR Manager", "level": 2}
   ],
   "total_levels": 4
@@ -702,7 +705,9 @@ Refine a persona based on performance data.
     "promises_kept": 20,
     "promises_broken": 5
   },
-  "persona_version": 1
+  "persona_version": 1,
+  "style_description": "Warm but firm, uses first names",
+  "style_examples": ["Hi John, I wanted to follow up on..."]
 }
 ```
 

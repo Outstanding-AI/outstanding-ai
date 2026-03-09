@@ -67,12 +67,24 @@ class PersonaGenerator:
         level = contact.get("level", 1)
         level_description = LEVEL_DESCRIPTIONS.get(level, LEVEL_DESCRIPTIONS[1])
 
+        # Build style section from user-provided inputs
+        style_section = ""
+        if contact.get("style_description"):
+            style_section += f"\nUser-provided style guidance: {contact['style_description']}"
+        if contact.get("style_examples"):
+            style_section += "\nExample emails from this person:"
+            for i, ex in enumerate(contact["style_examples"][:3], 1):
+                style_section += f"\n  Example {i}: {ex[:500]}"
+        if not style_section:
+            style_section = "\n(No style guidance provided — infer from name, title, and role)"
+
         user_prompt = PERSONA_GENERATION_USER.format(
             name=contact.get("name", "Unknown"),
             title=contact.get("title", "") or "Team Member",
             level=level,
             total_levels=total_levels,
             level_description=level_description,
+            style_section=style_section,
         )
 
         response = await llm_client.complete(
@@ -107,6 +119,8 @@ class PersonaGenerator:
         current_persona: dict,
         performance: dict,
         persona_version: int = 0,
+        style_description: str = None,
+        style_examples: list = None,
     ) -> dict:
         """
         Refine a persona based on sender performance stats (LLM-driven).
@@ -132,6 +146,19 @@ class PersonaGenerator:
                 return "N/A"
             return f"{val}{suffix}"
 
+        # Build style anchor section
+        style_section = ""
+        if style_description:
+            style_section += (
+                f"\n## User-Provided Style Anchor\n- Style Guidance: {style_description}"
+            )
+        if style_examples:
+            style_section += "\n- Example emails:"
+            for i, ex in enumerate(style_examples[:3], 1):
+                style_section += f"\n  Example {i}: {ex[:500]}"
+        if not style_section:
+            style_section = ""
+
         user_prompt = PERSONA_REFINEMENT_USER.format(
             name=contact.get("name", "Unknown"),
             title=contact.get("title", "") or "Team Member",
@@ -140,6 +167,7 @@ class PersonaGenerator:
             current_formality_level=current_persona.get("formality_level", "Not set"),
             current_emphasis=current_persona.get("emphasis", "Not set"),
             persona_version=persona_version,
+            style_section=style_section,
             total_touches=total_touches,
             total_unique_parties=performance.get("total_unique_parties", 0),
             response_rate=fmt(performance.get("response_rate"), ""),

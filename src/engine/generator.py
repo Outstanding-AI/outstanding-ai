@@ -400,8 +400,8 @@ class DraftGenerator:
                 style_lines.append(f"- Writing Style: {sc.style_description}")
             if sc.style_examples:
                 style_lines.append("- Style Examples:")
-                for i, ex in enumerate(sc.style_examples[:2], 1):
-                    snippet = ex[:300] if len(ex) > 300 else ex
+                for i, ex in enumerate(sc.style_examples[:3], 1):
+                    snippet = ex[:500] if len(ex) > 500 else ex
                     style_lines.append(f"  Example {i}: {snippet}")
             if style_lines:
                 sections.append("\n\n**Sender Style:**\n" + "\n".join(style_lines))
@@ -424,6 +424,19 @@ class DraftGenerator:
                     line += f"\n  Subject: {subject}"
                 if body:
                     line += f"\n  Content: {body}"
+                # Append extracted classification data for richer context
+                if msg.get("dispute_type"):
+                    line += f"\n  ⚠ Disputed: {msg['dispute_type']}"
+                    if msg.get("dispute_details"):
+                        line += f" — {msg['dispute_details']}"
+                if msg.get("promise_date"):
+                    line += f"\n  ✓ Promised payment by: {msg['promise_date']}"
+                    if msg.get("promise_amount"):
+                        line += f" (amount: {msg['promise_amount']})"
+                if msg.get("invoice_refs"):
+                    refs = msg["invoice_refs"] if isinstance(msg["invoice_refs"], list) else []
+                    if refs:
+                        line += f"\n  Invoices referenced: {', '.join(str(r) for r in refs)}"
                 msg_lines.append(line)
             if msg_lines:
                 sections.append(

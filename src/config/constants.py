@@ -60,7 +60,7 @@ Name: {name}
 Title: {title}
 Escalation Level: {level} of {total_levels}
 Role Context: {level_description}
-
+{style_section}
 Return a JSON object with exactly these fields:
 - communication_style: A brief description of their writing voice (e.g., "warm and \
 detail-oriented", "direct and results-focused"). Max 200 chars.
@@ -91,6 +91,9 @@ Key principles:
 - Changes should be evolutionary, not revolutionary — small adjustments each cycle
 - formality_level must be one of: casual, conversational, professional, formal
 
+If user-provided style guidance exists, treat it as an anchor — refinements should \
+evolve within the user's intended voice, not away from it.
+
 Return the UPDATED persona fields. If no change is needed for a field, return \
 the current value unchanged.\
 """
@@ -109,6 +112,7 @@ Escalation Level: {level}
 - Emphasis: {current_emphasis}
 - Persona Version: {persona_version} (refinement #{persona_version})
 
+{style_section}
 ## Performance Data ({total_touches} total touches, {total_unique_parties} unique debtors)
 
 ### Response Effectiveness
@@ -162,6 +166,14 @@ sentences; formal uses full sentences and proper business language)
 - Reflect the emphasis in what you highlight and how you frame the message
 - The persona defines HOW the person writes, not WHAT they write — the content \
 should still follow all other instructions about tone, invoices, and case context
+
+If example emails are provided in the Sender Style section, study the specific patterns:
+- Sentence length and structure
+- How they open and close emails
+- Their vocabulary choices
+- How they reference amounts and deadlines
+- Their sign-off style
+Mimic these patterns while following all other rules about tone, invoices, and case context.
 
 If no sender persona is provided, write in a neutral professional voice.\
 """

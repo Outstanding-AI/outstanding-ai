@@ -99,6 +99,8 @@ async def refine_persona(
         current_persona,
         performance,
         persona_version=refine_request.persona_version,
+        style_description=refine_request.style_description,
+        style_examples=refine_request.style_examples or [],
     )
 
     logger.info("Persona refined for %s: %s", refine_request.name, result.get("reasoning", ""))

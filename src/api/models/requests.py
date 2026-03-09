@@ -221,6 +221,8 @@ class PersonaContact(BaseModel):
     name: str = Field(..., max_length=255)
     title: str = Field("", max_length=100)
     level: int = Field(..., ge=1, le=4)
+    style_description: str = Field("", max_length=2000)
+    style_examples: List[str] = Field(default_factory=list)
 
 
 class GeneratePersonaRequest(BaseModel):
@@ -268,6 +270,8 @@ class RefinePersonaRequest(BaseModel):
     current_persona: SenderPersona
     performance: SenderPerformanceStats
     persona_version: int = Field(default=0, ge=0)
+    style_description: Optional[str] = Field(None, max_length=2000)
+    style_examples: Optional[List[str]] = Field(default_factory=list)
 
 
 # =============================================================================

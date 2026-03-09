@@ -29,19 +29,23 @@ class EntityValidationResult(BaseModel):
     """
 
     customer_code_valid: bool = Field(
-        description="True if customer code is correct or not mentioned in draft"
+        default=True, description="True if customer code is correct or not mentioned in draft"
     )
     customer_code_reason: str = Field(
-        description="Brief explanation of customer code validation result"
+        default="Not evaluated", description="Brief explanation of customer code validation result"
     )
     party_name_valid: bool = Field(
-        description="True if party name matches or is a reasonable variation"
+        default=True, description="True if party name matches or is a reasonable variation"
     )
-    party_name_reason: str = Field(description="Brief explanation of party name validation result")
+    party_name_reason: str = Field(
+        default="Not evaluated", description="Brief explanation of party name validation result"
+    )
     issues_found: List[str] = Field(
         default_factory=list, description="List of specific issues found, empty if none"
     )
-    passed: bool = Field(description="True if overall validation passed (no mismatches found)")
+    passed: bool = Field(
+        default=True, description="True if overall validation passed (no mismatches found)"
+    )
 
 
 # Validation prompt for LLM-based entity verification
