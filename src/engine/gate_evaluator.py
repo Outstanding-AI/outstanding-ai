@@ -51,7 +51,10 @@ class GateEvaluator:
         # Calculate days since last touch
         days_since_last_touch = 999  # Default to large number if never contacted
         if comm and comm.last_touch_at:
-            delta = datetime.now(timezone.utc) - comm.last_touch_at
+            last_touch = comm.last_touch_at
+            if last_touch.tzinfo is None:
+                last_touch = last_touch.replace(tzinfo=timezone.utc)
+            delta = datetime.now(timezone.utc) - last_touch
             days_since_last_touch = delta.days
 
         # Check do_not_contact_until date

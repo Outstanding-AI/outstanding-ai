@@ -68,12 +68,22 @@ Greeting Style:
 - For friendly_reminder/concerned_inquiry tones, prefer "Hi"
 - For professional/firm/final_notice tones, prefer "Hello"
 
+Follow-Up Email Rules (CRITICAL):
+- If "Recent Conversation History" is provided, this is a FOLLOW-UP — NOT a first contact
+- You MUST reference what the debtor said in their reply (e.g., "Thank you for your response regarding...")
+- Do NOT write a generic collection email when conversation history exists
+- For COOPERATIVE responses: acknowledge their engagement positively, then restate what's needed
+- For PROMISE_TO_PAY: reference their commitment, confirm details, set expectation
+- For REQUEST_INFO: provide the requested information or acknowledge you're working on it
+- For ALREADY_PAID: acknowledge their claim, explain verification is in progress
+- The email should feel like a natural continuation of the conversation, not a fresh outreach
+
 Email Structure:
 1. Greeting (Hello/Hi — never Dear)
-2. Clear statement of outstanding amount
-3. Invoice details: use the EXACT placeholder {INVOICE_TABLE} where the invoice table should appear
-4. Reference to previous communication if applicable
-5. Specific call-to-action
+2. If follow-up: acknowledge the debtor's recent response
+3. Clear statement of outstanding amount (or updated status for follow-ups)
+4. Invoice details: use the EXACT placeholder {INVOICE_TABLE} where the invoice table should appear
+5. Specific call-to-action appropriate to the conversation stage
 6. Contact details for queries
 7. Professional sign-off with [SENDER_NAME], [SENDER_TITLE], and [SENDER_COMPANY] placeholders
 
@@ -127,6 +137,7 @@ GENERATE_DRAFT_USER = """Generate a collection email draft.
 - Last Contact: {last_touch_at}
 - Last Tone Used: {last_tone_used}
 - Last Response Type: {last_response_type}
+- Is Follow-Up: {is_follow_up}
 
 **Current State:**
 - Case State: {case_state}

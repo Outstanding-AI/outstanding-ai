@@ -78,7 +78,10 @@ class DraftGenerator:
         if comm and comm.last_touch_at:
             from datetime import datetime, timezone
 
-            delta = datetime.now(timezone.utc) - comm.last_touch_at
+            last_touch = comm.last_touch_at
+            if last_touch.tzinfo is None:
+                last_touch = last_touch.replace(tzinfo=timezone.utc)
+            delta = datetime.now(timezone.utc) - last_touch
             days_since_last_touch = delta.days
 
         # Get behavior info
@@ -92,6 +95,19 @@ class DraftGenerator:
 
         # Build extended context sections
         extra_sections = self._build_extra_sections(request, behavior)
+
+        # Determine if this is a follow-up
+        has_conversation = bool(request.context.recent_messages)
+        has_response = (
+            comm
+            and comm.last_response_type
+            and comm.last_response_type not in ("No response", "None", None)
+        )
+        is_follow_up = (
+            "YES — debtor has responded, see conversation history below"
+            if (has_conversation or has_response)
+            else "No — first contact"
+        )
 
         # Build base user prompt
         base_user_prompt = GENERATE_DRAFT_USER.format(
@@ -126,6 +142,7 @@ class DraftGenerator:
             tone=request.tone,
             objective=request.objective or "collect payment",
             brand_tone=request.context.brand_tone,
+            is_follow_up=is_follow_up,
             custom_instructions=f"\nAdditional: {request.custom_instructions}"
             if request.custom_instructions
             else "",
@@ -382,6 +399,45 @@ class DraftGenerator:
                     style_lines.append(f"  Example {i}: {snippet}")
             if style_lines:
                 sections.append("\n\n**Sender Style:**\n" + "\n".join(style_lines))
+
+        # Conversation history (recent messages for follow-up context)
+        recent_msgs = request.context.recent_messages
+        if recent_msgs:
+            msg_lines = []
+            for msg in reversed(recent_msgs):  # chronological order
+                direction = msg.get("direction", "unknown")
+                label = "DEBTOR REPLIED" if direction == "inbound" else "OUR EMAIL"
+                classification = msg.get("classification")
+                subject = msg.get("subject", "")
+                body = msg.get("body_snippet", "")
+                sent_at = msg.get("sent_at", "")
+                line = f"- [{label}] ({sent_at})"
+                if classification:
+                    line += f" Classification: {classification}"
+                if subject:
+                    line += f"\n  Subject: {subject}"
+                if body:
+                    line += f"\n  Content: {body}"
+                msg_lines.append(line)
+            if msg_lines:
+                sections.append(
+                    "\n\n**Recent Conversation History (IMPORTANT — reference this in your reply):**\n"
+                    + "\n".join(msg_lines)
+                    + "\n\nThis is a FOLLOW-UP email. You MUST acknowledge the debtor's most recent "
+                    "response and build on it. Do NOT write a generic first-contact collection email."
+                )
+
+        # Last response snippet (fallback if no recent_messages)
+        if not recent_msgs and request.context.communication:
+            comm = request.context.communication
+            if comm.last_response_snippet:
+                sections.append(
+                    f"\n\n**Debtor's Last Response:**\n"
+                    f"- Type: {comm.last_response_type or 'Unknown'}\n"
+                    f"- Subject: {comm.last_response_subject or 'N/A'}\n"
+                    f"- Content: {comm.last_response_snippet}\n\n"
+                    "This is a FOLLOW-UP email. Acknowledge the debtor's response and build on it."
+                )
 
         # Tone preference
         if request.tone_preference:

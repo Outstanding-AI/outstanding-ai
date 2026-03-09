@@ -164,7 +164,7 @@ Input Pydantic models:
 - **PartyInfo**: party_id, customer_code, name, country_code, currency, credit_limit, on_hold, relationship_tier, tone_override, grace_days_override, touch_cap_override, do_not_contact_until, monthly_touch_count, is_verified, source
 - **BehaviorInfo**: lifetime_value, avg_days_to_pay, on_time_rate, partial_payment_rate, segment
 - **ObligationInfo**: invoice_number, original_amount, amount_due, due_date, days_past_due, state
-- **CommunicationInfo**: touch_count, last_touch_at, last_touch_channel, last_sender_level, last_tone_used, last_response_at, last_response_type
+- **CommunicationInfo**: touch_count, last_touch_at (now populated — was always NULL before touch recording fix), last_touch_channel, last_sender_level, last_tone_used, last_response_at, last_response_type
 - **TouchHistory**: sent_at, tone, sender_level, had_response
 - **PromiseHistory**: promise_date, promise_amount, outcome
 - **IndustryInfo**: code, name, typical_dso_days, alarm_dso_days, payment_cycle, escalation_patience, common_dispute_types, hardship_indicators, preferred_tone, ai_context_notes, seasonal_patterns, dispute_handling_notes, hardship_handling_notes, communication_notes
@@ -284,6 +284,8 @@ Generates professional collection email drafts with 5 tone levels and optional s
 
 **Metrics Logged**: latency_ms, llm_latency_ms, guardrail_latency_ms, retry_count, total_tokens
 
+**Naive Datetime Handling**: `last_touch_at` arrives as naive datetime from PostgreSQL (TIMESTAMP without timezone). `generator.py` normalizes to UTC-aware before comparison: `if last_touch.tzinfo is None: last_touch = last_touch.replace(tzinfo=timezone.utc)`. Backend causal link (`last_touch_at IS NULL OR last_response_at > last_touch_at`) pre-filters, so AI engine only receives requests for parties that genuinely need contact.
+
 #### `gate_evaluator.py` - GateEvaluator
 Evaluates 6 compliance gates using **deterministic Python logic** (no LLM calls) for reliability and speed.
 
@@ -294,6 +296,10 @@ Evaluates 6 compliance gates using **deterministic Python logic** (no LLM calls)
 4. **hardship** - Special handling if hardship indicated (warning, not blocking)
 5. **unsubscribe** - Blocks if party opted out
 6. **escalation_appropriate** - Validates tone escalation path; considers industry escalation_patience (patient/standard/aggressive)
+
+**Naive Datetime Handling**: Same as generator — `last_touch_at` normalized to UTC-aware before subtraction.
+
+**Deprecation Note**: Gates now primarily evaluated in Django backend (`services/gate_checker.py`). AI Engine gate evaluator is a secondary check.
 
 **Behavior**:
 - Returns allowed=true/false based on all gates
