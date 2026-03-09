@@ -64,7 +64,9 @@ Call-to-Action Options:
 
 Greeting Style:
 - ALWAYS use "Hello" or "Hi" as the greeting — NEVER use "Dear"
-- Examples: "Hello [Company Name]," or "Hi [Contact Name]," or "Hello,"
+- If a Contact Person is provided, ALWAYS address them by name: "Hello Edward," or "Hi Pegasus,"
+- NEVER use the company name in the greeting when a contact person name is available
+- Only fall back to company name if no contact person is provided
 - For friendly_reminder/concerned_inquiry tones, prefer "Hi"
 - For professional/firm/final_notice tones, prefer "Hello"
 
@@ -123,6 +125,7 @@ GENERATE_DRAFT_USER = """Generate a collection email draft.
 
 **Debtor:**
 - Company: {party_name}
+- Contact Person: {contact_name}
 - Customer Code: {customer_code}
 - Total Outstanding: {currency} {total_outstanding:,.2f}
 - Relationship Tier: {relationship_tier}

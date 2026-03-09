@@ -109,9 +109,15 @@ class DraftGenerator:
             else "No — first contact"
         )
 
+        # Get contact person name from debtor_contact context
+        contact_name = ""
+        if request.context.debtor_contact and request.context.debtor_contact.get("name"):
+            contact_name = request.context.debtor_contact["name"]
+
         # Build base user prompt
         base_user_prompt = GENERATE_DRAFT_USER.format(
             party_name=request.context.party.name,
+            contact_name=contact_name or "(not available)",
             customer_code=request.context.party.customer_code,
             currency=request.context.party.currency,
             total_outstanding=total_outstanding,
