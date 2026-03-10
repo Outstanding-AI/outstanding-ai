@@ -371,6 +371,7 @@ Runs 6 guardrails in parallel using ThreadPoolExecutor (6 workers).
 - Validates customer code matches context exactly
 - Validates company name matches (case-insensitive)
 - Detects mismatches that indicate hallucination
+- **Resilience**: EntityValidationResult Pydantic model uses defaults for all fields (default=True for bools, default="Not evaluated" for strings, default_factory=list for issues_found) so partial/truncated LLM JSON degrades gracefully to "passed" instead of crashing
 
 #### `temporal.py` - TemporalConsistencyGuardrail (MEDIUM)
 - Validates date references are accurate
