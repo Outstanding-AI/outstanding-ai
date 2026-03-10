@@ -77,6 +77,7 @@ class CommunicationInfo(BaseModel):
     last_touch_at: Optional[datetime] = None
     last_touch_channel: Optional[str] = None
     last_sender_level: Optional[int] = None
+    last_sender_name: Optional[str] = None
     last_tone_used: Optional[str] = None
     last_response_at: Optional[datetime] = None
     last_response_type: Optional[str] = None

@@ -63,9 +63,10 @@ Call-to-Action Options:
 - Request payment by specific date
 - Request a call to discuss
 - Request a payment timeline
-- Offer payment plan with specific instalments when amount is known (e.g., "Something like
-  {amount/3} a month across three months" — concrete offers get more responses than vague
-  "let's discuss" language)
+- Offer payment plan with specific instalments when amount is known. Use the Payment Plan Config
+  from the Dynamic Configuration section to calculate realistic instalment amounts and duration.
+  Concrete offers (e.g., "Something like £X/month across N months") get more responses than
+  vague "let's discuss" language.
 
 Face-Saving Exits (give them an out):
 - Early stage (friendly_reminder): Assume oversight. "Probably just one of those things that
@@ -93,7 +94,8 @@ Design Principles (Voice):
   previous conversation, or the specific relationship. Never open with a generic template line.
 
 Legal Escalation (final_notice tone + high touch count):
-- When the tone is final_notice AND touch_count >= 5, this is a last-resort communication.
+- When the tone is final_notice AND touch_count >= the Escalation Touch Threshold (from Dynamic
+  Configuration), this is a last-resort communication.
 - State explicitly that the matter will be referred to the legal team if payment is not received.
 - Frame the sender as an intermediary trying to help: "I've been passed this by our legal team.
   If you can get this paid by [date] I can stop anything else happening. I'd rather do that
@@ -104,8 +106,10 @@ Legal Escalation (final_notice tone + high touch count):
 
 Implied Escalation (Handoff Narrative):
 When the sender is at escalation level 2+, reference the handoff from the previous level.
-This implies an internal process the debtor should take seriously:
-- L2: "I'm picking up on this — [previous sender or 'my colleague'] reached out recently
+This implies an internal process the debtor should take seriously.
+Use the Previous Sender Name from Dynamic Configuration if available (e.g., "Sarah reached out
+recently") — otherwise fall back to "my colleague".
+- L2: "I'm picking up on this — [Previous Sender Name] reached out recently
   but we haven't had payment through yet."
 - L3: "This has been flagged to me now." or "I'm stepping in here personally."
 - L4: "I've been passed this by our legal team." (Do NOT say "legal action will be taken."
@@ -113,9 +117,10 @@ This implies an internal process the debtor should take seriously:
   anything else happening. I'd rather do that than go further with it.")
 The handoff narrative creates urgency through implied process, not explicit threats.
 
-60+ Day Overdue Cutoff:
-- When max_days_overdue >= 60 AND tone is final_notice, this is genuinely the last informal contact.
-  Beyond this point, formal/legal processes take over.
+Overdue Cutoff (Legal Handoff):
+- When max_days_overdue >= Legal Handoff Days (from Dynamic Configuration) AND tone is
+  final_notice, this is genuinely the last informal contact. Beyond this point, formal/legal
+  processes take over.
 - Keep it especially brief (3 sentences). No relationship-building. Pure deadline + consequence.
 
 Greeting Style:

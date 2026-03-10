@@ -102,6 +102,9 @@ class DraftGenerator:
         # Build sender persona context section
         sender_persona_context = self._format_sender_persona(request)
 
+        # Build dynamic configuration section (thresholds from tenant/industry settings)
+        config_section = self._build_config_section(request, comm)
+
         # Build extended context sections
         extra_sections = self._build_extra_sections(request, behavior)
 
@@ -163,7 +166,8 @@ class DraftGenerator:
             else "",
         )
 
-        # Append extended sections
+        # Append config section (dynamic thresholds) and extended sections
+        base_user_prompt += config_section
         base_user_prompt += extra_sections
 
         # Retry loop for guardrail failures
@@ -511,6 +515,74 @@ class DraftGenerator:
             )
 
         return "".join(sections)
+
+    def _build_config_section(self, request: GenerateDraftRequest, comm) -> str:
+        """Build dynamic configuration section for prompt injection.
+
+        Extracts tenant/industry thresholds so the LLM uses real config
+        values instead of hardcoded defaults.
+        """
+        lines = ["\n\n**Dynamic Configuration (use these values, NOT defaults):**"]
+
+        # 1. Escalation touch threshold (from tenant_settings)
+        ts = request.context.tenant_settings or {}
+        threshold = ts.get("escalation_touch_threshold", 3)
+        lines.append(
+            f"- Escalation Touch Threshold: {threshold} "
+            "(use this for legal escalation trigger, not a hardcoded value)"
+        )
+
+        # 2. Previous sender name (for handoff narrative)
+        prev_sender = None
+        if comm and comm.last_sender_name:
+            prev_sender = comm.last_sender_name
+        if prev_sender:
+            lines.append(
+                f"- Previous Sender Name: {prev_sender} "
+                "(use this name in handoff narrative instead of 'my colleague')"
+            )
+        else:
+            lines.append("- Previous Sender Name: (not available — use 'my colleague')")
+
+        # 3. Legal handoff days (from industry alarm_dso_days)
+        legal_handoff_days = 60  # system default
+        if request.context.industry:
+            industry_days = getattr(
+                request.context.industry, "legal_handoff_days", None
+            ) or getattr(request.context.industry, "alarm_dso_days", None)
+            if industry_days:
+                legal_handoff_days = industry_days
+        lines.append(
+            f"- Legal Handoff Days: {legal_handoff_days} "
+            "(max_days_overdue threshold for last informal contact)"
+        )
+
+        # 4. Payment plan defaults (from tenant settings)
+        pp_defaults = ts.get("payment_plan_defaults")
+        if pp_defaults and isinstance(pp_defaults, dict):
+            max_inst = pp_defaults.get("max_instalments", 6)
+            min_amt = pp_defaults.get("min_instalment_amount")
+            frequency = pp_defaults.get("default_frequency", "monthly")
+            max_months = pp_defaults.get("max_duration_months", 12)
+            pp_lines = [
+                f"  Max Instalments: {max_inst}",
+                f"  Frequency: {frequency}",
+                f"  Max Duration: {max_months} months",
+            ]
+            if min_amt:
+                pp_lines.append(f"  Min Instalment Amount: {min_amt}")
+            lines.append("- Payment Plan Config:\n" + "\n".join(pp_lines))
+            lines.append(
+                "  (When suggesting payment plans, use these values "
+                "to calculate specific instalment amounts)"
+            )
+        else:
+            lines.append(
+                "- Payment Plan Config: Not configured "
+                "(use reasonable defaults like amount/3 across 3 months)"
+            )
+
+        return "\n".join(lines)
 
     def _build_guardrail_feedback(self, guardrail_result: GuardrailPipelineResult) -> str:
         """
