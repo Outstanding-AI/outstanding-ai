@@ -175,7 +175,7 @@ Input Pydantic models:
 - **GeneratePersonaRequest**: contacts list (with style fields), total_levels
 - **RefinePersonaRequest**: contact info, current_persona, performance stats, persona_version, style_description (optional anchor), style_examples (optional)
 - **ClassifyRequest**: email, context
-- **GenerateDraftRequest**: context, sender_persona, sender_name, sender_title, tone, objective, custom_instructions (with prompt injection detection)
+- **GenerateDraftRequest**: context, sender_persona, sender_name, sender_title, tone, objective, custom_instructions (with prompt injection detection), trigger_classification (optional — forwarded from Django for classification-aware follow-ups)
 - **EvaluateGatesRequest**: context, proposed_action, proposed_tone
 - **EvaluateGatesBatchRequest**: contexts (max 100), proposed_action, proposed_tone
 
@@ -185,11 +185,11 @@ Input Pydantic models:
 Output Pydantic models:
 - **ExtractedData**: promise_date/amount, dispute_type/reason/invoice_refs/disputed_amount, claimed_amount/date/reference/details, insolvency_type/details/administrator, return_date, redirect_name/contact/email
 - **GuardrailValidation**: all_passed, guardrails_run, guardrails_passed, blocking_failures, warnings, factual_accuracy
-- **ClassifyResponse**: classification, confidence, reasoning, extracted_data, guardrail_validation, tokens_used, provider, model, is_fallback
+- **ClassifyResponse**: classification, confidence, reasoning, extracted_data, guardrail_validation, tokens_used, prompt_tokens, completion_tokens, provider, model, is_fallback
 - **PersonaResult**: name, level, communication_style, formality_level, emphasis
-- **GeneratePersonaResponse**: personas list
-- **RefinePersonaResponse**: communication_style, formality_level, emphasis, reasoning
-- **GenerateDraftResponse**: subject, body (HTML), tone_used, invoices_referenced, guardrail_validation, tokens_used, provider, model, is_fallback
+- **GeneratePersonaResponse**: personas list, tokens_used, provider, model, is_fallback
+- **RefinePersonaResponse**: communication_style, formality_level, emphasis, reasoning, tokens_used, provider, model, is_fallback
+- **GenerateDraftResponse**: subject, body (HTML), tone_used, invoices_referenced, guardrail_validation, tokens_used, prompt_tokens, completion_tokens, provider, model, is_fallback, reasoning, primary_cta, follow_up_days
 - **GateResult**: passed, reason, current_value, threshold
 - **EvaluateGatesResponse**: allowed, gate_results dict, recommended_action, tokens_used, provider, model, is_fallback
 - **PartyGateResult**: party_id, customer_code, allowed, gate_results, recommended_action, blocking_gate
@@ -275,6 +275,8 @@ Generates professional collection email drafts with 5 tone levels and optional s
 **Output**: HTML format with `<p>` tags (not `<br>`), `{INVOICE_TABLE}` placeholder for invoice details
 
 **Behaviour Segment Adaptation**: Prompt includes instructions per segment (ghost, escalation_responsive, strategic_non_payer, dispute_delayer, first_time_late, reliable_late_payer, genuine_hardship, habitual_slow_payer)
+
+**Classification-Aware Follow-Ups**: When `request.trigger_classification` is set, `_build_extra_sections()` appends a FOLLOW-UP TRIGGER section directing the LLM to follow Classification-Specific Follow-Up Guidance for that category. This makes follow-up drafts address what the debtor said directly (e.g., disputed invoices, promised dates) instead of being generic.
 
 **Context Fields**: max_days_overdue and obligation_count passed to prompt for urgency calibration
 
@@ -404,12 +406,14 @@ Abstract `BaseLLMProvider` with:
 - Uses `ChatGoogleGenerativeAI` from LangChain
 - Model: `gemini-2.5-pro` (configurable)
 - JSON mode via `response_mime_type: application/json`
+- Structured output: `with_structured_output(schema, include_raw=True)` to capture `usage_metadata` from raw `AIMessage`
 - Default temperature: 0.3, max tokens: 8192
 
 #### `openai_provider.py`
 - Uses `ChatOpenAI` from LangChain
 - Model: `gpt-5-nano` (reasoning model, configurable)
 - JSON mode via `response_format: json_object`
+- Structured output: `with_structured_output(schema, include_raw=True)` to capture `usage_metadata` from raw `AIMessage`
 - Default temperature: 0.3, max tokens: 32768 (high for reasoning models - reasoning tokens consume from this budget)
 
 #### `schemas.py`

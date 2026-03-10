@@ -13,10 +13,10 @@ Stateless AI service for the Solvix debt collection platform. Provides email cla
 ## Features
 
 - **Email Classification**: Classify inbound customer emails into 23 categories with extracted data
-- **Draft Generation**: Generate contextual response drafts with `{INVOICE_TABLE}` placeholder, closure email mode, and sender style injection
+- **Draft Generation**: Generate contextual response drafts with `{INVOICE_TABLE}` placeholder, closure email mode, sender style injection, and classification-aware follow-ups via `trigger_classification`
 - **Gate Evaluation**: Evaluate compliance gates (deterministic, deprecated — gates now run in Django backend)
 - **Sender Persona Management**: Generate and refine sender personas for a 4-level escalation hierarchy
-- **Guardrails Pipeline**: Validate AI outputs with 5 parallel guardrails (factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence)
+- **Guardrails Pipeline**: Validate AI outputs with 6 parallel guardrails (placeholder validation, factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence)
 - **Triple LLM Support**: Primary Gemini 2.5 Pro, fallback OpenAI gpt-5-nano, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
 - **Service Authentication**: Bearer token auth for service-to-service calls
 - **Rate Limiting**: Per-IP rate limits via slowapi
