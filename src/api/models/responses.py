@@ -56,6 +56,8 @@ class ClassifyResponse(BaseModel):
     secondary_intents: Optional[List[str]] = None
     extracted_data: Optional[ExtractedData] = None
     tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
     # Guardrail validation results
     guardrail_validation: Optional[GuardrailValidation] = None
     # Provider metadata
@@ -78,6 +80,10 @@ class GeneratePersonaResponse(BaseModel):
     """Response from persona generation."""
 
     personas: List[PersonaResult]
+    tokens_used: Optional[int] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    is_fallback: bool = False
 
 
 class RefinePersonaResponse(BaseModel):
@@ -87,6 +93,10 @@ class RefinePersonaResponse(BaseModel):
     formality_level: str
     emphasis: str
     reasoning: str
+    tokens_used: Optional[int] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    is_fallback: bool = False
 
 
 class GenerateDraftResponse(BaseModel):
@@ -97,6 +107,8 @@ class GenerateDraftResponse(BaseModel):
     tone_used: str
     invoices_referenced: List[str] = []
     tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
     # Guardrail validation results
     guardrail_validation: Optional[GuardrailValidation] = None
     # Provider metadata

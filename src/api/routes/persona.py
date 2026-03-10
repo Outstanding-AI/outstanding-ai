@@ -46,7 +46,7 @@ async def generate_persona(
     """
     logger.info("Generating personas for %d contacts", len(persona_request.contacts))
     contacts = [c.model_dump() for c in persona_request.contacts]
-    results = await persona_generator.generate_personas(contacts, persona_request.total_levels)
+    gen_result = await persona_generator.generate_personas(contacts, persona_request.total_levels)
 
     personas = [
         PersonaResult(
@@ -56,11 +56,17 @@ async def generate_persona(
             formality_level=r.get("formality_level"),
             emphasis=r.get("emphasis"),
         )
-        for r in results
+        for r in gen_result["personas"]
     ]
 
     logger.info("Generated %d personas", len(personas))
-    return GeneratePersonaResponse(personas=personas)
+    return GeneratePersonaResponse(
+        personas=personas,
+        tokens_used=gen_result.get("tokens_used"),
+        provider=gen_result.get("provider"),
+        model=gen_result.get("model"),
+        is_fallback=gen_result.get("is_fallback", False),
+    )
 
 
 @router.post(
@@ -109,4 +115,8 @@ async def refine_persona(
         formality_level=result["formality_level"],
         emphasis=result["emphasis"],
         reasoning=result["reasoning"],
+        tokens_used=result.get("tokens_used"),
+        provider=result.get("provider"),
+        model=result.get("model"),
+        is_fallback=result.get("is_fallback", False),
     )

@@ -57,18 +57,27 @@ class DraftGenerator:
             request.context.obligations, key=lambda o: o.days_past_due, reverse=True
         )[:10]
 
-        invoices_list = (
-            "\n".join(
-                [
-                    f"- {o.invoice_number or '(no invoice number)'}: "
-                    f"{request.context.party.currency} {o.amount_due:,.2f} "
-                    f"({o.days_past_due} days overdue)"
-                    for o in sorted_obligations
-                ]
+        if request.skip_invoice_table:
+            # Follow-up / closure drafts: provide context for reference but instruct
+            # the LLM not to include an invoice table or reference one in prose
+            invoices_list = (
+                "(Invoice table suppressed — this is a follow-up response, NOT a collection email.\n"
+                "Do NOT include {INVOICE_TABLE} or reference 'the table below' or list invoice details.\n"
+                "Focus on the conversation and the debtor's response.)"
             )
-            if sorted_obligations
-            else "No specific invoices provided"
-        )
+        else:
+            invoices_list = (
+                "\n".join(
+                    [
+                        f"- {o.invoice_number or '(no invoice number)'}: "
+                        f"{request.context.party.currency} {o.amount_due:,.2f} "
+                        f"({o.days_past_due} days overdue)"
+                        for o in sorted_obligations
+                    ]
+                )
+                if sorted_obligations
+                else "No specific invoices provided"
+            )
 
         # Get communication info
         comm = request.context.communication
@@ -160,6 +169,8 @@ class DraftGenerator:
         # Retry loop for guardrail failures
         guardrail_feedback = None
         total_tokens_used = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
         result = None
         guardrail_result = None
         generation_start_time = time.perf_counter()
@@ -188,6 +199,8 @@ class DraftGenerator:
 
             # Track total tokens across retries
             total_tokens_used += response.usage.get("total_tokens", 0)
+            total_prompt_tokens += response.usage.get("prompt_tokens", 0)
+            total_completion_tokens += response.usage.get("completion_tokens", 0)
 
             # Parse JSON response - structured output guarantees valid JSON
             raw_result = json.loads(response.content)
@@ -306,6 +319,8 @@ class DraftGenerator:
             tone_used=request.tone,
             invoices_referenced=final_invoices,
             tokens_used=total_tokens_used,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
             guardrail_validation=guardrail_validation,
             provider=response.provider,
             model=response.model,
@@ -480,6 +495,17 @@ class DraftGenerator:
                 "The system will replace this with a programmatic table. "
                 "You may reference 'the invoices listed below' or "
                 "'the outstanding items' in your prose."
+            )
+
+        # Follow-up trigger classification (explicit instruction for classification-aware drafts)
+        if request.trigger_classification:
+            sections.append(
+                f"\n\n**FOLLOW-UP TRIGGER: {request.trigger_classification}**\n"
+                f"This draft was triggered by the debtor's reply classified as "
+                f"{request.trigger_classification}.\n"
+                "Follow the Classification-Specific Follow-Up Guidance in your system "
+                f"instructions for {request.trigger_classification}. "
+                "Address what the debtor said directly."
             )
 
         return "".join(sections)

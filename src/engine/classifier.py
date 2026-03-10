@@ -79,6 +79,8 @@ class EmailClassifier:
 
         # Parse JSON response - structured output guarantees valid JSON
         tokens_used = response.usage.get("total_tokens", 0)
+        prompt_tokens = response.usage.get("prompt_tokens", 0)
+        completion_tokens = response.usage.get("completion_tokens", 0)
         raw_result = json.loads(response.content)
 
         # Validate LLM response using Pydantic schema
@@ -194,6 +196,8 @@ class EmailClassifier:
             secondary_intents=result.secondary_intents,
             extracted_data=extracted,
             tokens_used=tokens_used,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             guardrail_validation=guardrail_validation,
             provider=response.provider,
             model=response.model,

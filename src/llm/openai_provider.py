@@ -155,10 +155,19 @@ class OpenAIProvider(BaseLLMProvider):
                 structured_client = client.with_structured_output(
                     response_schema,
                     method="json_schema",
+                    include_raw=True,
                 )
-                result = await _invoke_with_retry(structured_client, messages)
+                raw_output = await _invoke_with_retry(structured_client, messages)
+                result = raw_output["parsed"]
+                raw_message = raw_output["raw"]
                 content = result.model_dump_json()
-                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                # Extract usage metadata from raw AIMessage
+                usage_meta = getattr(raw_message, "usage_metadata", None) or {}
+                usage = {
+                    "prompt_tokens": usage_meta.get("input_tokens", 0),
+                    "completion_tokens": usage_meta.get("output_tokens", 0),
+                    "total_tokens": usage_meta.get("total_tokens", 0),
+                }
                 latency_ms = (time.perf_counter() - start_time) * 1000
                 logger.info(
                     "LLM call completed",

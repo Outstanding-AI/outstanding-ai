@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class PersonaGenerator:
     """Generates and refines sender personas using LLM."""
 
-    async def generate_personas(self, contacts: list, total_levels: int = 4) -> list:
+    async def generate_personas(self, contacts: list, total_levels: int = 4) -> dict:
         """
         Generate initial personas for a list of contacts (cold start).
 
@@ -36,13 +36,22 @@ class PersonaGenerator:
             total_levels: Total number of escalation levels
 
         Returns:
-            List of persona dicts with communication_style, formality_level, emphasis
+            Dict with personas list and aggregate token/provider metadata
         """
         results = []
+        total_tokens = 0
+        last_provider = None
+        last_model = None
+        is_fallback = False
         for contact in contacts:
             try:
-                persona = await self._generate_single(contact, total_levels)
+                persona, response_meta = await self._generate_single(contact, total_levels)
                 results.append(persona)
+                total_tokens += response_meta.get("tokens_used", 0)
+                last_provider = response_meta.get("provider", last_provider)
+                last_model = response_meta.get("model", last_model)
+                if response_meta.get("is_fallback"):
+                    is_fallback = True
             except Exception as e:
                 logger.warning(
                     "Failed to generate persona for %s (level %d): %s",
@@ -60,10 +69,16 @@ class PersonaGenerator:
                         "emphasis": None,
                     }
                 )
-        return results
+        return {
+            "personas": results,
+            "tokens_used": total_tokens,
+            "provider": last_provider,
+            "model": last_model,
+            "is_fallback": is_fallback,
+        }
 
-    async def _generate_single(self, contact: dict, total_levels: int) -> dict:
-        """Generate persona for a single contact."""
+    async def _generate_single(self, contact: dict, total_levels: int) -> tuple:
+        """Generate persona for a single contact. Returns (persona_dict, response_meta)."""
         level = contact.get("level", 1)
         level_description = LEVEL_DESCRIPTIONS.get(level, LEVEL_DESCRIPTIONS[1])
 
@@ -105,13 +120,20 @@ class PersonaGenerator:
                 details={"validation_errors": e.errors()},
             )
 
-        return {
+        persona = {
             "name": contact.get("name", ""),
             "level": level,
             "communication_style": parsed.communication_style,
             "formality_level": parsed.formality_level,
             "emphasis": parsed.emphasis,
         }
+        response_meta = {
+            "tokens_used": response.usage.get("total_tokens", 0),
+            "provider": response.provider,
+            "model": response.model,
+            "is_fallback": getattr(response, "is_fallback", False),
+        }
+        return persona, response_meta
 
     async def refine_persona(
         self,
@@ -225,6 +247,10 @@ class PersonaGenerator:
             "formality_level": parsed.formality_level,
             "emphasis": parsed.emphasis,
             "reasoning": parsed.reasoning,
+            "tokens_used": response.usage.get("total_tokens", 0),
+            "provider": response.provider,
+            "model": response.model,
+            "is_fallback": getattr(response, "is_fallback", False),
         }
 
 

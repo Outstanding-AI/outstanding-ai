@@ -312,6 +312,8 @@ class GenerateDraftRequest(BaseModel):
         pattern=r"^(follow_up|promise_reminder|escalation|initial_contact)$",
     )
     closure_mode: bool = False
+    skip_invoice_table: bool = False
+    trigger_classification: Optional[str] = None
     tone_preference: Optional[str] = Field(None, pattern=r"^(diplomatic|professional|direct)$")
     # SECURITY: Limited to 1000 chars with prompt injection detection
     custom_instructions: Optional[str] = Field(default=None, max_length=1000)
