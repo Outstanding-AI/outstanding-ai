@@ -213,6 +213,7 @@ class SenderPersona(BaseModel):
     communication_style: Optional[str] = Field(None, max_length=200)
     formality_level: Optional[str] = Field(None, max_length=20)
     emphasis: Optional[str] = Field(None, max_length=200)
+    level: Optional[int] = Field(None, ge=1, le=4)
 
 
 class PersonaContact(BaseModel):

@@ -260,11 +260,27 @@ Classifies inbound customer emails into 23 categories with confidence scoring.
 Generates professional collection email drafts with 5 tone levels and optional sender persona.
 
 **Tones**:
-1. friendly_reminder - Soft, first touch
-2. professional - Standard business tone
-3. firm - Clear urgency, consequences mentioned
-4. final_notice - Last chance before escalation
-5. concerned_inquiry - For hardship/dispute cases
+1. friendly_reminder - Warm, brief nudge. Not a lecture
+2. professional - State facts and what you need
+3. firm - Direct, no pleasantries beyond greeting. Deadlines
+4. final_notice - Last chance before legal referral. 3-5 sentences max. No softening
+5. concerned_inquiry - Brief, genuine concern. "This isn't like you"
+
+**Conciseness (CRITICAL)**: All tones must produce human-sounding emails — 4-8 sentences, no filler, no template language.
+
+**Legal Escalation**: When `final_notice` + `touch_count >= 5`, use intermediary framing ("I've been passed this by our legal team. If you can get this paid by [date] I can stop anything else happening."). No stiff corporate threats.
+
+**Email Voice Principles (Solicitor-Derived)**:
+- Sound like a person, not a process (contractions, short sentences)
+- Authority without aggression (implication > explicit threat)
+- Handoff narrative: L2+ references previous sender, L4: "I've been passed this by our legal team"
+- Face-saving exits at every stage
+- Subject lines: casual and human ("Quick one — {company}")
+- "Hey" greeting allowed for friendly_reminder
+- Ghost segment: puzzled/disarming tone, not aggressive
+- Payment plans: suggest specific instalments
+- 60+ day overdue: final informal contact before formal legal
+- Enforced in: `src/prompts/draft_generation.py` and `src/config/constants.py`
 
 **Adaptations**:
 - Adjusts for relationship_tier (VIP gets softer language)

@@ -179,11 +179,22 @@ Environment variables (in `.env`):
 
 ## Draft Tones
 
-- `friendly_reminder` - Light, first touch
-- `professional` - Standard business tone
-- `firm` - Escalated, more serious
-- `final_notice` - Last warning before action
-- `concerned_inquiry` - Empathetic, for hardship
+| Tone | Use Case |
+|------|----------|
+| `friendly_reminder` | First contact. Warm, brief nudge — not a lecture |
+| `professional` | Standard business tone. State facts and what you need |
+| `firm` | Direct, no pleasantries. Emphasizes obligation and deadlines |
+| `final_notice` | Last attempt before legal referral. 3-5 sentences max. No softening |
+| `concerned_inquiry` | Good customers with unusual behavior. Brief, genuine concern |
+
+### Conciseness (CRITICAL)
+- All drafts must read like a real person wrote them — 4-8 sentences, not paragraphs
+- No filler ("I am writing to inform you..."), no template language
+- Enforced in: `src/prompts/draft_generation.py`
+
+### Legal Escalation (final_notice + high touch count)
+- When `final_notice` AND `touch_count >= 5`: explicitly mention legal team referral
+- No softening phrases. 3-5 sentences max, no pleasantries
 
 ## Gate Types
 
@@ -204,6 +215,7 @@ The guardrail pipeline validates AI-generated content before it's returned. Guar
 
 | Guardrail | Severity | Description |
 |-----------|----------|-------------|
+| `placeholder_validation` | Critical | Detects hallucinated `[CAPS]`/`{CAPS}` placeholders (whitelist: INVOICE_TABLE, SENDER_NAME/TITLE/COMPANY) |
 | `factual_grounding` | Critical | Validates invoice numbers and amounts match context |
 | `numerical_consistency` | Critical | Ensures calculations are correct (totals = sum of parts) |
 | `entity_verification` | High | Verifies customer code and company name match |

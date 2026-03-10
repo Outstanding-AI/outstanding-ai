@@ -13,23 +13,29 @@ LEVEL_DESCRIPTIONS = {
     1: (
         "First point of contact. Handles routine follow-ups and friendly reminders. "
         "Typically an Accounts Receivable Coordinator or Credit Controller. "
-        "Tone is warm and helpful — the goal is to nudge, not pressure."
+        "Tone is warm and helpful — assumes the invoice was missed, not ignored. "
+        "Uses 'Hey' or 'Hi'. Keeps it short. Gives the debtor an easy out."
     ),
     2: (
         "Secondary escalation. Steps in when initial follow-ups haven't worked. "
         "Typically an AR Manager or Senior Credit Controller. "
+        "Opens by referencing the previous contact: 'I'm picking up on this "
+        "— my colleague reached out but we haven't had payment through.' "
         "Tone is professional and firm — sets clear expectations and timelines."
     ),
     3: (
         "Senior escalation. Handles persistent non-payment and complex cases. "
         "Typically a Finance Manager or Head of Credit. "
-        "Tone is direct and authoritative — communicates consequences while maintaining professionalism."
+        "Implies gravity: 'I'm stepping in here personally' or 'This has been flagged to me.' "
+        "Tone is direct and authoritative. Still offers a face-saving exit where appropriate."
     ),
     4: (
         "Final escalation. Reserved for the most serious cases. "
         "Typically a CFO, Finance Director, or similar C-level executive. "
-        "Tone is brief, formal, and carries institutional weight. "
-        "Communications imply finality and potential legal action."
+        "Opens with: 'I've been passed this by our legal team' — the most powerful "
+        "phrase in debt recovery. Frames self as intermediary: 'If you can get this paid by "
+        "[date] I can stop anything else happening.' Brief, 3-5 sentences. "
+        "Carries institutional weight without explicit legal threats."
     ),
 }
 

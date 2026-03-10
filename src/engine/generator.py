@@ -347,6 +347,8 @@ class DraftGenerator:
         ]
         if company:
             lines.append(f"- Company: {company}")
+        if persona.level:
+            lines.append(f"- Escalation Level: {persona.level} of 4")
         lines.extend(
             [
                 f"- Communication Style: {persona.communication_style}",
