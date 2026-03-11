@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     # Gemini Configuration (PRIMARY)
     # Using gemini-2.5-pro for reliability and best performance
     # Options: gemini-2.5-flash (fast), gemini-2.5-pro (most capable/reliable)
-    gemini_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = Field(None, repr=False)
     gemini_model: str = "gemini-2.5-pro"
     gemini_temperature: float = 0.3
     gemini_max_tokens: int = 8192  # High for longer drafts/complex structured output
@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # Note: gpt-5-nano is a reasoning model. Reasoning tokens consume from max_tokens budget.
     # With max_tokens=2000 and 2000 reasoning tokens, there's 0 left for output.
     # 32768 provides headroom for reasoning models that consume tokens for "thinking".
-    openai_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = Field(None, repr=False)
     openai_model: str = "gpt-5-nano"
     openai_temperature: float = 0.3
     openai_max_tokens: int = (
@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     )
 
     # Anthropic Configuration (OPTIONAL third provider)
-    anthropic_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = Field(None, repr=False)
     anthropic_model: str = "claude-sonnet-4-20250514"
     anthropic_temperature: float = 0.3
     anthropic_classification_model: str = "claude-haiku-4-5-20251001"
@@ -74,7 +74,7 @@ class Settings(BaseSettings):
 
     # Service-to-service authentication
     # When set, all requests (except /health) must include Authorization: Bearer <token>
-    service_auth_token: Optional[str] = None
+    service_auth_token: Optional[str] = Field(None, repr=False)
 
     # Rate Limiting (per-IP, per-minute)
     # Higher limits for internal service-to-service calls

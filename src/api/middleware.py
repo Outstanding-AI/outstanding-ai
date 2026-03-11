@@ -4,6 +4,7 @@ Custom middleware for the Solvix AI Engine.
 Provides request tracing, error handling, and authentication capabilities.
 """
 
+import hmac
 import logging
 import time
 from contextvars import ContextVar
@@ -147,7 +148,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
             )
 
         provided_token = auth_header[7:]  # len("Bearer ") == 7
-        if provided_token != self.token:
+        if not hmac.compare_digest(provided_token, self.token):
             return StarletteJSONResponse(
                 status_code=401,
                 content={"error": "Invalid service token"},

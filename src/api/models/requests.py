@@ -31,19 +31,19 @@ class PartyInfo(BaseModel):
     customer_code: str = Field(..., min_length=1, max_length=100)
     name: str = Field(..., min_length=1, max_length=500)
     country_code: Optional[str] = None
-    currency: str = "GBP"
+    currency: str = Field("GBP", max_length=10)
     credit_limit: Optional[float] = None
     on_hold: bool = False
 
     # Debtor-level override fields (NEW)
-    relationship_tier: str = "standard"  # vip, standard, high_risk
+    relationship_tier: str = Field("standard", max_length=50)  # vip, standard, high_risk
     tone_override: Optional[str] = None  # friendly, professional, firm (overrides brand_tone)
     grace_days_override: Optional[int] = None  # Overrides tenant grace_days
     touch_cap_override: Optional[int] = None  # Overrides tenant touch_cap
     do_not_contact_until: Optional[str] = None  # ISO date YYYY-MM-DD
     monthly_touch_count: int = 0  # Touches this month (for monthly cap reset)
     is_verified: bool = True  # False for placeholder parties from unknown emails
-    source: str = "sage"  # sage, email_inbound, manual
+    source: str = Field("sage", max_length=50)  # sage, email_inbound, manual
 
 
 class BehaviorInfo(BaseModel):
@@ -62,12 +62,12 @@ class BehaviorInfo(BaseModel):
 class ObligationInfo(BaseModel):
     """Single invoice/obligation."""
 
-    invoice_number: str
+    invoice_number: str = Field(..., max_length=100)
     original_amount: float
     amount_due: float
-    due_date: Optional[str] = None
+    due_date: Optional[str] = Field(None, max_length=30)
     days_past_due: int = 0
-    state: str = "open"
+    state: str = Field("open", max_length=30)
 
 
 class CommunicationInfo(BaseModel):
@@ -114,20 +114,20 @@ class IndustryInfo(BaseModel):
     - Hardship detection and response
     """
 
-    code: str  # Industry identifier: retail, manufacturing, b2b_services, etc.
-    name: str  # Display name
+    code: str = Field(..., max_length=100)  # Industry identifier
+    name: str = Field(..., max_length=200)  # Display name
     typical_dso_days: int  # Normal payment cycle for this industry
     alarm_dso_days: int  # DSO that signals concern
-    payment_cycle: str  # immediate, net15, net30, net45, net60, net90
+    payment_cycle: str = Field(..., max_length=20)  # immediate, net15, net30, net45, net60, net90
     escalation_patience: str = "standard"  # patient, standard, aggressive
     common_dispute_types: List[str] = []  # Expected dispute types
     hardship_indicators: List[str] = []  # Industry-specific hardship signals
     preferred_tone: str = "professional"  # formal, professional, casual
-    ai_context_notes: str = ""  # Free-form context for prompts
+    ai_context_notes: str = Field("", max_length=2000)  # Free-form context for prompts
     seasonal_patterns: dict = {}  # Q1, Q2, Q3, Q4 patterns
-    dispute_handling_notes: str = ""  # How to handle disputes
-    hardship_handling_notes: str = ""  # How to handle hardship
-    communication_notes: str = ""  # Industry communication conventions
+    dispute_handling_notes: str = Field("", max_length=2000)  # How to handle disputes
+    hardship_handling_notes: str = Field("", max_length=2000)  # How to handle hardship
+    communication_notes: str = Field("", max_length=2000)  # Industry communication conventions
 
 
 class CaseContext(BaseModel):
@@ -149,7 +149,9 @@ class CaseContext(BaseModel):
 
     # Tenant settings (effective values after override resolution by Django)
     # These are the EFFECTIVE values: party.X_override OR tenant.X
-    brand_tone: str = "professional"  # Effective: party.tone_override OR tenant.brand_tone
+    brand_tone: str = Field(
+        "professional", max_length=50
+    )  # Effective: party.tone_override OR tenant.brand_tone
     touch_cap: int = 10  # Effective: party.touch_cap_override OR tenant.touch_cap
     touch_interval_days: int = 3
     grace_days: int = 14  # Effective: party.grace_days_override OR tenant.grace_days
@@ -297,8 +299,8 @@ class ClassifyRequest(BaseModel):
 class SenderContext(BaseModel):
     """Extended sender context for style-aware draft generation."""
 
-    roles_responsibilities: Optional[str] = None
-    style_description: Optional[str] = None
+    roles_responsibilities: Optional[str] = Field(None, max_length=2000)
+    style_description: Optional[str] = Field(None, max_length=2000)
     style_examples: Optional[List[str]] = None
 
 
@@ -321,7 +323,7 @@ class GenerateDraftRequest(BaseModel):
     )
     closure_mode: bool = False
     skip_invoice_table: bool = False
-    trigger_classification: Optional[str] = None
+    trigger_classification: Optional[str] = Field(None, max_length=50)
     tone_preference: Optional[str] = Field(None, pattern=r"^(diplomatic|professional|direct)$")
     # SECURITY: Limited to 1000 chars with prompt injection detection
     custom_instructions: Optional[str] = Field(default=None, max_length=1000)

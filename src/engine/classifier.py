@@ -90,7 +90,7 @@ class EmailClassifier:
             logger.error(f"LLM response validation failed: {e}")
             raise LLMResponseInvalidError(
                 message="LLM returned invalid classification response",
-                details={"validation_errors": e.errors(), "raw_response": raw_result},
+                details={"validation_errors": e.errors()},
             )
 
         # Parse extracted data

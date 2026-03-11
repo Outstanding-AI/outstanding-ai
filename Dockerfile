@@ -47,7 +47,7 @@ EXPOSE 8001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8001/health || exit 1
+    CMD curl -f http://localhost:8001/ping || exit 1
 
 # Run uvicorn directly from venv (faster startup, no uv overhead)
 # --timeout-graceful-shutdown: Allow in-flight LLM requests to complete
