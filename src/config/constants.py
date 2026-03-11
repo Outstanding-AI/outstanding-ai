@@ -19,8 +19,8 @@ LEVEL_DESCRIPTIONS = {
     2: (
         "Secondary escalation. Steps in when initial follow-ups haven't worked. "
         "Typically an AR Manager or Senior Credit Controller. "
-        "Opens by referencing the previous contact: 'I'm picking up on this "
-        "— my colleague reached out but we haven't had payment through.' "
+        "Opens by referencing the previous contact by name and title: "
+        "'[Name], our [Title], reached out recently but we haven't had payment through.' "
         "Tone is professional and firm — sets clear expectations and timelines."
     ),
     3: (

@@ -63,6 +63,8 @@ async def generate_persona(
     return GeneratePersonaResponse(
         personas=personas,
         tokens_used=gen_result.get("tokens_used"),
+        prompt_tokens=gen_result.get("prompt_tokens"),
+        completion_tokens=gen_result.get("completion_tokens"),
         provider=gen_result.get("provider"),
         model=gen_result.get("model"),
         is_fallback=gen_result.get("is_fallback", False),
@@ -116,6 +118,8 @@ async def refine_persona(
         emphasis=result["emphasis"],
         reasoning=result["reasoning"],
         tokens_used=result.get("tokens_used"),
+        prompt_tokens=result.get("prompt_tokens"),
+        completion_tokens=result.get("completion_tokens"),
         provider=result.get("provider"),
         model=result.get("model"),
         is_fallback=result.get("is_fallback", False),

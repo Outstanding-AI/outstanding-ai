@@ -40,6 +40,8 @@ class PersonaGenerator:
         """
         results = []
         total_tokens = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
         last_provider = None
         last_model = None
         is_fallback = False
@@ -48,6 +50,8 @@ class PersonaGenerator:
                 persona, response_meta = await self._generate_single(contact, total_levels)
                 results.append(persona)
                 total_tokens += response_meta.get("tokens_used", 0)
+                total_prompt_tokens += response_meta.get("prompt_tokens", 0)
+                total_completion_tokens += response_meta.get("completion_tokens", 0)
                 last_provider = response_meta.get("provider", last_provider)
                 last_model = response_meta.get("model", last_model)
                 if response_meta.get("is_fallback"):
@@ -72,6 +76,8 @@ class PersonaGenerator:
         return {
             "personas": results,
             "tokens_used": total_tokens,
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
             "provider": last_provider,
             "model": last_model,
             "is_fallback": is_fallback,
@@ -129,6 +135,8 @@ class PersonaGenerator:
         }
         response_meta = {
             "tokens_used": response.usage.get("total_tokens", 0),
+            "prompt_tokens": response.usage.get("prompt_tokens", 0),
+            "completion_tokens": response.usage.get("completion_tokens", 0),
             "provider": response.provider,
             "model": response.model,
             "is_fallback": getattr(response, "is_fallback", False),
@@ -248,6 +256,8 @@ class PersonaGenerator:
             "emphasis": parsed.emphasis,
             "reasoning": parsed.reasoning,
             "tokens_used": response.usage.get("total_tokens", 0),
+            "prompt_tokens": response.usage.get("prompt_tokens", 0),
+            "completion_tokens": response.usage.get("completion_tokens", 0),
             "provider": response.provider,
             "model": response.model,
             "is_fallback": getattr(response, "is_fallback", False),

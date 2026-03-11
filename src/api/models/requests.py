@@ -78,11 +78,13 @@ class CommunicationInfo(BaseModel):
     last_touch_channel: Optional[str] = None
     last_sender_level: Optional[int] = None
     last_sender_name: Optional[str] = None
+    last_sender_title: Optional[str] = None
     last_tone_used: Optional[str] = None
     last_response_at: Optional[datetime] = None
     last_response_type: Optional[str] = None
     last_response_subject: Optional[str] = None
     last_response_snippet: Optional[str] = None
+    last_outbound_subject: Optional[str] = None
 
 
 class TouchHistory(BaseModel):
@@ -91,6 +93,7 @@ class TouchHistory(BaseModel):
     sent_at: datetime
     tone: Optional[str] = None
     sender_level: Optional[int] = None
+    sender_name: Optional[str] = None
     had_response: bool = False
 
 
@@ -180,6 +183,9 @@ class CaseContext(BaseModel):
 
     # Recent message excerpts for reply context
     recent_messages: Optional[list] = None
+
+    # Escalation history (all prior senders for handoff narrative)
+    escalation_history: Optional[list] = None
 
     # Currency symbol for invoice table formatting
     currency_symbol: Optional[str] = None

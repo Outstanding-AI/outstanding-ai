@@ -1063,3 +1063,19 @@ LLM_MAX_RETRIES=3
 - **Testing**: pytest, pytest-asyncio, pytest-cov
 - **Code Quality**: ruff (linting and formatting), pre-commit
 - **Containerization**: Docker, Docker Compose
+
+---
+
+## Bug Workflow (TDD-Driven)
+
+When a bug is reported:
+1. **Reproduce first** — write a failing test in `tests/test_bug_<name>.py`
+2. **Run the test** — confirm it fails for the right reason
+3. **Fix** — apply minimal fix to root cause
+4. **Verify** — test passes, full suite passes, ruff clean
+5. **Log** — add to Known Bugs Fixed below
+
+### Known Bugs Fixed
+| Date | Symptom | Root Cause | Fix | Test |
+|------|---------|-----------|-----|------|
+| 2026-03 | Token tracking returning 0/0/0 | `with_structured_output()` discards usage_metadata | Added `include_raw=True` to gemini + openai providers | test_provider_metadata.py |

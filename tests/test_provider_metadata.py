@@ -98,6 +98,11 @@ class TestProviderMetadata:
                         "all_passed": True,
                         "results": [],
                         "blocking_guardrails": [],
+                        "total_token_usage": {
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "total_tokens": 0,
+                        },
                     },
                 )()
                 mock_pipeline.validate.return_value = mock_result

@@ -81,6 +81,8 @@ class GeneratePersonaResponse(BaseModel):
 
     personas: List[PersonaResult]
     tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
     provider: Optional[str] = None
     model: Optional[str] = None
     is_fallback: bool = False
@@ -94,6 +96,8 @@ class RefinePersonaResponse(BaseModel):
     emphasis: str
     reasoning: str
     tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
     provider: Optional[str] = None
     model: Optional[str] = None
     is_fallback: bool = False

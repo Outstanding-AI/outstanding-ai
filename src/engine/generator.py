@@ -121,10 +121,13 @@ class DraftGenerator:
             else "No — first contact"
         )
 
-        # Get contact person name from debtor_contact context
+        # Get contact person FIRST NAME from debtor_contact context
         contact_name = ""
-        if request.context.debtor_contact and request.context.debtor_contact.get("name"):
-            contact_name = request.context.debtor_contact["name"]
+        if request.context.debtor_contact:
+            dc = request.context.debtor_contact
+            contact_name = dc.get("first_name") or (
+                dc.get("name", "").split()[0] if dc.get("name") else ""
+            )
 
         # Build base user prompt
         base_user_prompt = GENERATE_DRAFT_USER.format(
@@ -226,6 +229,12 @@ class DraftGenerator:
                 context=request.context,
             )
             guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
+
+            # Accumulate guardrail LLM tokens (entity verification uses LLM)
+            gr_tokens = guardrail_result.total_token_usage
+            total_tokens_used += gr_tokens.get("total_tokens", 0)
+            total_prompt_tokens += gr_tokens.get("prompt_tokens", 0)
+            total_completion_tokens += gr_tokens.get("completion_tokens", 0)
 
             # If all guardrails passed, we're done
             if guardrail_result.all_passed:
@@ -411,6 +420,24 @@ class DraftGenerator:
                 if profile_lines:
                     sections.append("\n".join(profile_lines))
 
+        # Escalation history (all prior senders for handoff narrative)
+        esc_history = request.context.escalation_history
+        if esc_history:
+            hist_lines = []
+            for h in esc_history:
+                title_part = f", {h['title']}" if h.get("title") else ""
+                hist_lines.append(
+                    f"- Level {h['level']}: {h['name']}{title_part} "
+                    f"— {h['touch_count']} touch(es), last on {h.get('last_touch_at', 'unknown')}"
+                )
+            sections.append(
+                "\n\n**Prior Senders Who Contacted This Debtor:**\n"
+                + "\n".join(hist_lines)
+                + "\n\nWhen writing the handoff narrative, reference these SPECIFIC people "
+                "by name and title. For L2+: mention the L1 sender. For L3+: you may say "
+                "'Both [L1 name] and [L2 name] have reached out.'"
+            )
+
         # Sender style context
         if request.sender_context:
             sc = request.sender_context
@@ -532,11 +559,15 @@ class DraftGenerator:
             "(use this for legal escalation trigger, not a hardcoded value)"
         )
 
-        # 2. Previous sender name (for handoff narrative)
-        prev_sender = None
-        if comm and comm.last_sender_name:
-            prev_sender = comm.last_sender_name
-        if prev_sender:
+        # 2. Previous sender name + title (for handoff narrative)
+        prev_sender = comm.last_sender_name if comm else None
+        prev_title = comm.last_sender_title if comm else None
+        if prev_sender and prev_title:
+            lines.append(
+                f"- Previous Sender: {prev_sender}, {prev_title} "
+                "(use name AND title in handoff: e.g. 'Sarah, our Finance Manager, reached out')"
+            )
+        elif prev_sender:
             lines.append(
                 f"- Previous Sender Name: {prev_sender} "
                 "(use this name in handoff narrative instead of 'my colleague')"
@@ -580,6 +611,24 @@ class DraftGenerator:
             lines.append(
                 "- Payment Plan Config: Not configured "
                 "(use reasonable defaults like amount/3 across 3 months)"
+            )
+
+        # 5. Escalation status
+        persona = request.sender_persona
+        if persona and persona.level and comm and comm.last_sender_level:
+            if persona.level > comm.last_sender_level:
+                lines.append(
+                    f"- ESCALATION: This is an escalation from level {comm.last_sender_level} "
+                    f"to level {persona.level}. Reference the handoff explicitly."
+                )
+            else:
+                lines.append("- This is NOT an escalation — same level as previous contact.")
+
+        # 6. Last outbound subject (for subject line evolution)
+        if comm and comm.last_outbound_subject:
+            lines.append(
+                f'- Last Outbound Subject: "{comm.last_outbound_subject}" '
+                "(build on or evolve this subject, do not repeat it verbatim)"
             )
 
         return "\n".join(lines)

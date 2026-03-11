@@ -30,6 +30,8 @@ class GuardrailResult:
     # For failed validations, what was expected vs found
     expected: Any = None
     found: Any = None
+    # LLM token usage (for guardrails that make LLM calls)
+    token_usage: dict = field(default_factory=dict)
 
     @property
     def should_block(self) -> bool:
@@ -73,6 +75,17 @@ class GuardrailPipelineResult:
     def high_failures(self) -> list[GuardrailResult]:
         """Get all high severity failures."""
         return [r for r in self.results if not r.passed and r.severity == GuardrailSeverity.HIGH]
+
+    @property
+    def total_token_usage(self) -> dict:
+        """Aggregate token usage across all guardrail results."""
+        total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        for r in self.results:
+            if r.token_usage:
+                total["prompt_tokens"] += r.token_usage.get("prompt_tokens", 0)
+                total["completion_tokens"] += r.token_usage.get("completion_tokens", 0)
+                total["total_tokens"] += r.token_usage.get("total_tokens", 0)
+        return total
 
     def to_dict(self) -> dict:
         """Convert to dictionary for logging/API responses."""

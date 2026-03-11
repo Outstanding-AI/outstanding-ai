@@ -185,6 +185,13 @@ class EntityVerificationGuardrail(BaseGuardrail):
         # Parse the response - should be clean JSON from structured output
         result = json.loads(response.content)
 
+        # Extract token usage for cost tracking
+        token_usage = {
+            "prompt_tokens": response.usage.get("prompt_tokens", 0),
+            "completion_tokens": response.usage.get("completion_tokens", 0),
+            "total_tokens": response.usage.get("total_tokens", 0),
+        }
+
         results = []
 
         # Customer code validation result
@@ -228,6 +235,10 @@ class EntityVerificationGuardrail(BaseGuardrail):
                     details={"issues": result.get("issues_found", [])},
                 )
             )
+
+        # Attach token usage to the first result for pipeline aggregation
+        if results:
+            results[0].token_usage = token_usage
 
         logger.info(
             "Entity verification completed: customer_code_valid=%s, party_name_valid=%s, passed=%s",
