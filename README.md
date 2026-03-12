@@ -41,6 +41,8 @@ Stateless AI service for the Solvix debt collection platform. Provides email cla
 
 The AI Engine is stateless - it receives all context via HTTP requests and does not access the database directly.
 
+> **Note:** Classification results produced by this service are stored on `thread_messages` in the data lake and are now visible to users via the Communication History API (Django `sage/api_views.py`) — displayed as color-coded badges in the frontend's CommunicationTimeline and RecentActivity components.
+
 ## API Endpoints
 
 | Endpoint | Method | Description |

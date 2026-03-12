@@ -917,17 +917,28 @@ The Solvix backend no longer uses Celery. Instead:
 Source Systems (Sage) → solvix-etl → Solvix DB → solvix-ai context
 ```
 
+### Communication History API (Django — Not AI Engine)
+
+The Django backend now exposes communication trail data via 3 endpoints in `sage/api_views.py`:
+- `GET /sage/debtors/{partyId}/activity/` — unified inbound/outbound timeline
+- `GET /sage/threads/{threadId}/messages/` — thread drill-down
+- `GET /sage/dashboard/recent-activity/` — tenant-wide recent events
+
+AI Engine is **not involved** — these endpoints read existing Silver data (threads, thread_messages, touches).
+Classification results stored by AI Engine on `thread_messages` are now **visible to users** in the frontend via color-coded classification badges (23 categories mapped to colors).
+
 ### solvix_frontend
 
 **Repository**: React/Next.js UI for collection teams
 **Relationship**: Consumes AI results via Django API
 
 **UI displays**:
-- Email classification badges and confidence
+- Email classification badges and confidence (visible in Communication History timeline)
 - AI-generated drafts for agent review
 - Gate status (allowed/blocked with reasons)
 - Guardrail validation warnings
 - Sender persona management (escalation hierarchy)
+- Communication History timeline (inbound/outbound emails with classification badges, thread drill-down)
 
 **Flow**:
 ```
