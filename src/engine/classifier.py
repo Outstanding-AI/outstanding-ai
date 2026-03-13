@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from src.api.errors import LLMResponseInvalidError
 from src.api.models.requests import ClassifyRequest
 from src.api.models.responses import ClassifyResponse, ExtractedData, GuardrailValidation
+from src.config.settings import settings
 from src.guardrails.base import GuardrailSeverity
 from src.guardrails.pipeline import guardrail_pipeline
 from src.llm.factory import llm_client
@@ -68,12 +69,11 @@ class EmailClassifier:
             body=request.email.body,
         )
 
-        # Call LLM with lower temperature for classification
         # Use response_schema for guaranteed valid JSON (no markdown wrapping)
         response = await llm_client.complete(
             system_prompt=CLASSIFY_EMAIL_SYSTEM,
             user_prompt=user_prompt,
-            temperature=0.2,
+            temperature=settings.classification_temperature,
             response_schema=ClassificationLLMResponse,
         )
 

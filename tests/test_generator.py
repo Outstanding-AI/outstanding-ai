@@ -81,11 +81,14 @@ class TestDraftGenerator:
 
     @pytest.mark.asyncio
     async def test_generate_draft_no_invoices(self, generator, sample_generate_draft_request):
-        """Test draft generation when no invoices are referenced."""
+        """Test draft generation when LLM explicitly references no invoices."""
+        # Clear obligations so the fallback path also returns empty
+        sample_generate_draft_request.context.obligations = []
         mock_response = _make_llm_response(
             {
                 "subject": "Payment Reminder",
                 "body": "Dear Customer, Please contact us to discuss your account.",
+                "invoices_referenced": [],
             }
         )
 

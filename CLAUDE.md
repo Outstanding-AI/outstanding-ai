@@ -184,7 +184,7 @@ Input Pydantic models:
 #### `models/responses.py`
 Output Pydantic models:
 - **ExtractedData**: promise_date/amount, dispute_type/reason/invoice_refs/disputed_amount, claimed_amount/date/reference/details, insolvency_type/details/administrator, return_date, redirect_name/contact/email
-- **GuardrailValidation**: all_passed, guardrails_run, guardrails_passed, blocking_failures, warnings, factual_accuracy
+- **GuardrailValidation**: all_passed, guardrails_run, guardrails_passed, blocking_failures, warnings, factual_accuracy, results (individual check details: pass/fail, severity, expected/found, messages — persisted in drafts.guardrail_validation JSONB)
 - **ClassifyResponse**: classification, confidence, reasoning, extracted_data, guardrail_validation, tokens_used, prompt_tokens, completion_tokens, provider, model, is_fallback
 - **PersonaResult**: name, level, communication_style, formality_level, emphasis
 - **GeneratePersonaResponse**: personas list, tokens_used, provider, model, is_fallback

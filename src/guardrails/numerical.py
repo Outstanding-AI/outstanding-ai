@@ -28,12 +28,18 @@ class NumericalConsistencyGuardrail(BaseGuardrail):
 
     def validate(self, output: str, context: CaseContext, **kwargs) -> list[GuardrailResult]:
         """Validate numerical consistency of the output."""
-        results = []
+        closure_mode = kwargs.get("closure_mode", False)
 
-        # Run all validation checks
+        # Closure emails: no numerical validation needed
+        if closure_mode:
+            return [
+                self._pass("Closure mode — total validation skipped"),
+                self._pass("Closure mode — days overdue validation skipped"),
+            ]
+
+        results = []
         results.append(self._validate_total_calculation(output, context))
         results.append(self._validate_days_overdue(output, context))
-
         return results
 
     def _validate_total_calculation(self, output: str, context: CaseContext) -> GuardrailResult:
@@ -60,10 +66,11 @@ class NumericalConsistencyGuardrail(BaseGuardrail):
                 except ValueError:
                     continue
 
+        tolerance = 0.01
+
         # Validate each stated total
         for stated in stated_totals:
-            # Allow small tolerance for rounding
-            if abs(stated - actual_total) > 0.01:
+            if abs(stated - actual_total) > tolerance:
                 return self._fail(
                     message=f"Stated total {stated} does not match calculated total {actual_total}",
                     expected=actual_total,

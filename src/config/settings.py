@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     # Gemini Configuration (PRIMARY)
     # Using gemini-2.5-pro for reliability and best performance
     # Options: gemini-2.5-flash (fast), gemini-2.5-pro (most capable/reliable)
+    # Upgrade path: gemini-3.1-pro ($2/$12 per 1M tokens) when JSON-mode stability is confirmed
     gemini_api_key: Optional[str] = Field(None, repr=False)
     gemini_model: str = "gemini-2.5-pro"
     gemini_temperature: float = 0.3
@@ -52,6 +53,7 @@ class Settings(BaseSettings):
     # Note: gpt-5-nano is a reasoning model. Reasoning tokens consume from max_tokens budget.
     # With max_tokens=2000 and 2000 reasoning tokens, there's 0 left for output.
     # 32768 provides headroom for reasoning models that consume tokens for "thinking".
+    # Upgrade path: gpt-5.3-instant ($0.50/$2 per 1M) for better quality at ~3x cost
     openai_api_key: Optional[str] = Field(None, repr=False)
     openai_model: str = "gpt-5-nano"
     openai_temperature: float = 0.3
@@ -64,6 +66,15 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-4-20250514"
     anthropic_temperature: float = 0.3
     anthropic_classification_model: str = "claude-haiku-4-5-20251001"
+
+    # Task-specific LLM temperatures (override provider defaults per use case)
+    draft_temperature: float = 0.7  # Higher for creative draft generation
+    classification_temperature: float = 0.2  # Lower for deterministic classification
+    persona_gen_temperature: float = 0.7  # Creative persona generation
+    persona_refine_temperature: float = 0.5  # Moderate for consistent refinement
+
+    # Guardrail retry
+    max_guardrail_retries: int = 2  # Max retries when guardrails fail during draft generation
 
     # Timeouts and Retries
     llm_timeout_seconds: int = 60  # Per-LLM-call timeout (increased for concurrent calls)

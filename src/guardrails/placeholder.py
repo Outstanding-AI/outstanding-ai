@@ -25,6 +25,11 @@ class PlaceholderValidationGuardrail(BaseGuardrail):
 
     CRITICAL severity — blocks output if any non-whitelisted placeholder is found.
 
+    Context-aware behaviour:
+    - skip_invoice_table=True or closure_mode=True: {INVOICE_TABLE} is DISALLOWED
+      (LLM was told not to use it — if it appears, that's an error)
+    - Standard drafts: {INVOICE_TABLE} is allowed (expected in output)
+
     This guardrail is deterministic (pure regex, no LLM calls) and runs first
     in the pipeline as the cheapest check.
     """
@@ -40,29 +45,49 @@ class PlaceholderValidationGuardrail(BaseGuardrail):
         if not output:
             return [self._pass("No output to validate")]
 
+        skip_invoice_table = kwargs.get("skip_invoice_table", False)
+        closure_mode = kwargs.get("closure_mode", False)
+
+        # Build effective allowed set for this draft type
+        # When skip_invoice_table or closure_mode, {INVOICE_TABLE} should NOT appear
+        if skip_invoice_table or closure_mode:
+            allowed = ALLOWED_PLACEHOLDERS - {"{INVOICE_TABLE}"}
+        else:
+            allowed = ALLOWED_PLACEHOLDERS
+
         found_placeholders = set()
 
         # Find all [PLACEHOLDER] patterns
         for match in BRACKET_PATTERN.finditer(output):
             placeholder = f"[{match.group(1)}]"
-            if placeholder not in ALLOWED_PLACEHOLDERS:
+            if placeholder not in allowed:
                 found_placeholders.add(placeholder)
 
         # Find all {PLACEHOLDER} patterns
         for match in BRACE_PATTERN.finditer(output):
             placeholder = f"{{{match.group(1)}}}"
-            if placeholder not in ALLOWED_PLACEHOLDERS:
+            if placeholder not in allowed:
                 found_placeholders.add(placeholder)
 
         if found_placeholders:
+            # Provide context-specific error message
+            if "{INVOICE_TABLE}" in found_placeholders and (skip_invoice_table or closure_mode):
+                draft_type = "closure" if closure_mode else "follow-up"
+                msg = (
+                    f"Draft contains {{INVOICE_TABLE}} but this is a {draft_type} email "
+                    f"where invoice table is suppressed. Remove it."
+                )
+            else:
+                msg = (
+                    f"Draft contains {len(found_placeholders)} hallucinated placeholder(s): "
+                    f"{', '.join(sorted(found_placeholders))}. "
+                    f"Only allowed: {', '.join(sorted(allowed))}. "
+                    f"Use actual values from context instead of inventing placeholders."
+                )
+
             return [
                 self._fail(
-                    message=(
-                        f"Draft contains {len(found_placeholders)} hallucinated placeholder(s): "
-                        f"{', '.join(sorted(found_placeholders))}. "
-                        f"Only allowed: {', '.join(sorted(ALLOWED_PLACEHOLDERS))}. "
-                        f"Use actual values from context instead of inventing placeholders."
-                    ),
+                    message=msg,
                     expected="No hallucinated placeholders",
                     found=sorted(found_placeholders),
                     details={"hallucinated_placeholders": sorted(found_placeholders)},

@@ -18,6 +18,7 @@ from src.config.constants import (
     PERSONA_REFINEMENT_SYSTEM,
     PERSONA_REFINEMENT_USER,
 )
+from src.config.settings import settings
 from src.llm.factory import llm_client
 from src.llm.schemas import PersonaLLMResponse, PersonaRefinementLLMResponse
 
@@ -111,7 +112,7 @@ class PersonaGenerator:
         response = await llm_client.complete(
             system_prompt=PERSONA_GENERATION_SYSTEM,
             user_prompt=user_prompt,
-            temperature=0.7,
+            temperature=settings.persona_gen_temperature,
             response_schema=PersonaLLMResponse,
         )
 
@@ -228,7 +229,7 @@ class PersonaGenerator:
         response = await llm_client.complete(
             system_prompt=PERSONA_REFINEMENT_SYSTEM,
             user_prompt=user_prompt,
-            temperature=0.5,  # Lower temp for more consistent refinement
+            temperature=settings.persona_refine_temperature,
             response_schema=PersonaRefinementLLMResponse,
         )
 

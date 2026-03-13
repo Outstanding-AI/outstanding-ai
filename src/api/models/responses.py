@@ -43,6 +43,10 @@ class GuardrailValidation(BaseModel):
     blocking_failures: List[str] = []
     warnings: List[str] = []
     factual_accuracy: float = Field(ge=0.0, le=1.0, default=1.0)
+    results: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Individual guardrail check results: pass/fail, severity, expected/found, messages",
+    )
 
 
 class ClassifyResponse(BaseModel):

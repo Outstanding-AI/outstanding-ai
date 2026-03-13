@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from src.api.errors import LLMResponseInvalidError
 from src.api.models.requests import GenerateDraftRequest
 from src.api.models.responses import GenerateDraftResponse, GuardrailValidation
+from src.config.settings import settings
 from src.guardrails.base import GuardrailPipelineResult, GuardrailSeverity
 from src.guardrails.pipeline import guardrail_pipeline
 from src.llm.factory import llm_client
@@ -25,9 +26,6 @@ from src.llm.schemas import DraftGenerationLLMResponse
 from src.prompts import GENERATE_DRAFT_SYSTEM, GENERATE_DRAFT_USER
 
 logger = logging.getLogger(__name__)
-
-# Maximum retries when guardrails fail
-MAX_GUARDRAIL_RETRIES = 2
 
 
 class DraftGenerator:
@@ -184,7 +182,7 @@ class DraftGenerator:
         llm_latencies = []
         guardrail_latencies = []
 
-        for attempt in range(MAX_GUARDRAIL_RETRIES + 1):
+        for attempt in range(settings.max_guardrail_retries + 1):
             # Build prompt with any guardrail feedback from previous attempt
             user_prompt = base_user_prompt
             if guardrail_feedback:
@@ -199,7 +197,7 @@ class DraftGenerator:
             response = await llm_client.complete(
                 system_prompt=GENERATE_DRAFT_SYSTEM,
                 user_prompt=user_prompt,
-                temperature=0.7,
+                temperature=settings.draft_temperature,
                 response_schema=DraftGenerationLLMResponse,
             )
             llm_latencies.append((time.perf_counter() - llm_start) * 1000)
@@ -227,6 +225,9 @@ class DraftGenerator:
             guardrail_result = guardrail_pipeline.validate(
                 output=result.body,
                 context=request.context,
+                skip_invoice_table=request.skip_invoice_table,
+                trigger_classification=request.trigger_classification,
+                closure_mode=request.closure_mode,
             )
             guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
 
@@ -246,15 +247,19 @@ class DraftGenerator:
                 break
 
             # If this was the last attempt, exit loop with failed guardrails
-            if attempt >= MAX_GUARDRAIL_RETRIES:
+            if attempt >= settings.max_guardrail_retries:
                 logger.warning(
-                    f"Guardrails still failing after {MAX_GUARDRAIL_RETRIES + 1} attempts for "
+                    f"Guardrails still failing after {settings.max_guardrail_retries + 1} attempts for "
                     f"{request.context.party.customer_code}: {guardrail_result.blocking_guardrails}"
                 )
                 break
 
             # Build feedback for next attempt
-            guardrail_feedback = self._build_guardrail_feedback(guardrail_result)
+            guardrail_feedback = self._build_guardrail_feedback(
+                guardrail_result,
+                skip_invoice_table=request.skip_invoice_table,
+                closure_mode=request.closure_mode,
+            )
 
         # Extract referenced invoices from generated body
         invoices_referenced = [
@@ -282,6 +287,7 @@ class DraftGenerator:
             blocking_failures=guardrail_result.blocking_guardrails,
             warnings=warnings,
             factual_accuracy=factual_accuracy,
+            results=[r.to_dict() for r in guardrail_result.results],
         )
 
         if not guardrail_result.all_passed:
@@ -485,6 +491,18 @@ class DraftGenerator:
                     refs = msg["invoice_refs"] if isinstance(msg["invoice_refs"], list) else []
                     if refs:
                         line += f"\n  Invoices referenced: {', '.join(str(r) for r in refs)}"
+                # Debtor intent data from classifier
+                if msg.get("claimed_amount"):
+                    claimed = f"\n  💰 Claimed payment: {msg['claimed_amount']}"
+                    if msg.get("claimed_date"):
+                        claimed += f" on {msg['claimed_date']}"
+                    if msg.get("claimed_reference"):
+                        claimed += f" (ref: {msg['claimed_reference']})"
+                    line += claimed
+                if msg.get("disputed_amount"):
+                    line += f"\n  ⚖️ Disputed amount: {msg['disputed_amount']}"
+                if msg.get("insolvency_type"):
+                    line += f"\n  🏛️ Insolvency: {msg['insolvency_type']}"
                 msg_lines.append(line)
             if msg_lines:
                 sections.append(
@@ -633,12 +651,19 @@ class DraftGenerator:
 
         return "\n".join(lines)
 
-    def _build_guardrail_feedback(self, guardrail_result: GuardrailPipelineResult) -> str:
+    def _build_guardrail_feedback(
+        self,
+        guardrail_result: GuardrailPipelineResult,
+        skip_invoice_table: bool = False,
+        closure_mode: bool = False,
+    ) -> str:
         """
-        Build feedback prompt addition from guardrail failures.
+        Build context-aware feedback prompt from guardrail failures.
 
-        This feedback is appended to the user prompt on retry attempts
-        to help the LLM correct its output.
+        Adapts retry guidance based on draft type:
+        - Standard drafts: direct LLM to use {INVOICE_TABLE}
+        - Follow-ups (skip_invoice_table): direct LLM to NOT use {INVOICE_TABLE}
+        - Closures: direct LLM to remove collection language
         """
         failures = [r for r in guardrail_result.results if not r.passed]
         if not failures:
@@ -655,9 +680,21 @@ class DraftGenerator:
             if failure.found:
                 feedback_lines.append(f"  Found: {failure.found}")
 
-        feedback_lines.append(
-            "\nEnsure the new draft addresses ALL validation issues listed above."
-        )
+        # Context-aware guidance
+        if closure_mode:
+            feedback_lines.append(
+                "\nThis is a CLOSURE email. Remove all invoice references, "
+                "amounts, and collection language. Keep it brief and grateful."
+            )
+        elif skip_invoice_table:
+            feedback_lines.append(
+                "\nThis is a FOLLOW-UP email. Do NOT use {INVOICE_TABLE} or "
+                "reference 'the table below'. Focus on the conversation context."
+            )
+        else:
+            feedback_lines.append(
+                "\nEnsure the new draft addresses ALL validation issues listed above."
+            )
 
         return "\n".join(feedback_lines)
 
