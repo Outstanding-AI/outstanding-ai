@@ -855,7 +855,7 @@ Refine a persona based on performance data.
 **Connection**: HTTP calls to solvix-ai endpoints with Bearer token auth
 
 ```python
-# In Solvix: services/ai_engine.py
+# In Solvix: services/ai_engine/client.py
 class AIEngineClient:
     base_url = "http://host.docker.internal:8001"  # or Linux IP
     headers = {"Authorization": f"Bearer {SERVICE_AUTH_TOKEN}"}
@@ -887,7 +887,7 @@ class AIEngineClient:
 The Solvix backend no longer uses Celery. Instead:
 1. Backend creates a `BackgroundJob` row with `queue="ai"` and `task_name="ai.generate_single_draft"`
 2. The worker (`run_worker --queue ai`) claims the job via SELECT FOR UPDATE SKIP LOCKED
-3. The task handler in `Solvix/organizations/task_handlers.py` calls this AI Engine via HTTP
+3. The task handler in `Solvix/organizations/task_handlers/ai.py` calls this AI Engine via HTTP
 4. Results are stored in Silver tables (drafts, thread_messages.classification)
 5. For batch drafts: a `group_id` groups multiple `ai.generate_single_draft` jobs;
    `ai.check_group_complete` fires when all finish, triggering Gold refresh
