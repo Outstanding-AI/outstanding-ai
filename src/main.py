@@ -1,5 +1,5 @@
 """
-Solvix AI Engine - FastAPI Application
+Outstanding AI Engine - FastAPI Application
 
 Main entry point for the AI Engine service providing:
 - Email classification
@@ -46,7 +46,7 @@ limiter = Limiter(key_func=get_remote_address)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("=" * 60)
-    logger.info("Starting Solvix AI Engine")
+    logger.info("Starting Outstanding AI Engine")
     logger.info("=" * 60)
     model = settings.gemini_model if settings.llm_provider == "gemini" else settings.openai_model
     logger.info(f"Provider: {settings.llm_provider}, Model: {model}")
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 # Create app
 app = FastAPI(
-    title="Solvix AI Engine",
+    title="Outstanding AI Engine",
     description="AI-powered email classification and draft generation for debt collection",
     version="0.1.0",
     lifespan=lifespan,

@@ -1,7 +1,7 @@
 .PHONY: help install run dev test test-cov test-live lint format docker-build docker-run docker-up docker-down docker-logs pre-commit-install clean
 
 help:
-	@echo "Solvix AI Engine Commands (uses uv)"
+	@echo "Outstanding AI Engine Commands (uses uv)"
 	@echo "===================================="
 	@echo ""
 	@echo "Setup & Installation:"

@@ -1,7 +1,7 @@
 [project]
 name = "solvix-ai-engine"
 version = "0.1.0"
-description = "AI Engine for Solvix debt collection platform"
+description = "AI Engine for Outstanding AI debt collection platform"
 requires-python = ">=3.12"
 
 dependencies = [
