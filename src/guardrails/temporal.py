@@ -1,4 +1,13 @@
-"""Temporal Consistency Guardrail - validates date logic."""
+"""Temporal Consistency Guardrail -- validate date references.
+
+Check that dates mentioned in AI output are consistent with the case
+context: promise dates should be in the future, and due dates should
+match obligation records.
+
+MEDIUM severity -- failures produce warnings but do not block output,
+since date interpretation can be subjective (formatting differences,
+timezone edge cases).
+"""
 
 import logging
 import re
@@ -13,13 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 class TemporalConsistencyGuardrail(BaseGuardrail):
-    """
-    Validates temporal logic of AI outputs.
+    """Validate date references in AI output against case context.
+
+    MEDIUM severity -- failures produce warnings but do not block,
+    since date interpretation can be subjective (formatting, timezones).
 
     Checks:
-    1. Promise dates are in the future (not past)
-    2. Due dates mentioned match obligation due dates
-    3. Days overdue calculations are consistent with today's date
+    1. Promise dates (from ``extracted_data``) are in the future
+       (today allowed).  Dates > 90 days out are flagged as unusual.
+    2. Due dates mentioned in prose match obligation ``due_date``
+       values (+/- 1 day tolerance).
     """
 
     def __init__(self):
@@ -29,7 +41,22 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
         )
 
     def validate(self, output: str, context: CaseContext, **kwargs) -> list[GuardrailResult]:
-        """Validate temporal consistency of the output."""
+        """Validate temporal consistency of the output.
+
+        Run two sub-checks:
+        1. If ``extracted_data`` has a promise_date, verify it is in
+           the future (or today) and not unreasonably distant (> 90d).
+        2. Scan the output for due-date patterns and verify each
+           against obligation due dates (+/- 1 day tolerance).
+
+        Args:
+            output: AI-generated text (draft body or reasoning).
+            context: Case context with obligations and due dates.
+            **kwargs: ``extracted_data`` (ExtractedData or None).
+
+        Returns:
+            List of GuardrailResult objects.
+        """
         results = []
 
         # Check extracted promise dates
@@ -43,7 +70,11 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
         return results
 
     def _validate_promise_date_is_future(self, extracted_data: ExtractedData) -> GuardrailResult:
-        """Validate that extracted promise dates are in the future."""
+        """Validate that the extracted promise date is in the future.
+
+        Allow today as valid.  Flag dates > 90 days out as unusual
+        (likely a parsing error or stalling tactic).
+        """
         if not extracted_data.promise_date:
             return self._pass(message="No promise date to validate")
 
@@ -84,7 +115,12 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
         )
 
     def _validate_due_dates(self, output: str, context: CaseContext) -> GuardrailResult:
-        """Validate that mentioned due dates match obligation data."""
+        """Validate that due dates mentioned in the output match obligations.
+
+        Extract date patterns from the output text and compare against
+        the set of valid due dates from context obligations.  Allow
+        +/- 1 day tolerance for formatting / timezone differences.
+        """
         # Extract date patterns from output
         date_patterns = [
             r"due\s+(?:on|by)\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})",
@@ -132,7 +168,11 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
         )
 
     def _parse_date(self, date_str: str) -> date | None:
-        """Try to parse a date string in various formats."""
+        """Try to parse a date string in various formats.
+
+        Support DD/MM/YYYY, DD-MM-YYYY, MM/DD/YYYY, YYYY-MM-DD, and
+        natural language dates like "15th January 2024".
+        """
         formats = [
             "%d/%m/%Y",
             "%d-%m-%Y",

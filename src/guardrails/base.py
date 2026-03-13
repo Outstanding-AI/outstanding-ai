@@ -1,4 +1,20 @@
-"""Base guardrail classes and types."""
+"""Base guardrail classes and types.
+
+Define the abstract interface, result dataclasses, and severity enum
+shared by all 6 guardrail implementations.  Every guardrail subclass
+must extend ``BaseGuardrail`` and implement ``validate()``.
+
+Severity hierarchy (highest to lowest):
+    CRITICAL -- block output, must retry or escalate (e.g., placeholder,
+        factual grounding, numerical consistency).
+    HIGH -- block output, log for review (e.g., entity verification).
+    MEDIUM -- warn, allow with flag (e.g., temporal consistency).
+    LOW -- log only, allow (e.g., contextual coherence).
+
+CRITICAL and HIGH failures are "blocking" -- they set ``should_block=True``
+on the pipeline result, which the draft generator uses to decide whether
+to retry or reject the draft.
+"""
 
 import logging
 from abc import ABC, abstractmethod
@@ -10,7 +26,12 @@ logger = logging.getLogger(__name__)
 
 
 class GuardrailSeverity(Enum):
-    """Severity levels for guardrail failures."""
+    """Severity levels for guardrail failures.
+
+    Determines whether a failure blocks output delivery or is
+    treated as a non-blocking warning.  CRITICAL and HIGH both
+    block; MEDIUM and LOW do not.
+    """
 
     CRITICAL = "critical"  # Block output, must retry or escalate
     HIGH = "high"  # Block output, log for review
@@ -20,17 +41,31 @@ class GuardrailSeverity(Enum):
 
 @dataclass
 class GuardrailResult:
-    """Result of a guardrail validation check."""
+    """Result of a single guardrail validation check.
+
+    Each guardrail may return multiple results (one per sub-check).
+    For example, ``FactualGroundingGuardrail`` returns separate results
+    for invoice number validation and amount validation.
+
+    Attributes:
+        passed: Whether this check passed.
+        guardrail_name: Name of the guardrail that produced this result.
+        severity: Severity level inherited from the parent guardrail.
+        message: Human-readable description of the outcome.
+        details: Arbitrary dict of diagnostic data for logging/auditing.
+        expected: What the guardrail expected (for failures).
+        found: What the guardrail actually found (for failures).
+        token_usage: LLM token usage dict (only populated by guardrails
+            that make LLM calls, e.g. EntityVerificationGuardrail).
+    """
 
     passed: bool
     guardrail_name: str
     severity: GuardrailSeverity
     message: str = ""
     details: dict = field(default_factory=dict)
-    # For failed validations, what was expected vs found
     expected: Any = None
     found: Any = None
-    # LLM token usage (for guardrails that make LLM calls)
     token_usage: dict = field(default_factory=dict)
 
     @property
@@ -56,7 +91,18 @@ class GuardrailResult:
 
 @dataclass
 class GuardrailPipelineResult:
-    """Result of running all guardrails in the pipeline."""
+    """Aggregate result of running all guardrails in the pipeline.
+
+    Attributes:
+        all_passed: True only if every individual check passed.
+        should_block: True if any CRITICAL or HIGH check failed.
+        results: Flat list of all individual GuardrailResult objects.
+        retry_suggested: True when blocking failures exist but are
+            few enough (<= 2) that a retry with feedback is likely
+            to succeed.
+        blocking_guardrails: Names of guardrails that produced
+            blocking failures.
+    """
 
     all_passed: bool
     should_block: bool
@@ -99,7 +145,12 @@ class GuardrailPipelineResult:
 
 
 class BaseGuardrail(ABC):
-    """Abstract base class for all guardrails."""
+    """Abstract base class for all guardrails.
+
+    Subclasses must implement ``validate()`` and call ``super().__init__()``
+    with a unique name and severity level.  Helper methods ``_pass()`` and
+    ``_fail()`` simplify result construction.
+    """
 
     def __init__(self, name: str, severity: GuardrailSeverity):
         self.name = name
@@ -121,7 +172,7 @@ class BaseGuardrail(ABC):
         """
 
     def _pass(self, message: str = "", details: dict = None) -> GuardrailResult:
-        """Helper to create a passing result."""
+        """Create a passing GuardrailResult."""
         return GuardrailResult(
             passed=True,
             guardrail_name=self.name,
@@ -137,7 +188,7 @@ class BaseGuardrail(ABC):
         found: Any = None,
         details: dict = None,
     ) -> GuardrailResult:
-        """Helper to create a failing result."""
+        """Create a failing GuardrailResult and log a warning."""
         self.logger.warning(f"Guardrail {self.name} failed: {message}")
         return GuardrailResult(
             passed=False,

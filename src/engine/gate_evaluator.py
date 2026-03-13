@@ -1,16 +1,28 @@
 """
 Gate evaluation engine.
 
-Evaluates 6 compliance gates before allowing collection actions.
-Uses deterministic Python logic instead of LLM calls for reliability and speed.
+.. deprecated::
+    This module is **DEPRECATED**.  Gate evaluation has been moved to the
+    Django backend (``services/gate_checker.py``) which implements 9
+    deterministic SQL/Python gates with access to the full data lake.
+
+    The AI Engine endpoint (``POST /evaluate-gates``) still works for
+    backward compatibility but is no longer called by the Django backend
+    in production.  The 6 gates here are a simplified subset of the
+    authoritative 9-gate implementation.
+
+Evaluate 6 compliance gates before allowing collection actions.
+Use deterministic Python logic instead of LLM calls for reliability
+and speed.
 
 Gates:
-- touch_cap: Maximum touches per month not exceeded
-- cooling_off: Minimum days between touches respected
-- dispute_active: No contact if dispute is pending
-- hardship: Special handling if hardship indicated
-- unsubscribe: No contact if opted out
-- escalation_appropriate: Valid escalation path exists
+    touch_cap: Monthly touch count vs level cap
+    cooling_off: Min days between touches + do_not_contact_until hold
+    dispute_active: Block contact if dispute is pending
+    hardship: Flag for sensitive tone (does not block)
+    unsubscribe: Block contact if opted out
+    escalation_appropriate: Validate tone escalation path with
+        industry patience awareness
 """
 
 import logging
@@ -33,7 +45,17 @@ TONE_ESCALATION_ORDER = [
 
 
 class GateEvaluator:
-    """Evaluates compliance gates using deterministic rules."""
+    """Evaluate compliance gates using deterministic rules.
+
+    .. deprecated::
+        Gate evaluation is now handled by Django's
+        ``services/gate_checker.py``.  This class remains for backward
+        compatibility only.
+
+    All gate checks are pure Python -- zero LLM calls.  The evaluate()
+    method runs all 6 gates and returns an overall allow/block decision
+    with per-gate results.
+    """
 
     async def evaluate(self, request: EvaluateGatesRequest) -> EvaluateGatesResponse:
         """
@@ -135,7 +157,15 @@ class GateEvaluator:
         )
 
     def _evaluate_touch_cap(self, monthly_count: int, cap: int) -> GateResult:
-        """Check if monthly touch cap has been reached."""
+        """Check if monthly touch cap has been reached.
+
+        Args:
+            monthly_count: Number of touches this calendar month.
+            cap: Maximum allowed touches per month.
+
+        Returns:
+            GateResult with pass if count < cap.
+        """
         passed = monthly_count < cap
         return GateResult(
             passed=passed,
@@ -151,7 +181,20 @@ class GateEvaluator:
         do_not_contact_active: bool,
         do_not_contact_until: Optional[str],
     ) -> GateResult:
-        """Check if cooling off period has elapsed."""
+        """Check if cooling-off period has elapsed.
+
+        A ``do_not_contact_until`` hold always takes precedence over
+        the standard interval check.
+
+        Args:
+            days_since_last: Days since the most recent outbound touch.
+            interval_days: Minimum required gap between touches.
+            do_not_contact_active: Whether a DNC hold is in effect.
+            do_not_contact_until: ISO date string of the hold expiry.
+
+        Returns:
+            GateResult with pass if interval is met and no DNC hold.
+        """
         # Do not contact hold takes precedence
         if do_not_contact_active:
             return GateResult(
@@ -170,7 +213,7 @@ class GateEvaluator:
         )
 
     def _evaluate_dispute(self, active_dispute: bool) -> GateResult:
-        """Check if there's an active dispute blocking contact."""
+        """Check if an active dispute blocks contact."""
         passed = not active_dispute
         return GateResult(
             passed=passed,
@@ -180,7 +223,11 @@ class GateEvaluator:
         )
 
     def _evaluate_hardship(self, hardship_indicated: bool) -> GateResult:
-        """Check if hardship has been indicated."""
+        """Check if hardship has been indicated.
+
+        Hardship does not block contact but flags the need for a
+        sensitive, empathetic tone in any outbound communication.
+        """
         # Hardship doesn't block, but flags for special handling
         # For now, we pass but include warning in reason
         if hardship_indicated:
@@ -198,7 +245,7 @@ class GateEvaluator:
         )
 
     def _evaluate_unsubscribe(self, unsubscribe_requested: bool) -> GateResult:
-        """Check if party has requested to unsubscribe."""
+        """Check if the party has opted out of contact."""
         passed = not unsubscribe_requested
         return GateResult(
             passed=passed,
@@ -343,7 +390,12 @@ class GateEvaluator:
         )
 
     def _get_recommended_action(self, gate_results: dict[str, GateResult]) -> str:
-        """Generate recommended action based on failed gates."""
+        """Generate a human-readable recommended action based on failed gates.
+
+        Returns the most actionable recommendation, prioritised by
+        severity (unsubscribe > dispute > cooling_off > touch_cap >
+        escalation).
+        """
         failed = [k for k, v in gate_results.items() if not v.passed]
 
         if "unsubscribe" in failed:
@@ -360,5 +412,5 @@ class GateEvaluator:
         return "Review gate failures and adjust approach"
 
 
-# Singleton instance
+# Singleton instance used by the /evaluate-gates route handler.
 gate_evaluator = GateEvaluator()

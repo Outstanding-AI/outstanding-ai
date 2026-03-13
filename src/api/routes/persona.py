@@ -1,8 +1,14 @@
 """
 Persona generation and refinement API endpoints.
 
-POST /generate-persona - Generate initial personas for escalation contacts
-POST /refine-persona - Refine a persona based on performance data
+POST /generate-persona -- Generate initial personas for escalation
+    contacts (cold start, called when admin saves the hierarchy).
+POST /refine-persona -- Refine a sender persona based on accumulated
+    performance data (called during sync cycle for senders with >= 10
+    touches).
+
+Both endpoints are called by the Django backend's
+``ai_engine/client.py``.
 """
 
 import logging
@@ -39,10 +45,12 @@ limiter = Limiter(key_func=get_remote_address)
 async def generate_persona(
     request: Request, persona_request: GeneratePersonaRequest
 ) -> GeneratePersonaResponse:
-    """
-    Generate initial personas for escalation contacts (cold start).
+    """Generate initial personas for escalation contacts (cold start).
 
-    Called when admin saves the escalation hierarchy.
+    Accept a list of contacts (name, title, level, optional style
+    guidance) and return a persona for each with ``communication_style``,
+    ``formality_level``, and ``emphasis``.  Failures for individual
+    contacts are non-fatal -- the persona fields are returned as None.
     """
     logger.info("Generating personas for %d contacts", len(persona_request.contacts))
     contacts = [c.model_dump() for c in persona_request.contacts]
@@ -83,10 +91,15 @@ async def generate_persona(
 async def refine_persona(
     request: Request, refine_request: RefinePersonaRequest
 ) -> RefinePersonaResponse:
-    """
-    Refine a sender persona based on performance data (LLM-driven).
+    """Refine a sender persona based on performance data.
 
-    Called during sync cycle for senders with sufficient data.
+    Accept the current persona, sender performance stats (response
+    rate, cooperative/hostile counts, promise fulfillment, tone
+    distribution, etc.), and optional style anchors.  Return updated
+    persona fields with a ``reasoning`` explanation of what changed.
+
+    Called during the sync cycle by Django's
+    ``gold.refine_sender_personas`` task for senders with >= 10 touches.
     """
     logger.info(
         "Refining persona for %s (level %d)",

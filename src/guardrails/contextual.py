@@ -1,4 +1,13 @@
-"""Contextual Coherence Guardrail - validates consistency with conversation history."""
+"""Contextual Coherence Guardrail -- validate situational awareness.
+
+Check that the AI output is contextually appropriate given the party's
+current state (active dispute, hardship indication, broken promise
+history).  This guardrail catches tone-deaf outputs that ignore
+important context signals.
+
+LOW severity -- failures are logged but never block output, since
+phrase-based detection is heuristic and may produce false positives.
+"""
 
 import logging
 
@@ -10,14 +19,18 @@ logger = logging.getLogger(__name__)
 
 
 class ContextualCoherenceGuardrail(BaseGuardrail):
-    """
-    Validates consistency with conversation history and context.
+    """Validate situational awareness of AI-generated draft text.
 
-    Checks:
-    1. Acknowledges previous contact if touch_count > 0
-    2. Respects active dispute status (doesn't demand payment)
-    3. Respects hardship indication (uses appropriate tone)
-    4. Acknowledges broken promises if count > 0
+    LOW severity -- failures are logged but never block output, since
+    detection uses phrase-matching heuristics that may produce false
+    positives.
+
+    Conditional checks (only run when the relevant flag is set):
+    1. Active dispute: no payment demands without dispute acknowledgment.
+    2. Hardship indicated: no harsh language without empathetic phrasing.
+    3. Broken promises >= 2: history-referencing language expected.
+
+    When no special conditions apply, a single pass result is returned.
     """
 
     def __init__(self):
@@ -27,7 +40,23 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
         )
 
     def validate(self, output: str, context: CaseContext, **kwargs) -> list[GuardrailResult]:
-        """Validate contextual coherence of the output."""
+        """Validate contextual coherence of the output.
+
+        Conditionally run sub-checks based on context flags:
+        - Active dispute: check for inappropriate payment demands.
+        - Hardship indicated: check for harsh language without empathy.
+        - Broken promises >= 2: check for history acknowledgment.
+
+        If no special conditions apply, return a single pass result.
+
+        Args:
+            output: AI-generated draft body text.
+            context: Case context with dispute/hardship/promise flags.
+            **kwargs: Unused.
+
+        Returns:
+            List of GuardrailResult objects (one per applicable check).
+        """
         results = []
 
         # Check dispute handling
@@ -49,7 +78,12 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
         return results
 
     def _validate_dispute_awareness(self, output: str, context: CaseContext) -> GuardrailResult:
-        """Validate that output respects active dispute status."""
+        """Validate that the output respects an active dispute.
+
+        Fail if the draft contains payment-demand language without
+        also acknowledging the dispute.  Fail if the dispute is not
+        acknowledged at all.
+        """
         output_lower = output.lower()
 
         # Phrases that suggest payment demand (inappropriate during dispute)
@@ -107,7 +141,12 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
         )
 
     def _validate_hardship_tone(self, output: str, context: CaseContext) -> GuardrailResult:
-        """Validate that output uses appropriate tone for hardship cases."""
+        """Validate that the output uses empathetic tone for hardship.
+
+        Fail if harsh/demanding phrases appear without any empathetic
+        language.  Also fail if no empathetic language is detected at
+        all, even without harsh phrases.
+        """
         output_lower = output.lower()
 
         # Harsh/demanding phrases (inappropriate for hardship)
@@ -166,7 +205,12 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
         )
 
     def _validate_promise_awareness(self, output: str, context: CaseContext) -> GuardrailResult:
-        """Validate awareness of broken promises history."""
+        """Validate that the output acknowledges broken promise history.
+
+        Only triggers when ``broken_promises_count >= 2``.  Check for
+        history-referencing phrases (e.g., "previous", "again",
+        "commitment") in the draft text.
+        """
         output_lower = output.lower()
 
         # If multiple broken promises, output should acknowledge history

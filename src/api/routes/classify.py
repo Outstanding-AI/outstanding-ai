@@ -1,10 +1,17 @@
 """
 Email classification API endpoint.
 
-POST /classify - Classify an inbound email from a debtor.
+POST /classify -- Classify an inbound debtor email into one of 23
+categories (COOPERATIVE, DISPUTE, PROMISE_TO_PAY, etc.) with confidence
+score, extracted intent data, and optional guardrail validation.
+
+Called by the Django backend's ``ai_engine/client.py`` during the
+``ai.process_email_classification`` background job.
 
 Security:
-- Rate limited: configurable via settings (default 100/minute for internal service calls)
+    - Rate limited via slowapi (default 100/minute, configurable).
+    - Service-to-service auth via Bearer token when
+      ``SERVICE_AUTH_TOKEN`` is set.
 """
 
 import logging
@@ -37,11 +44,17 @@ limiter = Limiter(key_func=get_remote_address)
 )
 @limiter.limit(settings.rate_limit_classify)
 async def classify_email(request: Request, classify_request: ClassifyRequest) -> ClassifyResponse:
-    """
-    Classify an inbound email from a debtor.
+    """Classify an inbound email from a debtor.
 
-    Returns classification (COOPERATIVE, PROMISE, DISPUTE, etc.),
-    confidence score, and any extracted data.
+    Accept a ``ClassifyRequest`` containing the email (subject, body,
+    from_address) and case context (party, obligations, industry).
+    Return the primary classification, confidence, secondary intents,
+    extracted data (promise dates, amounts, redirect contacts), and
+    guardrail validation results.
+
+    The classification drives downstream side-effects in Django:
+    draft discard/regeneration, verification task creation, and
+    obligation collection status updates.
     """
     logger.info(f"Classifying email for party: {classify_request.context.party.party_id}")
     result = await classifier.classify(classify_request)

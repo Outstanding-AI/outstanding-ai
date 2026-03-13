@@ -1,4 +1,21 @@
-"""Entity Verification Guardrail - LLM-based validation of customer/party identifiers."""
+"""Entity Verification Guardrail -- LLM-based identifier validation.
+
+Use an LLM-as-judge pattern to verify that the AI-generated draft
+references the correct customer code and party name.  Pure regex
+cannot handle semantic variations (e.g., "Acme Corp" vs "ACME
+Corporation Ltd") or judge whether generic greetings like "Dear
+Accounts Team" are acceptable, so an LLM call is necessary.
+
+HIGH severity -- blocks output on failure.
+
+This is the only guardrail that makes an LLM call (via structured
+output for guaranteed JSON).  Token usage is tracked and aggregated
+into the pipeline result for cost accounting.  Retries up to 3 times
+with exponential backoff on transient LLM failures.
+
+Additionally performs deterministic email address validation when
+``extracted_data`` is provided (e.g., from classification).
+"""
 
 import asyncio
 import json
@@ -22,10 +39,11 @@ INITIAL_BACKOFF_SECONDS = 1.0
 
 
 class EntityValidationResult(BaseModel):
-    """Structured output schema for entity validation.
+    """Structured output schema for the entity validation LLM call.
 
-    Using Pydantic model with with_structured_output() ensures the LLM
-    returns valid JSON matching this exact schema - no markdown, no parsing errors.
+    Pass this as ``response_schema`` to ``llm_client.complete()`` to
+    guarantee the LLM returns valid JSON matching this exact shape.
+    This eliminates markdown wrapping and JSON parsing errors.
     """
 
     customer_code_valid: bool = Field(
@@ -74,18 +92,23 @@ Set "passed" to false only if there are actual mismatches or hallucinated identi
 
 
 class EntityVerificationGuardrail(BaseGuardrail):
-    """
-    LLM-based entity verification guardrail.
+    """LLM-based entity verification guardrail.
 
-    Uses the LLM to validate that:
-    1. Customer code is correct (if mentioned)
-    2. Party name is accurate (or acceptably generic)
-    3. No hallucinated identifiers exist
+    HIGH severity -- blocks output on failure.
 
-    This uses LLM-as-judge pattern because:
-    - Regex can't understand semantic variations ("Acme Corp" vs "ACME Corporation")
-    - Only LLM can judge if "Dear Accounts Team" is acceptable for "Compton Packaging"
-    - Scales across different industries and naming conventions
+    Uses an LLM-as-judge pattern because regex cannot handle semantic
+    name variations ("Acme Corp" vs "ACME Corporation") or judge
+    whether generic greetings are acceptable.
+
+    Checks:
+    1. Customer code is correct (if mentioned in draft).
+    2. Party name is accurate (or acceptably generic).
+    3. No hallucinated identifiers exist.
+    4. Email addresses match ``extracted_data`` (deterministic, no LLM).
+
+    This is the only guardrail that makes an LLM call.  Retries up to
+    ``MAX_RETRIES`` (3) with exponential backoff on transient failures.
+    Token usage is tracked for cost aggregation in the pipeline result.
     """
 
     def __init__(self):
@@ -95,11 +118,24 @@ class EntityVerificationGuardrail(BaseGuardrail):
         )
 
     def validate(self, output: str, context: CaseContext, **kwargs) -> list[GuardrailResult]:
-        """
-        Validate entity identifiers using LLM-based verification with retry.
+        """Validate entity identifiers using LLM verification with retry.
 
-        Runs the LLM synchronously using asyncio.run() since guardrails
-        execute in a thread pool. Retries on failure with exponential backoff.
+        Run the LLM call synchronously (via ``asyncio.new_event_loop``)
+        since guardrails execute inside a ``ThreadPoolExecutor``.
+        Retry up to ``MAX_RETRIES`` times with exponential backoff on
+        transient failures.
+
+        If ``extracted_data`` is present in kwargs, also run
+        deterministic email address validation (no LLM needed).
+
+        Args:
+            output: AI-generated draft body text.
+            context: Case context with party identifiers.
+            **kwargs: ``extracted_data`` (ExtractedData or None).
+
+        Returns:
+            List of GuardrailResult objects for customer code, party
+            name, and optionally email addresses.
         """
         results = []
 
@@ -252,7 +288,12 @@ class EntityVerificationGuardrail(BaseGuardrail):
     def _validate_emails(
         self, output: str, _context: CaseContext, extracted_data: Any
     ) -> GuardrailResult:
-        """Validate that email addresses are not fabricated."""
+        """Validate that email addresses in the output are not fabricated.
+
+        Only email addresses found in ``extracted_data.redirect_email``
+        are considered valid.  Any other email address in the draft is
+        flagged as potentially hallucinated.
+        """
         # Extract email addresses from output
         email_pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
         found_emails = set(re.findall(email_pattern, output))

@@ -1,8 +1,11 @@
 """
 Health check API endpoints.
 
-GET /ping   - Simple liveness check (for Docker, no LLM calls)
-GET /health - Full health check with LLM provider verification (expensive, use sparingly)
+GET /ping   -- Simple liveness check for Docker / load balancer probes.
+    Zero cost, returns immediately with uptime.
+GET /health -- Full health check that makes actual LLM API calls to
+    verify provider availability.  Expensive -- use sparingly
+    (e.g., every 15 minutes from monitoring).
 """
 
 import logging
@@ -22,7 +25,12 @@ _start_time = time.time()
 
 
 class PingResponse(BaseModel):
-    """Simple ping response for liveness checks."""
+    """Simple ping response for liveness checks.
+
+    Attributes:
+        status: Always "ok" if the service is running.
+        uptime_seconds: Seconds since the FastAPI process started.
+    """
 
     status: str = "ok"
     uptime_seconds: float

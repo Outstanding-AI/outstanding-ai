@@ -1,4 +1,12 @@
-"""Factual Grounding Guardrail - validates facts exist in context."""
+"""Factual Grounding Guardrail -- validate facts exist in context.
+
+Ensure the LLM only references invoice numbers and monetary amounts
+that actually exist in the case context.  This is the primary defense
+against hallucinated financial data in collection emails.
+
+CRITICAL severity -- blocks output on failure and triggers the
+guardrail retry loop in the draft generator.
+"""
 
 import logging
 import re
@@ -9,7 +17,9 @@ from .base import BaseGuardrail, GuardrailResult, GuardrailSeverity
 
 logger = logging.getLogger(__name__)
 
-# Reusable amount extraction patterns
+# Reusable regex patterns to extract monetary amounts from prose.
+# Covers symbol-prefixed (£1,500.00), code-suffixed (1500 GBP), and
+# code-prefixed (GBP 1500) formats for GBP, USD, and EUR.
 AMOUNT_PATTERNS = [
     r"[£$€]\s*([\d,]+(?:\.\d{2})?)",  # £1,500.00
     r"([\d,]+(?:\.\d{2})?)\s*(?:GBP|USD|EUR)",  # 1500 GBP
@@ -39,7 +49,21 @@ class FactualGroundingGuardrail(BaseGuardrail):
         )
 
     def validate(self, output: str, context: CaseContext, **kwargs) -> list[GuardrailResult]:
-        """Validate factual grounding of the output."""
+        """Validate factual grounding of the output.
+
+        Run two sub-checks: invoice number validation and amount
+        validation.  Closure-mode drafts skip both checks entirely
+        since they contain no financial references.
+
+        Args:
+            output: AI-generated draft body text.
+            context: Case context with obligations and recent messages.
+            **kwargs: ``closure_mode`` (bool), ``skip_invoice_table``
+                (bool).
+
+        Returns:
+            List of two GuardrailResult objects (invoice + amount).
+        """
         closure_mode = kwargs.get("closure_mode", False)
 
         # Closure emails: no invoice/amount validation needed
@@ -55,7 +79,13 @@ class FactualGroundingGuardrail(BaseGuardrail):
         return results
 
     def _validate_invoice_numbers(self, output: str, context: CaseContext) -> GuardrailResult:
-        """Validate that all invoice numbers in output exist in context."""
+        """Validate that all invoice numbers in the output exist in context.
+
+        Use both exact string matching and regex pattern matching to
+        find invoice references.  Flexible matching allows numeric-only
+        portions to match (e.g., "12345" matches "INV-12345").
+        Obligations with null/empty invoice numbers are skipped.
+        """
         # Extract invoice numbers from output using common patterns
         # Matches: INV-12345, INV12345, Invoice 12345, #12345, etc.
         # NOTE: Patterns must be restrictive to avoid false positives with garbage chars
@@ -122,7 +152,17 @@ class FactualGroundingGuardrail(BaseGuardrail):
         )
 
     def _validate_amounts(self, output: str, context: CaseContext, **kwargs) -> GuardrailResult:
-        """Validate that monetary amounts in output match context data."""
+        """Validate that monetary amounts in the output match context data.
+
+        Build a set of valid amounts from obligation ``amount_due`` and
+        ``original_amount`` fields, plus the computed total.  For
+        follow-up drafts (``skip_invoice_table=True``), also include
+        amounts from conversation history so the LLM can legitimately
+        echo debtor-mentioned figures.
+
+        Every amount found in prose must exist in the valid set
+        (with rounding tolerance of 0.01).
+        """
         skip_invoice_table = kwargs.get("skip_invoice_table", False)
 
         # Build set of valid amounts from obligations
@@ -198,10 +238,21 @@ class FactualGroundingGuardrail(BaseGuardrail):
     def _extract_conversation_amounts(recent_messages: list) -> set:
         """Extract monetary amounts from conversation history.
 
-        Sources (in priority order):
-        1. Structured extracted fields (claimed_amount, disputed_amount, promise_amount)
-           — most reliable, set by AI classifier
-        2. Body snippet regex — fallback for amounts not captured by classifier
+        Use a two-tier extraction strategy:
+
+        1. **Structured fields** (highest priority): Read
+           ``claimed_amount``, ``disputed_amount``, ``promise_amount``
+           from classifier-populated fields on each message.  These are
+           the most reliable source.
+        2. **Regex fallback**: Scan ``body_snippet`` text for currency
+           patterns to catch amounts the classifier did not extract.
+
+        Args:
+            recent_messages: List of message dicts from
+                ``context.recent_messages``.
+
+        Returns:
+            Set of float amounts found across all messages.
         """
         amounts = set()
         for msg in recent_messages:

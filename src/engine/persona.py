@@ -1,8 +1,28 @@
 """
 Persona generation and refinement engine.
 
-- Cold start: generates initial persona from name + title + level
-- Refinement: LLM-driven update based on sender performance stats
+Manage the 4-layer persona pipeline for escalation contacts:
+
+1. **Tone** -- selected by Django's ``_select_tone_from_context()``
+   (behaviour segment, touch count, amount percentile).
+2. **Persona** -- generated here (communication_style, formality_level,
+   emphasis) from the contact's name, title, escalation level, and
+   optional style guidance.
+3. **Style Examples** -- user-provided email samples anchoring the
+   persona's voice across refinement cycles.
+4. **Case Context** -- injected at draft-generation time.
+
+Two operations:
+
+- **Cold start** (``generate_personas``): Called when the admin saves the
+  escalation hierarchy.  Produces an initial persona for each contact
+  using a single LLM call per contact.
+- **Refinement** (``refine_persona``): Called during the sync cycle
+  (``gold.refine_sender_personas``) for senders with >= 10 accumulated
+  touches.  The LLM receives the current persona alongside aggregated
+  performance stats (response rate, cooperative count, hostile count,
+  promise fulfillment, tone distribution, etc.) and outputs an updated
+  persona with reasoning.
 """
 
 import json
@@ -26,7 +46,11 @@ logger = logging.getLogger(__name__)
 
 
 class PersonaGenerator:
-    """Generates and refines sender personas using LLM."""
+    """Generate and refine sender personas using LLM.
+
+    A singleton instance (``persona_generator``) is exported at module
+    level for use by the FastAPI route handlers.
+    """
 
     async def generate_personas(self, contacts: list, total_levels: int = 4) -> dict:
         """
@@ -85,7 +109,24 @@ class PersonaGenerator:
         }
 
     async def _generate_single(self, contact: dict, total_levels: int) -> tuple:
-        """Generate persona for a single contact. Returns (persona_dict, response_meta)."""
+        """Generate persona for a single contact.
+
+        Build a prompt incorporating the contact's name, title,
+        escalation level description (from ``LEVEL_DESCRIPTIONS``),
+        and any user-provided style guidance / example emails.
+
+        Args:
+            contact: Dict with keys ``name``, ``title``, ``level``,
+                and optionally ``style_description``, ``style_examples``.
+            total_levels: Total escalation levels in the hierarchy
+                (typically 4).
+
+        Returns:
+            Tuple of (persona_dict, response_meta) where persona_dict
+            contains ``name``, ``level``, ``communication_style``,
+            ``formality_level``, ``emphasis``; and response_meta
+            contains token usage and provider info.
+        """
         level = contact.get("level", 1)
         level_description = LEVEL_DESCRIPTIONS.get(level, LEVEL_DESCRIPTIONS[1])
 
@@ -153,16 +194,33 @@ class PersonaGenerator:
         style_description: str = None,
         style_examples: list = None,
     ) -> dict:
-        """
-        Refine a persona based on sender performance stats (LLM-driven).
+        """Refine a persona based on sender performance stats.
+
+        The LLM receives the current persona profile alongside
+        aggregated performance metrics and returns an updated persona
+        with a ``reasoning`` field explaining the changes.
+
+        Style anchors (``style_description``, ``style_examples``) are
+        included when available to prevent persona drift away from the
+        user's intended voice.
 
         Args:
-            contact: dict with name, title, level
-            current_persona: dict with communication_style, formality_level, emphasis, persona_version
-            performance: dict with all sender_performance stats
+            contact: Dict with ``name``, ``title``, ``level``.
+            current_persona: Dict with ``communication_style``,
+                ``formality_level``, ``emphasis``.
+            performance: Dict with all ``sender_performance`` stats
+                (response_rate, cooperative_count, hostile_count,
+                promise_fulfillment_rate, tone_distribution, etc.).
+            persona_version: Current persona version number for
+                tracking refinement iterations.
+            style_description: Optional user-provided style guidance.
+            style_examples: Optional list of example emails from this
+                sender.
 
         Returns:
-            Updated persona dict
+            Dict with updated persona fields (communication_style,
+            formality_level, emphasis, reasoning) and token/provider
+            metadata.
         """
         total_touches = performance.get("total_touches", 0)
 
@@ -265,5 +323,6 @@ class PersonaGenerator:
         }
 
 
-# Singleton instance
+# Singleton instance used by the /generate-persona and /refine-persona
+# route handlers.
 persona_generator = PersonaGenerator()

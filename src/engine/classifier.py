@@ -1,9 +1,29 @@
 """
 Email classification engine.
 
-Classifies inbound debtor emails into 13 categories based on ai_logic.md:
-INSOLVENCY, DISPUTE, ALREADY_PAID, UNSUBSCRIBE, HOSTILE, PROMISE_TO_PAY,
-HARDSHIP, PLAN_REQUEST, REDIRECT, REQUEST_INFO, OUT_OF_OFFICE, COOPERATIVE, UNCLEAR
+Classify inbound debtor emails into one of 23 categories using a structured
+LLM call.  The classifier also extracts structured intent data (promise
+dates, disputed amounts, insolvency details, redirect contacts, etc.) that
+the Django backend uses to drive obligation-level side-effects.
+
+Categories (grouped by post-classification draft action):
+
+**Follow-up** (discard old draft, generate new):
+    COOPERATIVE, REQUEST_INFO, PLAN_REQUEST, ALREADY_PAID, REDIRECT,
+    QUERY_QUESTION, ESCALATION_REQUEST
+
+**Discard only** (no new draft -- case paused or needs review):
+    PROMISE_TO_PAY, DISPUTE, INSOLVENCY, HARDSHIP, UNSUBSCRIBE, HOSTILE,
+    OUT_OF_OFFICE, AMOUNT_DISAGREEMENT, RETENTION_CLAIM, LEGAL_RESPONSE
+
+**No action** (keep existing draft):
+    UNCLEAR, GENERIC_ACKNOWLEDGEMENT, PAYMENT_CONFIRMATION,
+    REMITTANCE_ADVICE, EMAIL_BOUNCE, PARTIAL_PAYMENT_NOTIFICATION
+
+The classifier runs guardrails on its own *reasoning* output to validate
+any facts the LLM mentions (invoice numbers, amounts).  Guardrail results
+are returned alongside the classification but do NOT block classification
+delivery -- they serve as a quality signal for downstream consumers.
 """
 
 import json
@@ -26,7 +46,21 @@ logger = logging.getLogger(__name__)
 
 
 class EmailClassifier:
-    """Classifies inbound emails from debtors."""
+    """Classify inbound debtor emails into categories with intent extraction.
+
+    The classifier is stateless; all context arrives via the request object.
+    A singleton instance (``classifier``) is exported at module level for
+    use by the FastAPI route handler.
+
+    Pipeline:
+    1. Build a rich user prompt with party context, per-invoice table,
+       industry context, and the raw email (subject + body).
+    2. Call the LLM with ``ClassificationLLMResponse`` structured output.
+    3. Parse extracted data (promise dates, amounts, redirect contacts).
+    4. Run guardrails on the LLM reasoning text.
+    5. Return classification, confidence, extracted data, and guardrail
+       validation metadata.
+    """
 
     async def classify(self, request: ClassifyRequest) -> ClassifyResponse:
         """
@@ -38,14 +72,19 @@ class EmailClassifier:
         Returns:
             Classification result with confidence, extracted data, and guardrail validation
         """
-        # Calculate derived values
+        # Compute derived aggregates from obligations for the prompt.
+        # These give the LLM a summary view alongside the per-invoice table.
         total_outstanding = sum(o.amount_due for o in request.context.obligations)
         days_overdue_max = max((o.days_past_due for o in request.context.obligations), default=0)
 
-        # Build industry context section
+        # Industry context helps the LLM interpret domain-specific
+        # language (e.g., retention claims in construction, seasonal
+        # patterns in agriculture).
         industry_context = self._format_industry_context(request.context.industry)
 
-        # Build per-invoice table for the prompt
+        # Per-invoice table gives the LLM granular visibility into each
+        # obligation so it can match invoice references in the email body
+        # and detect per-invoice intents (e.g., "we paid INV-1234").
         invoice_table = self._format_invoice_table(request.context)
 
         # Build user prompt with context
@@ -205,7 +244,21 @@ class EmailClassifier:
         )
 
     def _format_invoice_table(self, context) -> str:
-        """Format per-invoice details for the classification prompt."""
+        """Format per-invoice details for the classification prompt.
+
+        Build a human-readable list of all outstanding obligations with
+        invoice number, amount, due date, and days overdue.  When
+        obligation-level collection statuses are available, append them
+        so the LLM can distinguish open vs. disputed vs. promised
+        invoices.
+
+        Args:
+            context: Case context containing obligations and optionally
+                obligation_statuses.
+
+        Returns:
+            Formatted multi-line string of invoice details.
+        """
         if not context.obligations:
             return "No outstanding invoices on record."
 
@@ -244,7 +297,17 @@ class EmailClassifier:
         return "\n".join(lines)
 
     def _format_industry_context(self, industry) -> str:
-        """Format industry context for prompt inclusion."""
+        """Format industry context for the classification prompt.
+
+        Args:
+            industry: Industry profile object (or None) with fields
+                for common dispute types, hardship indicators, and
+                handling notes.
+
+        Returns:
+            Multi-line string of industry context, or a generic
+            fallback message when no industry profile exists.
+        """
         if not industry:
             return "Not specified (general B2B collection)"
 
@@ -267,5 +330,5 @@ class EmailClassifier:
         return "\n".join(lines)
 
 
-# Singleton instance
+# Singleton instance used by the /classify route handler.
 classifier = EmailClassifier()

@@ -1,10 +1,17 @@
 """
 Draft generation API endpoint.
 
-POST /generate-draft - Generate a collection email draft.
+POST /generate-draft -- Generate a collection email draft with subject,
+body (containing ``{INVOICE_TABLE}`` placeholder), tone metadata, and
+guardrail validation results.
+
+Called by the Django backend's ``ai_engine/client.py`` during the
+``ai.generate_draft_for_party`` background job.
 
 Security:
-- Rate limited: configurable via settings (default 100/minute for internal service calls)
+    - Rate limited via slowapi (default 100/minute, configurable).
+    - Service-to-service auth via Bearer token when
+      ``SERVICE_AUTH_TOKEN`` is set.
 """
 
 import logging
@@ -39,10 +46,17 @@ limiter = Limiter(key_func=get_remote_address)
 async def generate_draft(
     request: Request, generate_request: GenerateDraftRequest
 ) -> GenerateDraftResponse:
-    """
-    Generate a collection email draft.
+    """Generate a collection email draft.
 
-    Returns subject, body, and metadata about the generated draft.
+    Accept a ``GenerateDraftRequest`` containing full case context
+    (party, obligations, behaviour, escalation history, conversation
+    history), tone, sender persona, and optional flags
+    (``skip_invoice_table``, ``closure_mode``, ``trigger_classification``).
+
+    Return subject, body (with ``{INVOICE_TABLE}`` placeholder for
+    standard drafts), guardrail validation, token usage, and provider
+    metadata.  The Django backend replaces the placeholder with a
+    formatted HTML/plain-text invoice table before pushing to Outlook.
     """
     logger.info(f"Generating draft for party: {generate_request.context.party.party_id}")
     result = await generator.generate(generate_request)

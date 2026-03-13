@@ -1,12 +1,23 @@
 """
 Draft generation engine.
 
-Generates collection email drafts with 5 tones based on ai_logic.md:
-friendly_reminder, professional, firm, final_notice, concerned_inquiry
+Orchestrate collection email draft creation through a multi-step pipeline:
+1. Build a rich user prompt from case context (party, obligations, behaviour,
+   escalation history, conversation history, industry, sender persona).
+2. Call the primary LLM (Gemini) with structured output for guaranteed JSON.
+3. Run 6 parallel guardrails on the generated body.
+4. On guardrail failure, feed specific error details back to the LLM and
+   retry (up to ``MAX_GUARDRAIL_RETRIES`` times).
+5. Return the final draft with subject, body, tone, guardrail validation,
+   and token usage metadata.
 
-Includes guardrail retry mechanism: if guardrails fail, the generator
-will retry with feedback about what went wrong, giving the LLM a chance
-to correct its output.
+Supported tones (see ``ai_logic.md``):
+    friendly_reminder, professional, firm, final_notice, concerned_inquiry
+
+The LLM outputs an ``{INVOICE_TABLE}`` placeholder which Django replaces
+with a formatted HTML/plain-text invoice table post-generation.  Follow-up
+and closure drafts suppress the invoice table via ``skip_invoice_table``
+and ``closure_mode`` flags respectively.
 """
 
 import json
@@ -29,7 +40,24 @@ logger = logging.getLogger(__name__)
 
 
 class DraftGenerator:
-    """Generates collection email drafts with guardrail retry mechanism."""
+    """Generate collection email drafts with automatic guardrail retry.
+
+    The generator is stateless; all context arrives via the request object.
+    A singleton instance (``generator``) is exported at module level for
+    use by the FastAPI route handler.
+
+    Key design decisions:
+    - Obligations are sorted by ``days_past_due`` descending and capped at
+      10 to keep the prompt within token budgets while surfacing the most
+      urgent items.
+    - ``total_outstanding`` is computed server-side (sum of ``amount_due``)
+      rather than trusting the caller, ensuring guardrail math checks pass.
+    - Follow-up drafts (``skip_invoice_table=True``) suppress the
+      ``{INVOICE_TABLE}`` placeholder and instruct the LLM to focus on
+      the conversation, not invoice details.
+    - Closure drafts (``closure_mode=True``) produce grateful, non-collection
+      language with no monetary references.
+    """
 
     async def generate(self, request: GenerateDraftRequest) -> GenerateDraftResponse:
         """
@@ -45,19 +73,29 @@ class DraftGenerator:
         fail, passing the failure reasons back to the LLM to help it correct
         the output.
         """
-        # Calculate derived values
+        # --- Derived values computed from context obligations ---
+        # total_outstanding: authoritative sum used by guardrails for math
+        # verification (NumericalConsistencyGuardrail).  Computed here
+        # rather than trusted from the caller.
         total_outstanding = sum(o.amount_due for o in request.context.obligations)
         max_days_overdue = max((o.days_past_due for o in request.context.obligations), default=0)
         obligation_count = len(request.context.obligations)
 
-        # Build invoices list (top 10 by days overdue)
+        # Sort obligations by severity (most overdue first) and cap at 10
+        # to keep the prompt within token limits while surfacing the
+        # highest-priority items for the LLM.
         sorted_obligations = sorted(
-            request.context.obligations, key=lambda o: o.days_past_due, reverse=True
+            request.context.obligations,
+            key=lambda o: o.days_past_due,
+            reverse=True,
         )[:10]
 
         if request.skip_invoice_table:
-            # Follow-up / closure drafts: provide context for reference but instruct
-            # the LLM not to include an invoice table or reference one in prose
+            # Follow-up / closure drafts: the LLM receives obligation data
+            # for contextual awareness but is explicitly told NOT to output
+            # the {INVOICE_TABLE} placeholder or list invoice details in
+            # prose.  This prevents guardrail failures on factual grounding
+            # when the draft is an acknowledgment, not a collection demand.
             invoices_list = (
                 "(Invoice table suppressed — this is a follow-up response, NOT a collection email.\n"
                 "Do NOT include {INVOICE_TABLE} or reference 'the table below' or list invoice details.\n"
@@ -171,7 +209,13 @@ class DraftGenerator:
         base_user_prompt += config_section
         base_user_prompt += extra_sections
 
-        # Retry loop for guardrail failures
+        # --- Guardrail retry loop ---
+        # On each iteration: call LLM -> validate with guardrails.
+        # If guardrails fail and retries remain, build a feedback prompt
+        # containing the specific failures and append it to the user
+        # prompt so the LLM can self-correct.  Token usage is accumulated
+        # across all attempts (including guardrail LLM calls like entity
+        # verification) for accurate cost tracking.
         guardrail_feedback = None
         total_tokens_used = 0
         total_prompt_tokens = 0
@@ -350,7 +394,17 @@ class DraftGenerator:
         )
 
     def _format_sender_persona(self, request: GenerateDraftRequest) -> str:
-        """Format sender persona context for prompt inclusion."""
+        """Format sender persona context for prompt inclusion.
+
+        Args:
+            request: The generation request containing sender persona,
+                name, title, and company.
+
+        Returns:
+            Multi-line string describing the sender persona for LLM
+            prompt injection.  Falls back to name/title placeholders
+            when no persona profile is available.
+        """
         company = request.sender_company or ""
         persona = request.sender_persona
         if not persona or not persona.communication_style:
@@ -378,7 +432,17 @@ class DraftGenerator:
         return "\n".join(lines)
 
     def _format_industry_context(self, industry) -> str:
-        """Format industry context for prompt inclusion."""
+        """Format industry context for prompt inclusion.
+
+        Args:
+            industry: Industry profile object (or None) with fields
+                like payment_cycle, typical_dso_days, escalation_patience,
+                seasonal_patterns, and ai_context_notes.
+
+        Returns:
+            Multi-line string of industry context.  Includes
+            current-quarter seasonal pattern when available.
+        """
         if not industry:
             return "Not specified (general B2B collection)"
 
@@ -406,7 +470,26 @@ class DraftGenerator:
         return "\n".join(lines)
 
     def _build_extra_sections(self, request, behavior) -> str:
-        """Build extended prompt sections for new context layers."""
+        """Build extended prompt sections for new context layers.
+
+        Append optional context blocks to the user prompt:
+        - Behaviour segment and profile metrics
+        - Escalation history (prior senders for handoff narrative)
+        - Sender style guidance and examples
+        - Conversation history (recent inbound/outbound messages)
+        - Last response snippet (fallback when no full history)
+        - Tone preference override
+        - Closure mode instructions
+        - Invoice table placeholder instructions
+        - Follow-up trigger classification guidance
+
+        Args:
+            request: The generation request with full case context.
+            behavior: Party behaviour profile (or None).
+
+        Returns:
+            Concatenated string of all applicable prompt sections.
+        """
         sections = []
 
         # Behaviour segment
@@ -564,8 +647,20 @@ class DraftGenerator:
     def _build_config_section(self, request: GenerateDraftRequest, comm) -> str:
         """Build dynamic configuration section for prompt injection.
 
-        Extracts tenant/industry thresholds so the LLM uses real config
-        values instead of hardcoded defaults.
+        Extract tenant/industry thresholds so the LLM uses real config
+        values instead of hardcoded defaults.  Covers escalation touch
+        threshold, previous sender (for handoff narrative), legal
+        handoff days, payment plan defaults, escalation status, and
+        last outbound subject.
+
+        Args:
+            request: The generation request with tenant settings and
+                industry profile.
+            comm: Communication context (or None) with last_sender_name,
+                last_sender_level, etc.
+
+        Returns:
+            Multi-line string of configuration parameters for the LLM.
         """
         lines = ["\n\n**Dynamic Configuration (use these values, NOT defaults):**"]
 
@@ -699,5 +794,5 @@ class DraftGenerator:
         return "\n".join(feedback_lines)
 
 
-# Singleton instance
+# Singleton instance used by the /generate-draft route handler.
 generator = DraftGenerator()

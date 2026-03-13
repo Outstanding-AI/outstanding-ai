@@ -1,4 +1,20 @@
-"""Guardrail Pipeline - orchestrates all guardrails."""
+"""Guardrail Pipeline -- orchestrate all 6 guardrails.
+
+Run guardrails either in parallel (default, via ``ThreadPoolExecutor``)
+or sequentially (with optional fail-fast on CRITICAL failures).  The
+pipeline collects individual ``GuardrailResult`` objects, determines
+whether any blocking failures exist, and returns a single
+``GuardrailPipelineResult`` consumed by the draft generator and
+classifier.
+
+Execution order is by severity (CRITICAL first, LOW last) so that the
+most important checks are prioritised in sequential mode and their
+results appear first in logs.
+
+Thread pool size is fixed at 6 (one thread per guardrail) to match
+the default guardrail set.  The pool is module-level to avoid
+per-request thread creation overhead.
+"""
 
 import logging
 import time
@@ -25,14 +41,22 @@ _guardrail_executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="guar
 
 
 class GuardrailPipeline:
-    """
-    Orchestrates all guardrails in a pipeline.
+    """Orchestrate all 6 guardrails via parallel or sequential execution.
 
-    Guardrails are run in order of severity:
-    1. Critical guardrails (block on failure)
-    2. High guardrails (block on failure)
-    3. Medium guardrails (warn, allow with flag)
-    4. Low guardrails (log only)
+    Default mode is **parallel** using a module-level ``ThreadPoolExecutor``
+    (6 workers, one per guardrail).  This allows I/O-bound checks (entity
+    verification LLM call) to overlap with CPU-bound regex checks.
+
+    Guardrails are sorted by severity (CRITICAL first) so that in
+    sequential/fail-fast mode the most important checks run first.
+
+    Severity determines blocking behaviour:
+    - CRITICAL / HIGH: block output (``should_block=True``)
+    - MEDIUM: warn, allow with flag
+    - LOW: log only, allow
+
+    A singleton instance (``guardrail_pipeline``) is exported at module
+    level and shared by the draft generator and email classifier.
     """
 
     def __init__(self, guardrails: list[BaseGuardrail] = None):
@@ -62,7 +86,12 @@ class GuardrailPipeline:
         )
 
     def _get_default_guardrails(self) -> list[BaseGuardrail]:
-        """Get the default set of guardrails."""
+        """Return the default set of 6 guardrails.
+
+        Order here does not matter -- the ``__init__`` sorts by severity.
+        PlaceholderValidation is listed first as a hint that it is the
+        cheapest (deterministic, zero LLM calls).
+        """
         return [
             PlaceholderValidationGuardrail(),  # Deterministic, zero-cost — runs first
             FactualGroundingGuardrail(),
@@ -160,7 +189,9 @@ class GuardrailPipeline:
         should_block = False
         guardrail_latencies = {}
 
-        # Submit all guardrails to thread pool
+        # Submit all guardrails concurrently.  Each guardrail runs in
+        # its own thread, allowing I/O-bound checks (e.g., entity
+        # verification LLM call) to overlap with CPU-bound regex checks.
         futures = {
             _guardrail_executor.submit(
                 self._run_single_guardrail, guardrail, output, context, **kwargs
@@ -168,7 +199,9 @@ class GuardrailPipeline:
             for guardrail in self.guardrails
         }
 
-        # Collect results as they complete
+        # Collect results as they complete (order is non-deterministic).
+        # Blocking failures and exceptions are tracked for the aggregate
+        # pipeline result.
         for future in as_completed(futures):
             guardrail_name, results, exception, latency_ms = future.result()
             guardrail_latencies[guardrail_name] = latency_ms
@@ -214,6 +247,9 @@ class GuardrailPipeline:
             },
         )
 
+        # retry_suggested is True when there are blocking failures but
+        # few enough (<= 2) that targeted LLM feedback is likely to fix
+        # them.  The draft generator uses this to decide whether to retry.
         return GuardrailPipelineResult(
             all_passed=all_passed,
             should_block=should_block,
@@ -354,12 +390,19 @@ class GuardrailPipeline:
         )
 
     def get_retry_prompt_addition(self, pipeline_result: GuardrailPipelineResult, **kwargs) -> str:
-        """
-        Generate context-aware retry prompt instructions based on guardrail failures.
+        """Generate context-aware retry prompt based on guardrail failures.
+
+        Build specific remediation instructions for each failed guardrail
+        so the LLM can self-correct on the next attempt.  Instructions
+        are adapted to the draft type (standard, follow-up, closure).
 
         Args:
-            pipeline_result: Results from the guardrail pipeline
-            **kwargs: Draft context (skip_invoice_table, closure_mode, etc.)
+            pipeline_result: Results from the guardrail pipeline.
+            **kwargs: Draft context flags -- ``skip_invoice_table`` and
+                ``closure_mode``.
+
+        Returns:
+            Prompt addition string, or empty string if all passed.
         """
         if pipeline_result.all_passed:
             return ""
@@ -426,5 +469,5 @@ class GuardrailPipeline:
         return "\n".join(additions)
 
 
-# Singleton instance for easy import
+# Singleton instance shared by generator.py and classifier.py.
 guardrail_pipeline = GuardrailPipeline()

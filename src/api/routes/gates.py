@@ -1,11 +1,19 @@
 """
 Gate evaluation API endpoint.
 
-POST /evaluate-gates - Evaluate gates before allowing a collection action.
-POST /evaluate-gates/batch - Evaluate gates for multiple parties at once.
+.. deprecated::
+    Gate evaluation has moved to Django's ``services/gate_checker.py``
+    which implements 9 deterministic gates with direct data lake access.
+    These endpoints remain for backward compatibility but are no longer
+    called in production.
+
+POST /evaluate-gates -- Evaluate 6 compliance gates for a single party.
+POST /evaluate-gates/batch -- Evaluate gates for multiple parties at once.
 
 Security:
-- Rate limited: configurable via settings (default 100/minute for internal service calls)
+    - Rate limited via slowapi (default 100/minute, configurable).
+    - Service-to-service auth via Bearer token when
+      ``SERVICE_AUTH_TOKEN`` is set.
 """
 
 import asyncio
@@ -45,10 +53,13 @@ limiter = Limiter(key_func=get_remote_address)
 async def evaluate_gates(
     request: Request, gates_request: EvaluateGatesRequest
 ) -> EvaluateGatesResponse:
-    """
-    Evaluate gates before allowing a collection action.
+    """Evaluate compliance gates before allowing a collection action.
 
-    Returns whether action is allowed and individual gate results.
+    .. deprecated::
+        Use Django's ``services/gate_checker.py`` instead.
+
+    Return whether the proposed action is allowed and per-gate results
+    with pass/fail, reason, current value, and threshold.
     """
     logger.info(f"Evaluating gates for action: {gates_request.proposed_action}")
     result = await gate_evaluator.evaluate(gates_request)
@@ -68,14 +79,15 @@ async def evaluate_gates(
 async def evaluate_gates_batch(
     request: Request, batch_request: EvaluateGatesBatchRequest
 ) -> EvaluateGatesBatchResponse:
-    """
-    Evaluate gates for multiple parties at once.
+    """Evaluate gates for multiple parties at once.
 
-    Since gate evaluation is deterministic (no LLM calls), this endpoint
-    efficiently evaluates all parties in parallel and returns which ones
-    are allowed to proceed with draft generation.
+    .. deprecated::
+        Use Django's ``services/gate_checker.py`` instead.
 
-    This reduces HTTP overhead compared to calling /evaluate-gates N times.
+    Since gate evaluation is deterministic (no LLM calls), evaluate
+    all parties concurrently via ``asyncio.gather`` and return which
+    ones are allowed to proceed with draft generation.  Reduces HTTP
+    overhead compared to calling ``/evaluate-gates`` N times.
     """
     logger.info(
         f"Batch evaluating gates for {len(batch_request.contexts)} parties, "
