@@ -95,3 +95,16 @@ CORS_ORIGINS=http://localhost:8000
 | Solvix (Django) | `../Solvix` | Backend — calls AI Engine via HTTP, circuit breaker |
 | solvix-etl | `../solvix-etl` | ETL — no direct integration |
 | solvix_frontend | `../solvix_frontend` | Frontend — no direct integration |
+
+## After Code Changes — Keep Context Files in Sync
+
+After any refactoring or feature work, proactively update these files before finishing:
+
+| What changed | Update |
+|---|---|
+| File added/removed/renamed | `CODEBASE_MAP.md` |
+| New/changed Pydantic model, prompt, or guardrail | `.claude/rules/<matching-rule>.md` |
+| New API route or LLM provider | `.claude/rules/<matching-rule>.md` + `CODEBASE_MAP.md` |
+| New command or env var | This file (`CLAUDE.md`) |
+
+Rule matching: each `.claude/rules/` file has a `paths:` frontmatter — update the rule whose paths match the changed code.
