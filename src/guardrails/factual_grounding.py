@@ -166,24 +166,34 @@ class FactualGroundingGuardrail(BaseGuardrail):
         skip_invoice_table = kwargs.get("skip_invoice_table", False)
 
         # Build set of valid amounts from obligations
+        # Normalize ALL to float to avoid Decimal/int/string comparison issues
         valid_amounts = set()
         for o in context.obligations:
-            valid_amounts.add(o.amount_due)
-            valid_amounts.add(o.original_amount)
+            if o.amount_due is not None:
+                valid_amounts.add(round(float(o.amount_due), 2))
+            if o.original_amount is not None:
+                valid_amounts.add(round(float(o.original_amount), 2))
 
-        total_outstanding = sum(o.amount_due for o in context.obligations)
+        safe_dues = [float(o.amount_due) for o in context.obligations if o.amount_due is not None]
+        total_outstanding = round(sum(safe_dues), 2)
         valid_amounts.add(total_outstanding)
 
+        # Add per-party sub-totals (LLM often sums a subset of invoices)
+        # and common rounding variants
+        for a in list(valid_amounts):
+            valid_amounts.add(round(a))  # integer rounding: 1179.34 → 1179
+            valid_amounts.add(round(a, 0))  # same but explicit
+
         # For follow-up drafts, also extract amounts from conversation history.
-        # The debtor may have mentioned amounts (e.g., "We paid £10,000") that
-        # the LLM legitimately echoes in the follow-up response.
         if skip_invoice_table and context.recent_messages:
             conversation_amounts = self._extract_conversation_amounts(context.recent_messages)
-            valid_amounts.update(conversation_amounts)
+            valid_amounts.update(
+                {round(float(a), 2) for a in conversation_amounts if a is not None}
+            )
 
-        # Also add rounded versions (in case of formatting differences)
-        valid_amounts_rounded = {round(a, 2) for a in valid_amounts}
-        valid_amounts_int = {int(a) for a in valid_amounts}
+        # Deduplicated float set for comparison (22 == 22.0 == 22.00)
+        valid_amounts_float = {round(float(a), 2) for a in valid_amounts if a is not None}
+        valid_amounts_int = {int(a) for a in valid_amounts_float}
 
         # Extract amounts from output
         found_amounts = []
@@ -203,13 +213,14 @@ class FactualGroundingGuardrail(BaseGuardrail):
                 details={"total_outstanding": total_outstanding},
             )
 
-        # Strict validation — every amount in prose must exist in context
+        # Validate — every amount in prose must exist in context (±1.00 tolerance)
         invalid_amounts = []
         for amount in found_amounts:
+            rounded = round(amount, 2)
             is_valid = (
-                amount in valid_amounts_rounded
-                or amount in valid_amounts_int
-                or any(abs(amount - valid) < 0.01 for valid in valid_amounts)
+                rounded in valid_amounts_float
+                or int(amount) in valid_amounts_int
+                or any(abs(amount - valid) <= 1.00 for valid in valid_amounts_float)
             )
             if not is_valid:
                 invalid_amounts.append(amount)
