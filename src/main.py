@@ -22,7 +22,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from src.api.errors import ErrorCode, ErrorResponse, SolvixBaseError
+from src.api.errors import ErrorCode, ErrorResponse, OutstandingAIBaseError
 from src.api.middleware import RequestIDMiddleware, ServiceAuthMiddleware, get_request_id
 from src.api.routes import classify, gates, generate, health, persona
 from src.config.settings import settings
@@ -92,9 +92,9 @@ else:
 
 
 # Global exception handler for structured error responses
-@app.exception_handler(SolvixBaseError)
-async def solvix_error_handler(request: Request, exc: SolvixBaseError) -> JSONResponse:
-    """Handle all Solvix custom exceptions with structured response."""
+@app.exception_handler(OutstandingAIBaseError)
+async def app_error_handler(request: Request, exc: OutstandingAIBaseError) -> JSONResponse:
+    """Handle all Outstanding AI custom exceptions with structured response."""
     error_response = ErrorResponse(
         error=exc.message,
         error_code=exc.error_code,

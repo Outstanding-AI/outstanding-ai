@@ -1,4 +1,4 @@
-"""Solvix AI Engine application settings.
+"""Outstanding AI Engine application settings.
 
 Load configuration from environment variables (and ``.env`` file) using
 Pydantic Settings.  All settings have sensible defaults for local
@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed origins.
     # Empty + debug=True  -> allow all ("*")
     # Empty + debug=False -> no CORS allowed (production safety)
-    # Example: "https://app.solvix.com,https://admin.solvix.com"
+    # Example: "https://app.outstandingai.com,https://admin.outstandingai.com"
     cors_allowed_origins: str = ""
 
     @field_validator("cors_allowed_origins")

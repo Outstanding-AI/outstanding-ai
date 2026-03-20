@@ -92,10 +92,10 @@ clean:
 # =============================================================================
 
 docker-build:
-	docker build -t solvix-ai:latest .
+	docker build -t outstandingai-ai:latest .
 
 docker-run:
-	docker run -p 8001:8001 --env-file .env solvix-ai:latest
+	docker run -p 8001:8001 --env-file .env outstandingai-ai:latest
 
 docker-up:
 	docker-compose up -d

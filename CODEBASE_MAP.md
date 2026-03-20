@@ -1,4 +1,4 @@
-# solvix-ai — Codebase Map
+# Outstanding AI Engine — Codebase Map
 
 Concept → file navigation index.
 

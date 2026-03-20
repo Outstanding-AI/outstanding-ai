@@ -1,5 +1,5 @@
 # =============================================================================
-# solvix-ai Docker Compose
+# outstanding-ai Docker Compose
 # AI Engine for email classification and draft generation
 # =============================================================================
 
@@ -8,8 +8,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: solvix_ai:v1
-    container_name: solvix_ai_engine
+    image: outstandingai_ai:v1
+    container_name: outstandingai_ai_engine
     ports:
       - "8001:8001"
     env_file:

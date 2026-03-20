@@ -1,4 +1,4 @@
-"""Shared test fixtures for Solvix AI Engine tests."""
+"""Shared test fixtures for Outstanding AI Engine tests."""
 
 from unittest.mock import AsyncMock, MagicMock
 

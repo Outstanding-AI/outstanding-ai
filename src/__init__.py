@@ -1,1 +1,1 @@
-# Solvix AI Engine
+# Outstanding AI Engine

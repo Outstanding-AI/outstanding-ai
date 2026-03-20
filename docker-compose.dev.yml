@@ -5,7 +5,7 @@
 #
 # NOTE: This is for standalone AI Engine development only (running the AI
 # service independently for testing/iteration). When running the full
-# Solvix platform, the AI Engine is managed by Solvix/docker-compose.yml.
+# Outstanding AI platform, the AI Engine is managed by Solvix/docker-compose.yml.
 #
 # Changes from base:
 # - Mounts src/ for hot-reload with uvicorn --reload

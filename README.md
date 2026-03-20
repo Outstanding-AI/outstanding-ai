@@ -1,12 +1,12 @@
-# Solvix AI Engine
+# Outstanding AI Engine
 
-Stateless AI service for the Solvix debt collection platform. Provides email classification, response draft generation, compliance gate evaluation, and sender persona management for automated collections workflows.
+Stateless AI service for the Outstanding AI debt collection platform. Provides email classification, response draft generation, compliance gate evaluation, and sender persona management for automated collections workflows.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
 [![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet.svg)](https://github.com/astral-sh/uv)
 
-> **Documentation Hub:** For comprehensive platform documentation, see the [Solvix docs](../Solvix/docs/) directory, including [Codebase Analysis](../Solvix/docs/CODEBASE_ANALYSIS.md), [Cross-Repo Integration](../Solvix/docs/architecture/CROSS_REPO_INTEGRATION.md), and [Development Guide](../Solvix/docs/DEVELOPMENT_GUIDE.md).
+> **Documentation Hub:** For comprehensive platform documentation, see the [Outstanding AI docs](../Solvix/docs/) directory, including [Codebase Analysis](../Solvix/docs/CODEBASE_ANALYSIS.md), [Cross-Repo Integration](../Solvix/docs/architecture/CROSS_REPO_INTEGRATION.md), and [Development Guide](../Solvix/docs/DEVELOPMENT_GUIDE.md).
 
 ---
 
@@ -26,8 +26,8 @@ Stateless AI service for the Solvix debt collection platform. Provides email cla
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌───────────────┐
-│  Solvix Backend │────▶│  Solvix AI Engine │────▶│   Gemini 2.5  │
-│   (Django)      │◀────│   (FastAPI)       │◀────│   (Primary)   │
+│  Outstanding AI │────▶│  Outstanding AI   │────▶│   Gemini 2.5  │
+│  Backend        │◀────│   Engine          │◀────│   (Primary)   │
 │                 │     │   Port 8001       │     │   gpt-5-nano  │
 └─────────────────┘     └──────────────────┘     │   (Fallback)  │
                                │                  └───────────────┘
@@ -355,7 +355,7 @@ solvix-ai/
 └── README.md
 ```
 
-## Integration with Solvix Backend
+## Integration with Outstanding AI Backend
 
 The Django backend integrates via `services/ai_engine.py`:
 
@@ -388,7 +388,7 @@ Authorization: Bearer <token>
 
 ### Docker Connectivity
 
-The Solvix backend runs inside Docker and needs to connect to the AI Engine:
+The Outstanding AI backend runs inside Docker and needs to connect to the AI Engine:
 
 **macOS / Windows (Docker Desktop):**
 ```bash
@@ -400,7 +400,7 @@ AI_ENGINE_URL=http://host.docker.internal:8001
 AI_ENGINE_URL=http://172.17.0.1:8001
 ```
 
-### Running with Solvix Backend
+### Running with Outstanding AI Backend
 
 1. **Start the AI Engine** (runs on host):
    ```bash
@@ -408,7 +408,7 @@ AI_ENGINE_URL=http://172.17.0.1:8001
    make dev
    ```
 
-2. **Start Solvix Backend** (runs in Docker):
+2. **Start Outstanding AI Backend** (runs in Docker):
    ```bash
    cd Solvix
    make dev-backend
@@ -421,4 +421,4 @@ AI_ENGINE_URL=http://172.17.0.1:8001
 
 ## License
 
-Proprietary - Solvix
+Proprietary - Outstanding AI

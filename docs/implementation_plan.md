@@ -1,4 +1,4 @@
-# Complete Architecture Plan - Solvix AI Improvements
+# Complete Architecture Plan - Outstanding AI Improvements
 
 > **Last Updated**: March 2026
 > **Status**: Phases 1-2 partially complete, Phase 3-4 pending
@@ -186,7 +186,7 @@ async def classify(self, request):
 | Repo | Change | Effort |
 |------|--------|--------|
 | **solvix-ai** | Add `proposed_plan` to draft response | Low |
-| **Solvix (Django)** | Add PaymentPlan model + API endpoints | Medium |
+| **Outstanding AI (Django)** | Add PaymentPlan model + API endpoints | Medium |
 | **solvix-etl** | Add payment matching job | Medium |
 | **solvix-etl** | Add AI memory update job | Medium |
 | **Frontend** | Plan approval UI in draft editor | Medium |
@@ -235,7 +235,7 @@ class AITool(ABC):
 | Option | Description |
 |--------|-------------|
 | A | In Outlook (user edits draft, adds "PLAN APPROVED" marker) |
-| B | In Solvix UI (separate approval step after draft) |
+| B | In Outstanding AI UI (separate approval step after draft) |
 | C | Automatic (if debtor responds with agreement) |
 
 ### 2. Payment Matching Tolerance

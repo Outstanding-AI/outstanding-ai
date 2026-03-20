@@ -1,5 +1,5 @@
 """
-Structured error handling for the Solvix AI Engine.
+Structured error handling for the Outstanding AI Engine.
 
 Provides custom exceptions and standardized error response models
 for consistent API error responses.
@@ -73,8 +73,8 @@ class ErrorResponse(BaseModel):
 # Custom Exceptions
 
 
-class SolvixBaseError(Exception):
-    """Base exception for all Solvix errors."""
+class OutstandingAIBaseError(Exception):
+    """Base exception for all Outstanding AI errors."""
 
     def __init__(
         self,
@@ -90,7 +90,7 @@ class SolvixBaseError(Exception):
         super().__init__(message)
 
 
-class ValidationError(SolvixBaseError):
+class ValidationError(OutstandingAIBaseError):
     """Raised when request validation fails."""
 
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
@@ -102,7 +102,7 @@ class ValidationError(SolvixBaseError):
         )
 
 
-class InvalidClassificationError(SolvixBaseError):
+class InvalidClassificationError(OutstandingAIBaseError):
     """Raised when LLM returns an invalid classification."""
 
     def __init__(self, classification: str, valid_values: list):
@@ -114,7 +114,7 @@ class InvalidClassificationError(SolvixBaseError):
         )
 
 
-class LLMProviderError(SolvixBaseError):
+class LLMProviderError(OutstandingAIBaseError):
     """Raised when LLM provider fails."""
 
     def __init__(self, message: str, provider: Optional[str] = None):
@@ -126,7 +126,7 @@ class LLMProviderError(SolvixBaseError):
         )
 
 
-class LLMResponseInvalidError(SolvixBaseError):
+class LLMResponseInvalidError(OutstandingAIBaseError):
     """Raised when LLM response cannot be parsed or validated."""
 
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
@@ -138,7 +138,7 @@ class LLMResponseInvalidError(SolvixBaseError):
         )
 
 
-class LLMTimeoutError(SolvixBaseError):
+class LLMTimeoutError(OutstandingAIBaseError):
     """Raised when LLM request times out."""
 
     def __init__(self, timeout_seconds: int):
@@ -150,7 +150,7 @@ class LLMTimeoutError(SolvixBaseError):
         )
 
 
-class LLMRateLimitedError(SolvixBaseError):
+class LLMRateLimitedError(OutstandingAIBaseError):
     """Raised when LLM provider rate limits the request."""
 
     def __init__(self, provider: str, retry_after: Optional[int] = None):

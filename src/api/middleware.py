@@ -1,5 +1,5 @@
 """
-Custom middleware for the Solvix AI Engine.
+Custom middleware for the Outstanding AI Engine.
 
 Provides request tracing, error handling, and authentication capabilities.
 """

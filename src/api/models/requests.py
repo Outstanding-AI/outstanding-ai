@@ -1,5 +1,5 @@
 """
-Request models for Solvix AI Engine API.
+Request models for Outstanding AI Engine API.
 
 Security:
 - All string fields have max_length constraints to prevent memory exhaustion

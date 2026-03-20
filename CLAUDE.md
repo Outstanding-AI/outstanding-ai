@@ -1,4 +1,4 @@
-# Solvix AI Engine
+# Outstanding AI Engine
 
 Stateless AI microservice powering intelligent debt collection workflows.
 
@@ -92,7 +92,7 @@ CORS_ORIGINS=http://localhost:8000
 
 | Repo | Path | Relation |
 |------|------|----------|
-| Solvix (Django) | `../Solvix` | Backend — calls AI Engine via HTTP, circuit breaker |
+| Outstanding AI (Django) | `../Solvix` | Backend — calls AI Engine via HTTP, circuit breaker |
 | solvix-etl | `../solvix-etl` | ETL — no direct integration |
 | solvix_frontend | `../solvix_frontend` | Frontend — no direct integration |
 

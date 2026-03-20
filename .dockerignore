@@ -1,5 +1,5 @@
 # =============================================================================
-# Docker Ignore for solvix-ai
+# Docker Ignore for Outstanding AI Engine
 # Reduces build context size for faster builds
 # =============================================================================
 

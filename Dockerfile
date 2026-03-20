@@ -1,5 +1,5 @@
 # =============================================================================
-# solvix-ai Dockerfile
+# Outstanding AI Engine Dockerfile
 # FastAPI service for AI-powered email classification and draft generation
 # =============================================================================
 # Note: Multi-stage build NOT needed - all dependencies are pure Python

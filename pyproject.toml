@@ -1,5 +1,5 @@
 [project]
-name = "solvix-ai-engine"
+name = "outstanding-ai-engine"
 version = "0.1.0"
 description = "AI Engine for Outstanding AI debt collection platform"
 requires-python = ">=3.12"
