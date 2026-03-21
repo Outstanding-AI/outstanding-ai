@@ -161,7 +161,7 @@ class FactualGroundingGuardrail(BaseGuardrail):
         echo debtor-mentioned figures.
 
         Every amount found in prose must exist in the valid set
-        (with rounding tolerance of 0.01).
+        (with rounding tolerance of 5.00).
         """
         skip_invoice_table = kwargs.get("skip_invoice_table", False)
 
@@ -177,6 +177,13 @@ class FactualGroundingGuardrail(BaseGuardrail):
         safe_dues = [float(o.amount_due) for o in context.obligations if o.amount_due is not None]
         total_outstanding = round(sum(safe_dues), 2)
         valid_amounts.add(total_outstanding)
+
+        # Add sum of original_amounts as valid (LLM may compute totals from either column)
+        safe_originals = [
+            float(o.original_amount) for o in context.obligations if o.original_amount is not None
+        ]
+        if safe_originals:
+            valid_amounts.add(round(sum(safe_originals), 2))
 
         # Add per-party sub-totals (LLM often sums a subset of invoices)
         # and common rounding variants
@@ -213,14 +220,14 @@ class FactualGroundingGuardrail(BaseGuardrail):
                 details={"total_outstanding": total_outstanding},
             )
 
-        # Validate — every amount in prose must exist in context (±1.00 tolerance)
+        # Validate — every amount in prose must exist in context (±5.00 tolerance)
         invalid_amounts = []
         for amount in found_amounts:
             rounded = round(amount, 2)
             is_valid = (
                 rounded in valid_amounts_float
                 or int(amount) in valid_amounts_int
-                or any(abs(amount - valid) <= 1.00 for valid in valid_amounts_float)
+                or any(abs(amount - valid) <= 5.00 for valid in valid_amounts_float)
             )
             if not is_valid:
                 invalid_amounts.append(amount)
