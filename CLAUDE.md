@@ -88,6 +88,15 @@ SERVICE_AUTH_TOKEN=<token>
 CORS_ORIGINS=http://localhost:8000
 ```
 
+## Local vs Production
+
+| Setting | Local | Production |
+|---------|-------|-----------|
+| `SERVICE_AUTH_TOKEN` | Empty (disabled) | Required (AWS Secrets Manager) |
+| LLM API keys | `.env` file | AWS Secrets Manager |
+| Deployment | Docker Compose on localhost | ECS Fargate |
+| Log level | `INFO` | `WARNING` |
+
 ## Related Repos
 
 | Repo | Path | Relation |

@@ -59,14 +59,14 @@ Microsoft Graph API (webhooks/batch)
 solvix-etl
     |
 +-----------------------------------------------------+
-| Bronze Layer (PostgreSQL)                           |
+| Bronze Layer (S3 Parquet)                           |
 | - bronze_inbound_emails (FULL body_plain, body_html)|
 | - bronze_outbound_emails (FULL content)             |
 | - conversation_id, in_reply_to, references          |
 +-----------------------------------------------------+
     |
 +-----------------------------------------------------+
-| Silver Layer (PostgreSQL)                           |
+| Silver Layer (S3 Parquet)                           |
 | - threads (grouped by conversation_id, linked to party)|
 | - thread_messages (classification, extracted_* fields) |
 | - bronze_email_id -> links to full content          |
@@ -190,7 +190,7 @@ Add a summarization step - either in Django or as a new solvix-ai endpoint.
 | "Memory" Approach (Article) | Your Actual Need |
 |----------------------------|------------------|
 | Vector embeddings for retrieval | Direct SQL queries to existing tables |
-| Graph databases for relationships | Foreign keys in PostgreSQL |
+| Graph databases for relationships | Foreign keys in S3 Parquet (DuckDB/Athena) |
 | LLM calls for memorization | Data already extracted by solvix-ai classification |
 | Cron jobs for decay/consolidation | ETL already handles data lifecycle |
 | Stateful AI service | Stateless AI with richer context |
