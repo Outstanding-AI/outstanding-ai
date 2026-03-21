@@ -72,6 +72,7 @@ ENTITY_VALIDATION_PROMPT = """Validate the following draft email for entity accu
 EXPECTED ENTITIES:
 - Customer Code: {customer_code}
 - Party/Company Name: {party_name}
+- Contact Person Name: {contact_person_name}
 
 DRAFT TO VALIDATE:
 {draft}
@@ -86,7 +87,8 @@ IMPORTANT: The draft does NOT need to explicitly mention the customer code. Only
 For party name validation:
 - Accept reasonable variations (e.g., "Acme Corp" vs "ACME Corporation Ltd")
 - Accept generic greetings like "Dear Customer", "Dear Accounts Team", "Dear Sir/Madam"
-- Only flag as invalid if the draft clearly addresses a DIFFERENT company
+- Accept greetings addressing the contact person (e.g., "Dear {contact_person_name}") — this is CORRECT behavior since emails are sent to individual contacts at the company.
+- Only flag as invalid if the draft clearly addresses a DIFFERENT company or a DIFFERENT person than the contact person
 
 Set "passed" to false only if there are actual mismatches or hallucinated identifiers."""
 
@@ -191,9 +193,21 @@ class EntityVerificationGuardrail(BaseGuardrail):
 
         Returns list of GuardrailResults for customer code and party name.
         """
+        # Extract contact person name for greeting validation.
+        # Drafts correctly address the contact person (e.g. "Dear Lee"),
+        # not the company name, so the LLM must know both.
+        contact_person_name = "(not available)"
+        if hasattr(context, "debtor_contact") and context.debtor_contact:
+            dc = context.debtor_contact
+            if isinstance(dc, dict):
+                contact_person_name = dc.get("name") or dc.get("first_name") or "(not available)"
+            elif hasattr(dc, "name"):
+                contact_person_name = dc.name or "(not available)"
+
         prompt = ENTITY_VALIDATION_PROMPT.format(
             customer_code=context.party.customer_code,
             party_name=context.party.name,
+            contact_person_name=contact_person_name,
             draft=output,
         )
 
