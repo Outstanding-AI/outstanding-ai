@@ -12,7 +12,11 @@ Security:
 - Structured error responses (no sensitive data leakage)
 """
 
+import asyncio
 import logging
+import os
+import signal
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -42,6 +46,30 @@ logger = logging.getLogger(__name__)
 # Rates are per-IP address by default
 limiter = Limiter(key_func=get_remote_address)
 
+# =============================================================================
+# IDLE SHUTDOWN (ephemeral ECS Fargate)
+# =============================================================================
+# When IDLE_SHUTDOWN_SECONDS > 0, the engine will gracefully shut down after
+# receiving no requests for the configured duration.  A background task checks
+# every 30 seconds.  Set to 0 (default) to disable.
+IDLE_SHUTDOWN_SECONDS = int(os.environ.get("IDLE_SHUTDOWN_SECONDS", "0"))
+_last_request_time: float = time.monotonic()
+
+
+async def _idle_shutdown_watchdog():
+    """Background coroutine that terminates the process after sustained idle."""
+    while True:
+        await asyncio.sleep(30)
+        idle_duration = time.monotonic() - _last_request_time
+        if idle_duration >= IDLE_SHUTDOWN_SECONDS:
+            logger.info(
+                "Idle shutdown triggered: no requests for %.0f seconds (threshold: %d)",
+                idle_duration,
+                IDLE_SHUTDOWN_SECONDS,
+            )
+            os.kill(os.getpid(), signal.SIGTERM)
+            return
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,7 +81,24 @@ async def lifespan(app: FastAPI):
     logger.info(f"Port: {settings.api_port}")
     logger.info(f"Debug: {settings.debug}")
     logger.info("Rate limiting: ENABLED")
+
+    # Start idle shutdown watchdog if enabled
+    watchdog_task = None
+    if IDLE_SHUTDOWN_SECONDS > 0:
+        logger.info(f"Idle shutdown: ENABLED ({IDLE_SHUTDOWN_SECONDS}s)")
+        watchdog_task = asyncio.create_task(_idle_shutdown_watchdog())
+    else:
+        logger.info("Idle shutdown: DISABLED")
+
     yield
+
+    # Cancel watchdog on shutdown
+    if watchdog_task is not None:
+        watchdog_task.cancel()
+        try:
+            await watchdog_task
+        except asyncio.CancelledError:
+            pass
 
 
 # Create app
@@ -121,6 +166,16 @@ async def generic_error_handler(request: Request, exc: Exception) -> JSONRespons
         status_code=500,
         content=error_response.model_dump(mode="json"),
     )
+
+
+# Idle shutdown request tracking middleware
+if IDLE_SHUTDOWN_SECONDS > 0:
+
+    @app.middleware("http")
+    async def _track_last_request(request: Request, call_next):
+        global _last_request_time
+        _last_request_time = time.monotonic()
+        return await call_next(request)
 
 
 # Include routers
