@@ -96,6 +96,9 @@ CORS_ORIGINS=http://localhost:8000
 | LLM API keys | `.env` file | AWS Secrets Manager |
 | Deployment | Docker Compose on localhost | ECS Fargate |
 | Log level | `INFO` | `WARNING` |
+| `IDLE_SHUTDOWN_SECONDS` | Not set (disabled) | e.g. `300` — background watchdog sends SIGTERM after idle period |
+
+**ECS Fargate idle shutdown**: When `IDLE_SHUTDOWN_SECONDS` > 0, a background watchdog thread monitors time since last request and sends SIGTERM after the idle period expires. This allows the AI Engine container to shut down when unused, reducing Fargate costs.
 
 ## Related Repos
 
