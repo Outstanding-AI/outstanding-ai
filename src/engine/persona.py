@@ -71,6 +71,26 @@ class PersonaGenerator:
         last_model = None
         is_fallback = False
         for contact in contacts:
+            # Skip persona generation for generic/shared mailboxes
+            if getattr(contact, "is_generic_mailbox", False) or (
+                isinstance(contact, dict) and contact.get("is_generic_mailbox")
+            ):
+                results.append(
+                    {
+                        "name": contact.name
+                        if hasattr(contact, "name")
+                        else contact.get("name", ""),
+                        "level": contact.level
+                        if hasattr(contact, "level")
+                        else contact.get("level", 1),
+                        "communication_style": "team-oriented professional",
+                        "formality_level": "professional",
+                        "emphasis": "clear and efficient communication",
+                        "skipped": True,
+                        "skip_reason": "generic_mailbox",
+                    }
+                )
+                continue
             try:
                 persona, response_meta = await self._generate_single(contact, total_levels)
                 results.append(persona)

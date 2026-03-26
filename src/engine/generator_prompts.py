@@ -21,6 +21,22 @@ def format_sender_persona(request) -> str:
     """
     company = request.sender_company or ""
     persona = request.sender_persona
+    is_generic = persona and persona.is_generic_mailbox
+
+    if is_generic:
+        # Generic/shared mailbox — no personal identity
+        name = persona.name if persona else request.sender_name or "Collections Team"
+        lines = [
+            f"- Mailbox Name: {name}",
+            "- THIS IS A GENERIC/SHARED MAILBOX (e.g., accounts@, collections@)",
+            "- Do NOT use a personal first-name greeting or personal sign-off",
+            f"- Sign off as: 'Regards, {name}'" + (f" — {company}" if company else ""),
+            "- Use a professional, team-oriented voice (not individual personality)",
+        ]
+        if company:
+            lines.insert(1, f"- Company: {company}")
+        return "\n".join(lines)
+
     if not persona or not persona.communication_style:
         # No persona — use name/title/company if available
         name = request.sender_name or "[SENDER_NAME]"
@@ -183,6 +199,27 @@ def build_extra_sections(request, behavior) -> str:
                 f"- Content: {comm.last_response_snippet}\n\n"
                 "This is a FOLLOW-UP email. Acknowledge the debtor's response and build on it."
             )
+
+    # Customer segmentation context
+    customer_type = (
+        getattr(request.context.party, "customer_type", None)
+        if request.context and request.context.party
+        else None
+    )
+    size_bucket = (
+        getattr(request.context.party, "size_bucket", None)
+        if request.context and request.context.party
+        else None
+    )
+    if not customer_type and behavior:
+        customer_type = getattr(behavior, "customer_type", None)
+    if not size_bucket and behavior:
+        size_bucket = getattr(behavior, "size_bucket", None)
+    if customer_type or size_bucket:
+        sections.append(
+            f"\n\n--- CUSTOMER SEGMENT ---\n"
+            f"Customer type: {customer_type or 'unknown'}, Size: {size_bucket or 'unknown'}"
+        )
 
     # Tone preference
     if request.tone_preference:

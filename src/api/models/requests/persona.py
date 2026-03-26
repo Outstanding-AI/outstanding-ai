@@ -19,6 +19,10 @@ class SenderPersona(BaseModel):
     formality_level: Optional[str] = Field(None, max_length=20)
     emphasis: Optional[str] = Field(None, max_length=200)
     level: Optional[int] = Field(None, ge=1, le=4)
+    is_generic_mailbox: bool = Field(
+        False,
+        description="If True, this is a shared/generic mailbox — skip personal greeting, use company name",
+    )
 
 
 class PersonaContact(BaseModel):

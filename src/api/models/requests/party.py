@@ -43,6 +43,10 @@ class PartyInfo(BaseModel):
     is_verified: bool = True  # False for placeholder parties from unknown emails
     source: str = Field("sage", max_length=50)  # sage, email_inbound, manual
 
+    # Customer segmentation
+    customer_type: Optional[str] = Field(None, description="individual / business / unclassified")
+    size_bucket: Optional[str] = Field(None, description="large / medium / small")
+
 
 class BehaviorInfo(BaseModel):
     """Historical payment behavior."""
