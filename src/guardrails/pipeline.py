@@ -18,7 +18,6 @@ per-request thread creation overhead.
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple
 
 from src.api.models.requests import CaseContext
@@ -26,7 +25,9 @@ from src.api.models.requests import CaseContext
 from .base import BaseGuardrail, GuardrailPipelineResult, GuardrailResult, GuardrailSeverity
 from .contextual import ContextualCoherenceGuardrail
 from .entity import EntityVerificationGuardrail
+from .executor import validate_parallel, validate_sequential
 from .factual_grounding import FactualGroundingGuardrail
+from .feedback import get_retry_prompt_addition
 from .numerical import NumericalConsistencyGuardrail
 from .placeholder import PlaceholderValidationGuardrail
 from .temporal import TemporalConsistencyGuardrail
@@ -35,9 +36,6 @@ logger = logging.getLogger(__name__)
 
 # Default max retries for failed guardrails
 DEFAULT_MAX_RETRIES = 2
-
-# Thread pool for parallel guardrail execution (6 guardrails = 6 workers)
-_guardrail_executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="guardrail")
 
 
 class GuardrailPipeline:
@@ -168,233 +166,15 @@ class GuardrailPipeline:
             GuardrailPipelineResult with all validation results
         """
         if parallel:
-            return self._validate_parallel(output, context, **kwargs)
-        return self._validate_sequential(output, context, fail_fast, **kwargs)
-
-    def _validate_parallel(
-        self,
-        output: str,
-        context: CaseContext,
-        **kwargs,
-    ) -> GuardrailPipelineResult:
-        """
-        Run all guardrails in parallel using thread pool.
-
-        Note: fail_fast is not supported in parallel mode since all guardrails
-        run concurrently. All results are collected and evaluated together.
-        """
-        pipeline_start = time.perf_counter()
-        all_results: list[GuardrailResult] = []
-        blocking_guardrails: list[str] = []
-        should_block = False
-        guardrail_latencies = {}
-
-        # Submit all guardrails concurrently.  Each guardrail runs in
-        # its own thread, allowing I/O-bound checks (e.g., entity
-        # verification LLM call) to overlap with CPU-bound regex checks.
-        futures = {
-            _guardrail_executor.submit(
-                self._run_single_guardrail, guardrail, output, context, **kwargs
-            ): guardrail
-            for guardrail in self.guardrails
-        }
-
-        # Collect results as they complete (order is non-deterministic).
-        # Blocking failures and exceptions are tracked for the aggregate
-        # pipeline result.
-        for future in as_completed(futures):
-            guardrail_name, results, exception, latency_ms = future.result()
-            guardrail_latencies[guardrail_name] = latency_ms
-
-            if exception:
-                logger.error(f"Guardrail {guardrail_name} raised exception: {exception}")
-                all_results.append(
-                    GuardrailResult(
-                        passed=False,
-                        guardrail_name=guardrail_name,
-                        severity=GuardrailSeverity.HIGH,
-                        message=f"Guardrail execution error: {str(exception)}",
-                        details={"exception": str(exception)},
-                    )
-                )
-                should_block = True
-                blocking_guardrails.append(guardrail_name)
-            else:
-                all_results.extend(results)
-                for result in results:
-                    if result.should_block:
-                        should_block = True
-                        if guardrail_name not in blocking_guardrails:
-                            blocking_guardrails.append(guardrail_name)
-                        logger.warning(
-                            f"Guardrail {guardrail_name} BLOCKED output: {result.message}"
-                        )
-
-        all_passed = all(r.passed for r in all_results)
-        pipeline_latency_ms = (time.perf_counter() - pipeline_start) * 1000
-
-        # Log pipeline summary
-        logger.info(
-            "Guardrail pipeline completed",
-            extra={
-                "metric_type": "guardrail_pipeline",
-                "latency_ms": round(pipeline_latency_ms, 2),
-                "all_passed": all_passed,
-                "should_block": should_block,
-                "guardrails_run": len(self.guardrails),
-                "blocking_guardrails": blocking_guardrails,
-                "guardrail_latencies": {k: round(v, 2) for k, v in guardrail_latencies.items()},
-            },
-        )
-
-        # retry_suggested is True when there are blocking failures but
-        # few enough (<= 2) that targeted LLM feedback is likely to fix
-        # them.  The draft generator uses this to decide whether to retry.
-        return GuardrailPipelineResult(
-            all_passed=all_passed,
-            should_block=should_block,
-            results=all_results,
-            retry_suggested=should_block and len(blocking_guardrails) <= 2,
-            blocking_guardrails=blocking_guardrails,
-        )
-
-    def _validate_sequential(
-        self,
-        output: str,
-        context: CaseContext,
-        fail_fast: bool = True,
-        **kwargs,
-    ) -> GuardrailPipelineResult:
-        """
-        Run all guardrails sequentially (original implementation).
-
-        Args:
-            output: The AI-generated output to validate
-            context: The input context
-            fail_fast: If True, stop on first critical failure
-            **kwargs: Additional context (extracted_data, etc.)
-
-        Returns:
-            GuardrailPipelineResult with all validation results
-        """
-        pipeline_start = time.perf_counter()
-        all_results: list[GuardrailResult] = []
-        blocking_guardrails: list[str] = []
-        should_block = False
-        guardrail_latencies = {}
-
-        for guardrail in self.guardrails:
-            start_time = time.perf_counter()
-            try:
-                results = guardrail.validate(output, context, **kwargs)
-                latency_ms = (time.perf_counter() - start_time) * 1000
-                guardrail_latencies[guardrail.name] = latency_ms
-                passed = all(r.passed for r in results)
-
-                logger.info(
-                    "Guardrail completed",
-                    extra={
-                        "metric_type": "guardrail_completed",
-                        "guardrail": guardrail.name,
-                        "severity": guardrail.severity.value,
-                        "latency_ms": round(latency_ms, 2),
-                        "passed": passed,
-                        "checks_count": len(results),
-                    },
-                )
-
-                all_results.extend(results)
-
-                # Check for blocking failures
-                for result in results:
-                    if result.should_block:
-                        should_block = True
-                        blocking_guardrails.append(guardrail.name)
-
-                        logger.warning(
-                            f"Guardrail {guardrail.name} BLOCKED output: {result.message}"
-                        )
-
-                        if fail_fast and result.severity == GuardrailSeverity.CRITICAL:
-                            pipeline_latency_ms = (time.perf_counter() - pipeline_start) * 1000
-                            logger.info(
-                                "Guardrail pipeline completed (fail-fast)",
-                                extra={
-                                    "metric_type": "guardrail_pipeline",
-                                    "latency_ms": round(pipeline_latency_ms, 2),
-                                    "all_passed": False,
-                                    "should_block": True,
-                                    "guardrails_run": len(guardrail_latencies),
-                                    "blocking_guardrails": blocking_guardrails,
-                                    "fail_fast": True,
-                                },
-                            )
-                            # Stop immediately on critical failure
-                            return GuardrailPipelineResult(
-                                all_passed=False,
-                                should_block=True,
-                                results=all_results,
-                                retry_suggested=True,
-                                blocking_guardrails=blocking_guardrails,
-                            )
-
-            except Exception as e:
-                latency_ms = (time.perf_counter() - start_time) * 1000
-                guardrail_latencies[guardrail.name] = latency_ms
-                logger.error(
-                    "Guardrail failed with exception",
-                    extra={
-                        "metric_type": "guardrail_error",
-                        "guardrail": guardrail.name,
-                        "severity": guardrail.severity.value,
-                        "latency_ms": round(latency_ms, 2),
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                    },
-                )
-                # Create a failure result for the exception
-                all_results.append(
-                    GuardrailResult(
-                        passed=False,
-                        guardrail_name=guardrail.name,
-                        severity=GuardrailSeverity.HIGH,
-                        message=f"Guardrail execution error: {str(e)}",
-                        details={"exception": str(e)},
-                    )
-                )
-                should_block = True
-                blocking_guardrails.append(guardrail.name)
-
-        all_passed = all(r.passed for r in all_results)
-        pipeline_latency_ms = (time.perf_counter() - pipeline_start) * 1000
-
-        logger.info(
-            "Guardrail pipeline completed",
-            extra={
-                "metric_type": "guardrail_pipeline",
-                "latency_ms": round(pipeline_latency_ms, 2),
-                "all_passed": all_passed,
-                "should_block": should_block,
-                "guardrails_run": len(self.guardrails),
-                "blocking_guardrails": blocking_guardrails,
-                "guardrail_latencies": {k: round(v, 2) for k, v in guardrail_latencies.items()},
-            },
-        )
-
-        return GuardrailPipelineResult(
-            all_passed=all_passed,
-            should_block=should_block,
-            results=all_results,
-            retry_suggested=should_block and len(blocking_guardrails) <= 2,
-            blocking_guardrails=blocking_guardrails,
-        )
+            return validate_parallel(
+                self.guardrails, self._run_single_guardrail, output, context, **kwargs
+            )
+        return validate_sequential(self.guardrails, output, context, fail_fast, **kwargs)
 
     def get_retry_prompt_addition(self, pipeline_result: GuardrailPipelineResult, **kwargs) -> str:
         """Generate context-aware retry prompt based on guardrail failures.
 
-        Build specific remediation instructions for each failed guardrail
-        so the LLM can self-correct on the next attempt.  Instructions
-        are adapted to the draft type (standard, follow-up, closure).
+        Delegates to ``feedback.get_retry_prompt_addition()``.
 
         Args:
             pipeline_result: Results from the guardrail pipeline.
@@ -404,69 +184,7 @@ class GuardrailPipeline:
         Returns:
             Prompt addition string, or empty string if all passed.
         """
-        if pipeline_result.all_passed:
-            return ""
-
-        skip_invoice_table = kwargs.get("skip_invoice_table", False)
-        closure_mode = kwargs.get("closure_mode", False)
-
-        additions = [
-            "\n\n**IMPORTANT VALIDATION REQUIREMENTS:**",
-            "The previous response had validation errors. Please ensure:",
-        ]
-
-        for result in pipeline_result.results:
-            if not result.passed:
-                if result.guardrail_name == "placeholder_validation":
-                    if skip_invoice_table or closure_mode:
-                        additions.append(
-                            "- Do NOT use {INVOICE_TABLE} — this is a "
-                            f"{'closure' if closure_mode else 'follow-up'} email. "
-                            "Do NOT invent other placeholders either."
-                        )
-                    else:
-                        additions.append(
-                            "- Do NOT invent placeholders like [SOMETHING] or {SOMETHING}. "
-                            "The ONLY allowed placeholder is {INVOICE_TABLE}. "
-                            "Use actual values from the context provided."
-                        )
-                    if result.found:
-                        additions.append(f"- Remove these placeholders: {result.found}")
-                elif result.guardrail_name == "factual_grounding":
-                    if closure_mode:
-                        additions.append(
-                            "- This is a CLOSURE email. Remove all invoice references "
-                            "and monetary amounts."
-                        )
-                    elif skip_invoice_table:
-                        additions.append(
-                            "- This is a follow-up email. Only reference amounts "
-                            "the debtor mentioned in conversation. Do NOT use "
-                            "{INVOICE_TABLE}."
-                        )
-                    else:
-                        additions.append(
-                            "- Do NOT write monetary amounts in the email body — use the "
-                            "{INVOICE_TABLE} placeholder for all invoice details. "
-                            "Remove any amounts you wrote in the prose."
-                        )
-                elif result.guardrail_name == "numerical_consistency":
-                    if closure_mode:
-                        additions.append(
-                            "- This is a CLOSURE email. Remove all totals and numerical references."
-                        )
-                    else:
-                        additions.append(
-                            "- Do NOT state totals or amounts in prose — the "
-                            "{INVOICE_TABLE} handles all figures. "
-                            "Remove any stated totals from the email body."
-                        )
-                elif result.guardrail_name == "entity_verification":
-                    additions.append("- Use exact customer code and company name from context")
-                    if result.expected:
-                        additions.append(f"- Expected: {result.expected}")
-
-        return "\n".join(additions)
+        return get_retry_prompt_addition(pipeline_result, **kwargs)
 
 
 # Singleton instance shared by generator.py and classifier.py.

@@ -264,7 +264,7 @@ uv run pytest tests/ -v --ignore=tests/test_live_integration.py
 | `test_api.py` | API endpoint routing and response formats |
 | `test_classifier.py` | Email classification with all 13 categories |
 | `test_generator.py` | Draft generation with 5 tone types |
-| `test_gate_evaluator.py` | 6 deterministic gate evaluations |
+| `test_gate_evaluator.py` | Gate evaluation + escalation validation |
 | `test_guardrail_severities.py` | Guardrail severity level verification |
 | `test_provider_metadata.py` | Provider/model metadata in responses |
 | `test_llm_providers.py` | LLM provider and fallback mechanism |
@@ -289,9 +289,12 @@ make test-live
 ```
 solvix-ai/
 ├── src/
-│   ├── api/
 │   │   ├── models/          # Pydantic request/response models
-│   │   │   ├── requests.py  # ClassifyRequest, GenerateDraftRequest, persona models, etc.
+│   │   │   ├── requests/    # Request models package
+│   │   │   │   ├── context.py   # CaseContext, ObligationContext
+│   │   │   │   ├── party.py     # ClassifyRequest, GenerateDraftRequest
+│   │   │   │   ├── persona.py   # Persona request models
+│   │   │   │   └── validation.py # Shared validators
 │   │   │   └── responses.py # ClassifyResponse, GuardrailValidation, persona responses, etc.
 │   │   ├── routes/          # FastAPI route handlers
 │   │   │   ├── classify.py
@@ -306,12 +309,17 @@ solvix-ai/
 │   │   └── constants.py     # Persona prompts and level descriptions
 │   ├── engine/              # Core AI logic
 │   │   ├── classifier.py    # Email classification (13 categories)
-│   │   ├── generator.py     # Draft generation (with persona support)
+│   │   ├── generator.py     # Draft generation orchestration
+│   │   ├── generator_prompts.py # Prompt builders for draft generation
+│   │   ├── formatters.py    # Shared formatting utilities
 │   │   ├── gate_evaluator.py # Deterministic gate evaluation (6 gates, no LLM)
+│   │   ├── escalation_validator.py # Escalation validation logic
 │   │   └── persona.py       # Persona generation and refinement
 │   ├── guardrails/          # Output validation
 │   │   ├── base.py          # Base classes and result types
-│   │   ├── pipeline.py      # Parallel guardrail orchestration
+│   │   ├── pipeline.py      # Guardrail pipeline orchestration
+│   │   ├── executor.py      # Parallel guardrail execution
+│   │   ├── feedback.py      # Guardrail feedback generation
 │   │   ├── factual_grounding.py  # Invoice/amount validation (CRITICAL)
 │   │   ├── numerical.py     # Calculation verification (CRITICAL)
 │   │   ├── entity.py        # Customer code/name validation (HIGH)

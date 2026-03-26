@@ -16,6 +16,8 @@ solvix-ai/
 │   ├── main.py              # FastAPI app entry point
 │   ├── api/
 │   │   ├── models/          # Pydantic request/response models
+│   │   │   ├── requests/    # Request models package (context, party, persona, validation)
+│   │   │   └── responses.py
 │   │   ├── routes/          # classify, generate, gates, persona, health
 │   │   ├── middleware.py    # RequestID + ServiceAuth
 │   │   └── errors.py       # Custom exceptions
@@ -24,8 +26,11 @@ solvix-ai/
 │   │   └── constants.py     # Tone rules, voice principles
 │   ├── engine/
 │   │   ├── classifier.py    # Email classification
-│   │   ├── generator.py     # Draft generation
-│   │   ├── gate_evaluator.py # DEPRECATED — gates in Django
+│   │   ├── generator.py     # Draft generation (orchestration)
+│   │   ├── generator_prompts.py # Prompt builders for draft generation
+│   │   ├── formatters.py    # Shared formatting utilities
+│   │   ├── gate_evaluator.py # Gate evaluation (DEPRECATED — gates in Django)
+│   │   ├── escalation_validator.py # Escalation validation logic
 │   │   └── persona.py       # Persona generation/refinement
 │   ├── guardrails/          # 6 parallel validators
 │   ├── llm/                 # Provider factory + implementations
@@ -44,8 +49,8 @@ Domain knowledge loads automatically via `.claude/rules/` when working on matchi
 | `llm-providers.md` | src/llm/**, src/config/** | Provider hierarchy, model config, fallback chain |
 | `guardrails.md` | src/guardrails/** | 6 validators, severity, follow-up exception |
 | `classification.md` | src/engine/classifier.py | 23 categories, extraction, multi-intent |
-| `generation.md` | src/engine/generator.py | Tones, greeting, conciseness, voice rules |
-| `gates.md` | src/engine/gate_evaluator.py | DEPRECATED — gates in Django |
+| `generation.md` | src/engine/generator.py, src/engine/generator_prompts.py, src/engine/formatters.py | Tones, greeting, conciseness, voice rules |
+| `gates.md` | src/engine/gate_evaluator.py, src/engine/escalation_validator.py | DEPRECATED — gates in Django |
 | `api-routes.md` | src/api/** | Endpoints, schemas, middleware |
 
 File navigation: see `CODEBASE_MAP.md`.

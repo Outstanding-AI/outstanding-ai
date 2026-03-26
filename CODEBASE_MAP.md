@@ -7,8 +7,11 @@ Concept → file navigation index.
 | Concept | File |
 |---------|------|
 | Email classification | `src/engine/classifier.py` |
-| Draft generation | `src/engine/generator.py` |
+| Draft generation (orchestration) | `src/engine/generator.py` |
+| Draft prompt builders | `src/engine/generator_prompts.py` |
+| Shared formatters | `src/engine/formatters.py` |
 | Gate evaluation (DEPRECATED) | `src/engine/gate_evaluator.py` |
+| Escalation validation | `src/engine/escalation_validator.py` |
 | Persona management | `src/engine/persona.py` |
 
 ## Prompts
@@ -24,7 +27,7 @@ Concept → file navigation index.
 
 | Concept | File |
 |---------|------|
-| Pipeline orchestrator | `src/guardrails/pipeline.py` |
+| Pipeline orchestrator | `src/guardrails/pipeline.py` (orchestration), `executor.py` (execution), `feedback.py` (feedback) |
 | Base validator | `src/guardrails/base.py` |
 | Placeholder detection | `src/guardrails/placeholder.py` |
 | Factual grounding | `src/guardrails/factual_grounding.py` |
@@ -51,7 +54,7 @@ Concept → file navigation index.
 | Gates endpoint | `src/api/routes/gates.py` |
 | Persona endpoints | `src/api/routes/persona.py` |
 | Health checks | `src/api/routes/health.py` |
-| Request models | `src/api/models/requests.py` |
+| Request models | `src/api/models/requests/` (package: context.py, party.py, persona.py, validation.py) |
 | Response models | `src/api/models/responses.py` |
 | Middleware | `src/api/middleware.py` |
 | Error types | `src/api/errors.py` |

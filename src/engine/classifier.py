@@ -42,6 +42,8 @@ from src.llm.factory import llm_client
 from src.llm.schemas import ClassificationLLMResponse
 from src.prompts import CLASSIFY_EMAIL_SYSTEM, CLASSIFY_EMAIL_USER
 
+from .formatters import format_industry_context_for_classification, format_invoice_table
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,12 +82,12 @@ class EmailClassifier:
         # Industry context helps the LLM interpret domain-specific
         # language (e.g., retention claims in construction, seasonal
         # patterns in agriculture).
-        industry_context = self._format_industry_context(request.context.industry)
+        industry_context = format_industry_context_for_classification(request.context.industry)
 
         # Per-invoice table gives the LLM granular visibility into each
         # obligation so it can match invoice references in the email body
         # and detect per-invoice intents (e.g., "we paid INV-1234").
-        invoice_table = self._format_invoice_table(request.context)
+        invoice_table = format_invoice_table(request.context)
 
         # Build user prompt with context
         user_prompt = CLASSIFY_EMAIL_USER.format(
@@ -242,92 +244,6 @@ class EmailClassifier:
             model=response.model,
             is_fallback=(response.provider != llm_client.primary_provider_name),
         )
-
-    def _format_invoice_table(self, context) -> str:
-        """Format per-invoice details for the classification prompt.
-
-        Build a human-readable list of all outstanding obligations with
-        invoice number, amount, due date, and days overdue.  When
-        obligation-level collection statuses are available, append them
-        so the LLM can distinguish open vs. disputed vs. promised
-        invoices.
-
-        Args:
-            context: Case context containing obligations and optionally
-                obligation_statuses.
-
-        Returns:
-            Formatted multi-line string of invoice details.
-        """
-        if not context.obligations:
-            return "No outstanding invoices on record."
-
-        currency = context.party.currency or "GBP"
-        lines = []
-        for o in context.obligations:
-            inv_num = o.invoice_number or "—"
-            due = o.due_date or "—"
-            lines.append(
-                f"- {inv_num}: {currency} {o.amount_due:,.2f} due {due} "
-                f"({o.days_past_due} days overdue)"
-            )
-
-        # Include obligation-level collection statuses if available
-        if context.obligation_statuses:
-            status_map = {}
-            for s in context.obligation_statuses:
-                if isinstance(s, dict):
-                    oid = s.get("obligation_id")
-                    cs = s.get("collection_status", "open")
-                    if oid:
-                        status_map[str(oid)] = cs
-
-            if status_map:
-                enhanced = []
-                for i, o in enumerate(context.obligations):
-                    status = status_map.get(str(o.id), "open") if hasattr(o, "id") else "open"
-                    inv_num = o.invoice_number or "—"
-                    due = o.due_date or "—"
-                    enhanced.append(
-                        f"- {inv_num}: {currency} {o.amount_due:,.2f} due {due} "
-                        f"({o.days_past_due} days overdue) [status: {status}]"
-                    )
-                return "\n".join(enhanced)
-
-        return "\n".join(lines)
-
-    def _format_industry_context(self, industry) -> str:
-        """Format industry context for the classification prompt.
-
-        Args:
-            industry: Industry profile object (or None) with fields
-                for common dispute types, hardship indicators, and
-                handling notes.
-
-        Returns:
-            Multi-line string of industry context, or a generic
-            fallback message when no industry profile exists.
-        """
-        if not industry:
-            return "Not specified (general B2B collection)"
-
-        lines = [
-            f"- Industry: {industry.name} ({industry.code})",
-        ]
-
-        if industry.common_dispute_types:
-            lines.append(f"- Common Dispute Types: {', '.join(industry.common_dispute_types)}")
-
-        if industry.hardship_indicators:
-            lines.append(f"- Industry Hardship Signals: {', '.join(industry.hardship_indicators)}")
-
-        if industry.dispute_handling_notes:
-            lines.append(f"- Dispute Notes: {industry.dispute_handling_notes}")
-
-        if industry.hardship_handling_notes:
-            lines.append(f"- Hardship Notes: {industry.hardship_handling_notes}")
-
-        return "\n".join(lines)
 
 
 # Singleton instance used by the /classify route handler.
