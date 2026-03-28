@@ -275,6 +275,9 @@ class DraftGenerator:
                 skip_invoice_table=request.skip_invoice_table,
                 trigger_classification=request.trigger_classification,
                 closure_mode=request.closure_mode,
+                tone=request.tone,
+                escalation_level=getattr(request, "escalation_level", None),
+                allowed_tones=getattr(request, "allowed_tones", None),
             )
             guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
 
