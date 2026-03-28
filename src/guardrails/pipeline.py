@@ -1,4 +1,4 @@
-"""Guardrail Pipeline -- orchestrate all 6 guardrails.
+"""Guardrail Pipeline -- orchestrate all 7 guardrails.
 
 Run guardrails either in parallel (default, via ``ThreadPoolExecutor``)
 or sequentially (with optional fail-fast on CRITICAL failures).  The
@@ -84,16 +84,19 @@ class GuardrailPipeline:
         )
 
     def _get_default_guardrails(self) -> list[BaseGuardrail]:
-        """Return the default set of 6 guardrails.
+        """Return the default set of 7 guardrails.
 
         Order here does not matter -- the ``__init__`` sorts by severity.
         PlaceholderValidation is listed first as a hint that it is the
         cheapest (deterministic, zero LLM calls).
         """
+        from .tone_clamping import ToneClampingGuardrail
+
         return [
             PlaceholderValidationGuardrail(),  # Deterministic, zero-cost — runs first
             FactualGroundingGuardrail(),
             NumericalConsistencyGuardrail(),
+            ToneClampingGuardrail(),  # Validates tone vs level's allowed_tones
             EntityVerificationGuardrail(),
             TemporalConsistencyGuardrail(),
             ContextualCoherenceGuardrail(),

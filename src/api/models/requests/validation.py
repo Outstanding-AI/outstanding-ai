@@ -61,6 +61,10 @@ class GenerateDraftRequest(BaseModel):
     closure_mode: bool = False
     skip_invoice_table: bool = False
     trigger_classification: Optional[str] = Field(None, max_length=50)
+    escalation_level: Optional[int] = Field(None, description="Current escalation level (0-4)")
+    allowed_tones: Optional[list[str]] = Field(
+        None, description="Tones allowed at this level from protocol v2"
+    )
     tone_preference: Optional[str] = Field(None, pattern=r"^(diplomatic|professional|direct)$")
     # SECURITY: Limited to 1000 chars with prompt injection detection
     custom_instructions: Optional[str] = Field(default=None, max_length=1000)

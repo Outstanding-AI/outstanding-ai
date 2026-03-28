@@ -102,22 +102,52 @@ def build_extra_sections(request, behavior) -> str:
             if profile_lines:
                 sections.append("\n".join(profile_lines))
 
+    # Escalation level context
+    escalation_level = getattr(request, "escalation_level", None)
+    if escalation_level is not None:
+        level_desc = {
+            0: "automated first touch",
+            1: "first contact",
+            2: "follow-up",
+            3: "escalation",
+            4: "final escalation",
+        }
+        sections.append(
+            f"\n**Current Escalation Level:** {escalation_level} ({level_desc.get(escalation_level, 'escalation')})"
+        )
+        if escalation_level == 0:
+            sections.append(
+                "THIS IS A LEVEL 0 AUTOMATED REMINDER — keep it simple, factual, and template-like."
+            )
+
     # Escalation history (all prior senders for handoff narrative)
     esc_history = request.context.escalation_history
     if esc_history:
         hist_lines = []
         for h in esc_history:
-            title_part = f", {h['title']}" if h.get("title") else ""
-            hist_lines.append(
-                f"- Level {h['level']}: {h['name']}{title_part} "
-                f"— {h['touch_count']} touch(es), last on {h.get('last_touch_at', 'unknown')}"
-            )
+            # Level 0 senders are generic mailboxes — label as team, not person
+            if h.get("level") == 0 or h.get("is_generic_mailbox"):
+                hist_lines.append(
+                    f"- Level 0: Accounts Team (generic mailbox) "
+                    f"— {h['touch_count']} automated reminder(s), last on {h.get('last_touch_at', 'unknown')}"
+                )
+            else:
+                title_part = f", {h['title']}" if h.get("title") else ""
+                hist_lines.append(
+                    f"- Level {h['level']}: {h['name']}{title_part} "
+                    f"— {h['touch_count']} touch(es), last on {h.get('last_touch_at', 'unknown')}"
+                )
+        narrative_hint = (
+            "\n\nWhen writing the handoff narrative, reference these SPECIFIC people "
+            "by name and title. For L2+: mention the L1 sender. For L3+: you may say "
+            "'Both [L1 name] and [L2 name] have reached out.'\n"
+            "If Level 0 (generic mailbox) is in the history, reference it as "
+            "'our accounts team' — NOT by a person's name."
+        )
         sections.append(
             "\n\n**Prior Senders Who Contacted This Debtor:**\n"
             + "\n".join(hist_lines)
-            + "\n\nWhen writing the handoff narrative, reference these SPECIFIC people "
-            "by name and title. For L2+: mention the L1 sender. For L3+: you may say "
-            "'Both [L1 name] and [L2 name] have reached out.'"
+            + narrative_hint
         )
 
     # Sender style context

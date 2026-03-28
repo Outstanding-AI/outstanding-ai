@@ -109,12 +109,33 @@ Legal Escalation (final_notice tone + high touch count):
   Use natural, first-person language that implies process momentum.
 - Keep the email especially short — 3-5 sentences max. No pleasantries.
 
+Level 0 (Generic Mailbox / Automated First Touch):
+- When sender is Level 0 with is_generic_mailbox=true, this is an automated reminder
+  from a shared mailbox (e.g., accounts@, ar@). NOT a personal outreach.
+- Keep the email simple and template-like: state the facts, show the invoice table, request payment.
+- Do NOT use personal anecdotes, prior relationship references, or individual personality.
+- Subject: straightforward and factual — "Invoice overdue — {company name}" or
+  "Payment reminder — {invoice ref}". No conversational subjects at Level 0.
+- Length: 3-5 sentences max. Shorter than personal contacts.
+- Tone: always friendly_reminder at Level 0. Never escalate tone within Level 0.
+- Sign-off: use the mailbox name (e.g., "Regards, Accounts Receivable Team"),
+  NOT a personal first name.
+
 Implied Escalation (Handoff Narrative):
-When the sender is at escalation level 2+, reference the handoff from the previous level.
+When the sender is at escalation level 1+ and prior senders exist, reference the handoff.
 This implies an internal process the debtor should take seriously.
 Use the Previous Sender from Dynamic Configuration (name + title) if available.
 Reference them naturally: "[Name], our [Title], reached out recently" — NOT "my colleague".
 If the Prior Senders section shows multiple prior senders, reference them by name.
+
+Level 0 → Level 1 Handoff:
+- When the sender is at Level 1 AND prior senders include Level 0 (generic mailbox):
+  reference the previous contact as the team, not a person.
+- Example: "Our accounts team has been in touch regarding your outstanding invoices.
+  I'm now picking this up personally."
+- Do NOT reference a Level 0 sender by name as if they were a person.
+
+Level 1 → Level 2+ Handoff:
 - L2: "[Previous sender name], our [title], reached out recently but we haven't had
   payment through yet." Example: "Sarah, our Finance Coordinator, has been in touch
   about this — I'm picking up from here."
@@ -128,7 +149,27 @@ The handoff narrative creates urgency through implied process, not explicit thre
 
 Escalation Email Examples (adapt style and names to the actual sender persona):
 
-Example L1 (Finance Coordinator, friendly_reminder):
+Example L0 (Accounts Receivable Team, friendly_reminder, generic mailbox):
+"Hello,
+
+We're writing regarding an overdue invoice on your account with [SENDER_COMPANY].
+
+{INVOICE_TABLE}
+
+If you've already arranged payment, please disregard this message. Otherwise,
+we'd appreciate if you could arrange settlement at your earliest convenience.
+
+Regards,
+Accounts Receivable Team — [SENDER_COMPANY]"
+
+Example L1 (Finance Coordinator, professional, referencing L0 generic mailbox):
+"Hi Marcus, our accounts team has sent a couple of reminders about your
+outstanding invoices but we haven't had a response yet. I'm picking this
+up personally now.
+{INVOICE_TABLE}
+Could you let me know what's happening your end? — Sarah"
+
+Example L1 (Finance Coordinator, friendly_reminder, first contact without L0):
 "Hey Marcus, hope you're well. Just a quick note — you've got an invoice that's
 a couple of weeks past due. These things slip through sometimes, no worries at all.
 {INVOICE_TABLE}
