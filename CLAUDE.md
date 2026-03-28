@@ -32,7 +32,7 @@ solvix-ai/
 │   │   ├── gate_evaluator.py # Gate evaluation (DEPRECATED — gates in Django)
 │   │   ├── escalation_validator.py # Escalation validation logic
 │   │   └── persona.py       # Persona generation/refinement
-│   ├── guardrails/          # 6 parallel validators
+│   ├── guardrails/          # 7 parallel validators (includes ToneClampingGuardrail)
 │   ├── llm/                 # Provider factory + implementations
 │   ├── prompts/             # LLM prompt templates
 │   └── utils/               # JSON extraction helpers
@@ -47,7 +47,7 @@ Domain knowledge loads automatically via `.claude/rules/` when working on matchi
 | Rule | Paths | Content |
 |------|-------|---------|
 | `llm-providers.md` | src/llm/**, src/config/** | Provider hierarchy, model config, fallback chain |
-| `guardrails.md` | src/guardrails/** | 6 validators, severity, follow-up exception |
+| `guardrails.md` | src/guardrails/** | 7 validators (includes ToneClampingGuardrail), severity, follow-up exception |
 | `classification.md` | src/engine/classifier.py | 23 categories, extraction, multi-intent |
 | `generation.md` | src/engine/generator.py, src/engine/generator_prompts.py, src/engine/formatters.py | Tones, greeting, conciseness, voice rules |
 | `gates.md` | src/engine/gate_evaluator.py, src/engine/escalation_validator.py | DEPRECATED — gates in Django |
@@ -112,6 +112,16 @@ CORS_ORIGINS=http://localhost:8000
 | Outstanding AI (Django) | `../Solvix` | Backend — calls AI Engine via HTTP, circuit breaker |
 | solvix-etl | `../solvix-etl` | ETL — no direct integration |
 | solvix_frontend | `../solvix_frontend` | Frontend — no direct integration |
+
+## Escalation Protocol V2 Support
+
+- `GenerateDraftRequest` has `escalation_level` (int 0-4) and `allowed_tones` (list[str]) fields
+- Generator passes `tone`, `escalation_level`, `allowed_tones` to guardrail pipeline as kwargs
+- `ToneClampingGuardrail` (7th guardrail, HIGH severity): validates tone is in `allowed_tones` for the level
+- Level 0 prompt section: template-like reminders, team sign-off, no persona, factual subjects
+- L0→L1 handoff narrative: "Our accounts team has been in touch..." (references generic mailbox as team)
+- Escalation history builder labels Level 0 senders as "Accounts Team (automated reminders)"
+- `is_generic_mailbox` on `SenderPersona`: skips personal voice, uses team-oriented language
 
 ## After Code Changes — Keep Context Files in Sync
 

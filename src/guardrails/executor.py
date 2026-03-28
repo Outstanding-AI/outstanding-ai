@@ -15,7 +15,7 @@ from .base import BaseGuardrail, GuardrailPipelineResult, GuardrailResult, Guard
 
 logger = logging.getLogger(__name__)
 
-# Thread pool for parallel guardrail execution (6 guardrails = 6 workers)
+# Thread pool for parallel guardrail execution (7 guardrails = 7 workers)
 _guardrail_executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="guardrail")
 
 

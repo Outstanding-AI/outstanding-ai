@@ -1,7 +1,7 @@
 """Base guardrail classes and types.
 
 Define the abstract interface, result dataclasses, and severity enum
-shared by all 6 guardrail implementations.  Every guardrail subclass
+shared by all 7 guardrail implementations.  Every guardrail subclass
 must extend ``BaseGuardrail`` and implement ``validate()``.
 
 Severity hierarchy (highest to lowest):

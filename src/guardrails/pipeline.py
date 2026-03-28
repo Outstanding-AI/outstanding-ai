@@ -39,7 +39,7 @@ DEFAULT_MAX_RETRIES = 2
 
 
 class GuardrailPipeline:
-    """Orchestrate all 6 guardrails via parallel or sequential execution.
+    """Orchestrate all 7 guardrails via parallel or sequential execution.
 
     Default mode is **parallel** using a module-level ``ThreadPoolExecutor``
     (6 workers, one per guardrail).  This allows I/O-bound checks (entity
