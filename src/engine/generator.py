@@ -477,8 +477,10 @@ class DraftGenerator:
             )
         else:
             lines.append(
-                "- Payment Plan Config: Not configured "
-                "(use reasonable defaults like amount/3 across 3 months)"
+                "- Payment Plan Config: NOT CONFIGURED\n"
+                "  Do NOT mention payment plans, instalment options, or repayment arrangements.\n"
+                "  If the debtor has requested a plan, acknowledge their request and state that "
+                "a team member will follow up separately."
             )
 
         # 5. Escalation status

@@ -63,10 +63,10 @@ Call-to-Action Options:
 - Request payment by specific date
 - Request a call to discuss
 - Request a payment timeline
-- Offer payment plan with specific instalments when amount is known. Use the Payment Plan Config
-  from the Dynamic Configuration section to calculate realistic instalment amounts and duration.
+- Payment plans: ONLY offer if Payment Plan Config is provided in Dynamic Configuration (not
+  "NOT CONFIGURED"). When configured, use those values to calculate specific instalment amounts.
   Concrete offers (e.g., "Something like £X/month across N months") get more responses than
-  vague "let's discuss" language.
+  vague "let's discuss" language. If NOT CONFIGURED, do NOT mention payment plans at all.
 
 Face-Saving Exits (give them an out):
 - Early stage (friendly_reminder): Assume oversight. "Probably just one of those things that
