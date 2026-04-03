@@ -112,7 +112,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 
 # Paths that bypass authentication
-_PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+_PUBLIC_PATHS = {"/health", "/ping", "/docs", "/openapi.json", "/redoc"}
 
 
 class ServiceAuthMiddleware(BaseHTTPMiddleware):
