@@ -42,7 +42,7 @@ class GuardrailPipeline:
     """Orchestrate all 7 guardrails via parallel or sequential execution.
 
     Default mode is **parallel** using a module-level ``ThreadPoolExecutor``
-    (6 workers, one per guardrail).  This allows I/O-bound checks (entity
+    (7 workers, one per guardrail).  This allows I/O-bound checks (entity
     verification LLM call) to overlap with CPU-bound regex checks.
 
     Guardrails are sorted by severity (CRITICAL first) so that in

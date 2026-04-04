@@ -35,6 +35,7 @@ Concept → file navigation index.
 | Entity verification | `src/guardrails/entity.py` |
 | Temporal consistency | `src/guardrails/temporal.py` |
 | Contextual coherence | `src/guardrails/contextual.py` |
+| Tone clamping (v2) | `src/guardrails/tone_clamping.py` |
 
 ## LLM Providers
 
