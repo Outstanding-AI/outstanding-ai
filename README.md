@@ -16,7 +16,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 - **Draft Generation**: Generate contextual response drafts with `{INVOICE_TABLE}` placeholder, closure email mode, sender style injection, and classification-aware follow-ups via `trigger_classification`
 - **Gate Evaluation**: Evaluate compliance gates (deterministic, deprecated — gates now run in Django backend)
 - **Sender Persona Management**: Generate and refine sender personas for a 4-level escalation hierarchy
-- **Guardrails Pipeline**: Validate AI outputs with 6 parallel guardrails (placeholder validation, factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence)
+- **Guardrails Pipeline**: Validate AI outputs with 7 parallel guardrails (placeholder validation, factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence, tone clamping)
 - **Triple LLM Support**: Primary Gemini 2.5 Pro, fallback OpenAI gpt-5-nano, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
 - **Service Authentication**: Bearer token auth for service-to-service calls
 - **Rate Limiting**: Per-IP rate limits via slowapi
@@ -223,6 +223,7 @@ The guardrail pipeline validates AI-generated content before it's returned. Guar
 | `entity_verification` | High | Verifies customer code and company name match |
 | `temporal_consistency` | Medium | Validates date references are accurate |
 | `contextual_coherence` | Low | Checks overall response coherence |
+| `tone_clamping` | High | Validates draft tone is within level's `allowed_tones` (escalation v2) |
 
 **Blocking Behavior:**
 - `Critical` and `High` severity failures block the output
@@ -262,7 +263,7 @@ uv run pytest tests/ -v --ignore=tests/test_live_integration.py
 | Test File | Coverage |
 | --------- | -------- |
 | `test_api.py` | API endpoint routing and response formats |
-| `test_classifier.py` | Email classification with all 13 categories |
+| `test_classifier.py` | Email classification with all 23 categories |
 | `test_generator.py` | Draft generation with 5 tone types |
 | `test_gate_evaluator.py` | Gate evaluation + escalation validation |
 | `test_guardrail_severities.py` | Guardrail severity level verification |
@@ -308,7 +309,7 @@ solvix-ai/
 │   │   ├── settings.py      # Pydantic settings (LLM, auth, CORS, rate limits)
 │   │   └── constants.py     # Persona prompts and level descriptions
 │   ├── engine/              # Core AI logic
-│   │   ├── classifier.py    # Email classification (13 categories)
+│   │   ├── classifier.py    # Email classification (23 categories)
 │   │   ├── generator.py     # Draft generation orchestration
 │   │   ├── generator_prompts.py # Prompt builders for draft generation
 │   │   ├── formatters.py    # Shared formatting utilities
@@ -324,7 +325,8 @@ solvix-ai/
 │   │   ├── numerical.py     # Calculation verification (CRITICAL)
 │   │   ├── entity.py        # Customer code/name validation (HIGH)
 │   │   ├── temporal.py      # Date reference validation (MEDIUM)
-│   │   └── contextual.py    # Coherence checking (LOW)
+│   │   ├── contextual.py    # Coherence checking (LOW)
+│   │   └── tone_clamping.py # Tone within allowed_tones (HIGH)
 │   ├── llm/
 │   │   ├── base.py          # BaseLLMProvider abstract class
 │   │   ├── factory.py       # LLM client factory (Gemini→OpenAI fallback)
