@@ -35,6 +35,7 @@ solvix-ai/
 │   ├── guardrails/          # 7 parallel validators (includes ToneClampingGuardrail)
 │   ├── llm/                 # Provider factory + implementations
 │   ├── prompts/             # LLM prompt templates
+│   ├── evals/               # LLM evaluation framework (batch.py, metrics.py, realtime.py)
 │   └── utils/               # JSON extraction helpers
 ├── tests/                   # 75 tests
 └── .claude/rules/           # Path-scoped context (see below)
