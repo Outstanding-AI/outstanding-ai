@@ -1,5 +1,12 @@
 """Shared test fixtures for Outstanding AI Engine tests."""
 
+# Force a deterministic auth token BEFORE any src imports (settings singleton
+# is created at import time and the middleware caches its token at init).
+# This ensures tests work identically on local dev and CI.
+import os
+
+os.environ.setdefault("SERVICE_AUTH_TOKEN", "test-secret-token")
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -159,15 +166,13 @@ def mock_openai_client():
 
 @pytest.fixture
 def authed_client():
-    """Test client with service auth Bearer token.
+    """Authenticated test client.
 
-    Reads SERVICE_AUTH_TOKEN from pydantic settings (loaded from .env).
-    Use this fixture for all tests that hit protected endpoints.
+    Uses the deterministic token set via os.environ at the top of conftest.py.
+    The middleware was initialized with this token at app startup.
     """
     from fastapi.testclient import TestClient
 
-    from src.config.settings import settings
     from src.main import app
 
-    token = settings.service_auth_token or "test-token"
-    return TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    return TestClient(app, headers={"Authorization": "Bearer test-secret-token"})

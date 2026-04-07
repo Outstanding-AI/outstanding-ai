@@ -44,6 +44,7 @@ limiter = Limiter(key_func=get_remote_address)
     "/evaluate-gates",
     response_model=EvaluateGatesResponse,
     responses={
+        401: {"description": "Unauthorized — missing or invalid service token"},
         429: {"description": "Rate limit exceeded"},
         500: {"model": ErrorResponse, "description": "LLM or internal error"},
         503: {"model": ErrorResponse, "description": "LLM provider unavailable"},
@@ -71,6 +72,7 @@ async def evaluate_gates(
     "/evaluate-gates/batch",
     response_model=EvaluateGatesBatchResponse,
     responses={
+        401: {"description": "Unauthorized — missing or invalid service token"},
         429: {"description": "Rate limit exceeded"},
         500: {"model": ErrorResponse, "description": "Internal error"},
     },

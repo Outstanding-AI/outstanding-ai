@@ -10,7 +10,7 @@ from src.main import app
 
 @pytest.fixture
 def client():
-    """Create test client."""
+    """Unauthenticated test client. Auth is ON (token set in conftest.py)."""
     return TestClient(app)
 
 

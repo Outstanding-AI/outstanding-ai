@@ -19,7 +19,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 - **Guardrails Pipeline**: Validate AI outputs with 7 parallel guardrails (placeholder validation, factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence, tone clamping)
 - **Triple LLM Support**: Primary Gemini 2.5 Pro, fallback OpenAI gpt-5-nano, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
 - **Service Authentication**: Bearer token auth for service-to-service calls
-- **Rate Limiting**: Per-IP rate limits via slowapi
+- **Rate Limiting**: Per-tenant rate limits via `X-Tenant-ID` header (falls back to IP for direct callers)
 - **Robust JSON Parsing**: Multi-strategy JSON extraction from LLM responses (handles markdown blocks, trailing commas, etc.)
 
 ## Architecture

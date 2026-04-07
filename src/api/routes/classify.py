@@ -43,6 +43,7 @@ limiter = Limiter(key_func=_get_tenant_key)
     "/classify",
     response_model=ClassifyResponse,
     responses={
+        401: {"description": "Unauthorized — missing or invalid service token"},
         429: {"description": "Rate limit exceeded"},
         500: {"model": ErrorResponse, "description": "LLM or internal error"},
         503: {"model": ErrorResponse, "description": "LLM provider unavailable"},
