@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from src.api.models.requests import ClassifyRequest, GenerateDraftRequest
@@ -90,7 +90,7 @@ class RealTimeEvaluator:
 
         metrics = InteractionMetrics(
             request_id=request_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             guardrails_passed=guardrails_passed,
             guardrail_failures=guardrail_failures,
             factual_accuracy=factual_accuracy,
@@ -154,7 +154,7 @@ class RealTimeEvaluator:
 
         metrics = InteractionMetrics(
             request_id=request_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             guardrails_passed=guardrails_passed,
             guardrail_failures=guardrail_failures,
             factual_accuracy=factual_accuracy,

@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -41,7 +41,7 @@ class InteractionMetrics:
     """Metrics for a single AI interaction (classification or generation)."""
 
     request_id: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Core accuracy metrics
     guardrails_passed: bool = True
