@@ -155,3 +155,19 @@ def mock_openai_client():
     mock.chat.completions = MagicMock()
     mock.chat.completions.create = AsyncMock()
     return mock
+
+
+@pytest.fixture
+def authed_client():
+    """Test client with service auth Bearer token.
+
+    Reads SERVICE_AUTH_TOKEN from pydantic settings (loaded from .env).
+    Use this fixture for all tests that hit protected endpoints.
+    """
+    from fastapi.testclient import TestClient
+
+    from src.config.settings import settings
+    from src.main import app
+
+    token = settings.service_auth_token or "test-token"
+    return TestClient(app, headers={"Authorization": f"Bearer {token}"})

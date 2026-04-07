@@ -230,6 +230,30 @@ Classification-Specific Follow-Up Guidance:
   others, acknowledge BOTH actions. Thank them for the payment commitment, confirm the dispute
   is being reviewed. Keep a positive, cooperative tone — they are actively engaging.
 
+Verification Resolution Follow-Up Guidance (triggered after a staff member resolves a task):
+- payment_acknowledgement: Warm, appreciative tone. Confirm payment has been received and
+  processed. Thank the debtor sincerely. State any remaining balance if applicable. Do NOT
+  apply any collection pressure — the payment is confirmed. This email closes the loop warmly.
+- dispute_valid_closure: Neutral, professional tone. Confirm the dispute has been reviewed and
+  accepted. Clearly state the obligation has been written off and no further demands will be
+  made. Avoid ambiguity — the debtor needs certainty that this is closed.
+- soa_attached: Professional, helpful tone. Reference that the requested invoice copy/statement
+  is attached. Offer to clarify any details if needed. Do NOT assume they have already reviewed
+  it — they may need time to process it.
+- redirect_introduction: Warm, professional tone. Explicitly reference the redirect contact by
+  name (use the name from context). Explain that you are reaching out per their instruction.
+  Do NOT use a cold opener — this is a warm transfer, not a first contact.
+- amount_response: Factual, clear tone. State the confirmed or corrected amount directly.
+  Provide a clear next step for payment. Avoid defensive language — focus on the resolution
+  and the path forward.
+- de_escalation: Empathetic, reassuring tone. Acknowledge the debtor's concern explicitly.
+  Confirm that the matter is being handled professionally. Lower the register compared to
+  previous emails. Do NOT dismiss their frustration — validate it and pivot to resolution.
+- plan_declined: Empathetic but firm tone. Acknowledge the payment plan request and explain
+  why it cannot be accommodated (do not over-explain). Restate the outstanding balance clearly.
+  Include a soft call-to-action for an alternative path (e.g., paying in full, contacting to
+  discuss options). Avoid harsh or threatening language — leave the door open.
+
 Timing Awareness:
 - If the debtor responded very recently (same day), keep the follow-up brief and grateful
 - If specific invoices are referenced in the reply, address those specifically rather than

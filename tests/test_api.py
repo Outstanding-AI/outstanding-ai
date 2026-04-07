@@ -38,15 +38,20 @@ class TestHealthEndpoint:
 class TestClassifyEndpoint:
     """Tests for /classify endpoint."""
 
-    def test_classify_requires_email(self, client):
-        """Test classify endpoint requires email field."""
+    def test_classify_requires_auth(self, client):
+        """Test classify endpoint rejects unauthenticated requests."""
         response = client.post("/classify", json={})
+        assert response.status_code == 401
+
+    def test_classify_requires_email(self, authed_client):
+        """Test classify endpoint requires email field."""
+        response = authed_client.post("/classify", json={})
 
         assert response.status_code == 422
 
-    def test_classify_requires_context(self, client):
+    def test_classify_requires_context(self, authed_client):
         """Test classify endpoint requires context field."""
-        response = client.post(
+        response = authed_client.post(
             "/classify",
             json={
                 "email": {
@@ -60,17 +65,18 @@ class TestClassifyEndpoint:
         assert response.status_code == 422
 
     @patch("src.api.routes.classify.classifier")
-    def test_classify_success(self, mock_classifier, client, sample_classify_request):
+    def test_classify_success(self, mock_classifier, authed_client, sample_classify_request):
         """Test successful classification."""
         from src.api.models.responses import ClassifyResponse
 
         mock_response = ClassifyResponse(
             classification="HARDSHIP", confidence=0.92, reasoning="Job loss mentioned"
         )
-        # Use AsyncMock for the async classify method
         mock_classifier.classify = AsyncMock(return_value=mock_response)
 
-        response = client.post("/classify", json=sample_classify_request.model_dump(mode="json"))
+        response = authed_client.post(
+            "/classify", json=sample_classify_request.model_dump(mode="json")
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -80,14 +86,19 @@ class TestClassifyEndpoint:
 class TestGenerateEndpoint:
     """Tests for /generate-draft endpoint."""
 
-    def test_generate_requires_context(self, client):
+    def test_generate_requires_auth(self, client):
+        """Test generate endpoint rejects unauthenticated requests."""
+        response = client.post("/generate-draft", json={})
+        assert response.status_code == 401
+
+    def test_generate_requires_context(self, authed_client):
         """Test generate endpoint requires context field."""
-        response = client.post("/generate-draft", json={"tone": "firm"})
+        response = authed_client.post("/generate-draft", json={"tone": "firm"})
 
         assert response.status_code == 422
 
     @patch("src.api.routes.generate.generator")
-    def test_generate_success(self, mock_generator, client, sample_generate_draft_request):
+    def test_generate_success(self, mock_generator, authed_client, sample_generate_draft_request):
         """Test successful draft generation."""
         from src.api.models.responses import GenerateDraftResponse
 
@@ -97,10 +108,9 @@ class TestGenerateEndpoint:
             tone_used="concerned_inquiry",
             invoices_referenced=["INV-123"],
         )
-        # Use AsyncMock for the async generate method
         mock_generator.generate = AsyncMock(return_value=mock_response)
 
-        response = client.post(
+        response = authed_client.post(
             "/generate-draft", json=sample_generate_draft_request.model_dump(mode="json")
         )
 
@@ -113,24 +123,28 @@ class TestGenerateEndpoint:
 class TestGatesEndpoint:
     """Tests for /evaluate-gates endpoint."""
 
-    def test_gates_requires_context(self, client):
+    def test_gates_requires_auth(self, client):
+        """Test gates endpoint rejects unauthenticated requests."""
+        response = client.post("/evaluate-gates", json={})
+        assert response.status_code == 401
+
+    def test_gates_requires_context(self, authed_client):
         """Test gates endpoint requires context field."""
-        response = client.post("/evaluate-gates", json={"proposed_action": "send_email"})
+        response = authed_client.post("/evaluate-gates", json={"proposed_action": "send_email"})
 
         assert response.status_code == 422
 
     @patch("src.api.routes.gates.gate_evaluator")
-    def test_gates_success(self, mock_evaluator, client, sample_evaluate_gates_request):
+    def test_gates_success(self, mock_evaluator, authed_client, sample_evaluate_gates_request):
         """Test successful gate evaluation."""
         from src.api.models.responses import EvaluateGatesResponse
 
         mock_response = EvaluateGatesResponse(
             allowed=True, gate_results={}, recommended_action=None
         )
-        # Use AsyncMock for the async evaluate method
         mock_evaluator.evaluate = AsyncMock(return_value=mock_response)
 
-        response = client.post(
+        response = authed_client.post(
             "/evaluate-gates", json=sample_evaluate_gates_request.model_dump(mode="json")
         )
 

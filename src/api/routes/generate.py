@@ -29,8 +29,14 @@ from src.engine.generator import generator
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+def _get_tenant_key(request: Request) -> str:
+    """Rate limit per tenant (X-Tenant-ID header). Falls back to IP for direct callers."""
+    return request.headers.get("X-Tenant-ID") or get_remote_address(request)
+
+
 # Rate limiter (uses app.state.limiter from main.py)
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=_get_tenant_key)
 
 
 @router.post(
