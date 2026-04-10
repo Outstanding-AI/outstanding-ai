@@ -53,8 +53,9 @@ Domain knowledge loads automatically via `.claude/rules/` when working on matchi
 | `generation.md` | src/engine/generator.py, src/engine/generator_prompts.py, src/engine/formatters.py | Tones, greeting, conciseness, voice rules |
 | `gates.md` | src/engine/gate_evaluator.py, src/engine/escalation_validator.py | DEPRECATED — gates in Django |
 | `api-routes.md` | src/api/** | Endpoints, schemas, middleware |
+| `docs-reference.md` | docs/** | Index to API reference and cross-repo contracts |
 
-File navigation: see `CODEBASE_MAP.md`.
+File navigation: see `CODEBASE_MAP.md`. Detailed API reference: see `docs/API_REFERENCE.md`.
 
 ## Common Commands
 
@@ -126,6 +127,11 @@ CORS_ORIGINS=http://localhost:8000
 - Escalation history builder labels Level 0 senders as "Accounts Team (automated reminders)"
 - `is_generic_mailbox` on `SenderPersona`: skips personal voice, uses team-oriented language
 
+## Skills
+
+Use `/debug-drafts` for guided draft generation debugging (prompt failures, guardrail blocks, LLM fallback).
+Use `/debug-classification` for guided classification debugging (wrong category, missing extraction, multi-intent).
+
 ## After Code Changes — Keep Context Files in Sync
 
 After any refactoring or feature work, proactively update these files before finishing:
@@ -134,7 +140,8 @@ After any refactoring or feature work, proactively update these files before fin
 |---|---|
 | File added/removed/renamed | `CODEBASE_MAP.md` |
 | New/changed Pydantic model, prompt, or guardrail | `.claude/rules/<matching-rule>.md` |
-| New API route or LLM provider | `.claude/rules/<matching-rule>.md` + `CODEBASE_MAP.md` |
+| New API route or LLM provider | `.claude/rules/<matching-rule>.md` + `CODEBASE_MAP.md` + `docs/API_REFERENCE.md` |
 | New command or env var | This file (`CLAUDE.md`) |
+| New agent or skill | This file (`CLAUDE.md`) |
 
 Rule matching: each `.claude/rules/` file has a `paths:` frontmatter — update the rule whose paths match the changed code.
