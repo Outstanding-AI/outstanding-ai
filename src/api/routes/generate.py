@@ -18,9 +18,9 @@ import logging
 
 from fastapi import APIRouter, Request
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from src.api.errors import ErrorResponse
+from src.api.middleware import tenant_rate_limit_key
 from src.api.models.requests import GenerateDraftRequest
 from src.api.models.responses import GenerateDraftResponse
 from src.config.settings import settings
@@ -29,14 +29,8 @@ from src.engine.generator import generator
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-
-def _get_tenant_key(request: Request) -> str:
-    """Rate limit per tenant (X-Tenant-ID header). Falls back to IP for direct callers."""
-    return request.headers.get("X-Tenant-ID") or get_remote_address(request)
-
-
 # Rate limiter (uses app.state.limiter from main.py)
-limiter = Limiter(key_func=_get_tenant_key)
+limiter = Limiter(key_func=tenant_rate_limit_key)
 
 
 @router.post(

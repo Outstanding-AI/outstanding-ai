@@ -21,9 +21,9 @@ import logging
 
 from fastapi import APIRouter, Request
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from src.api.errors import ErrorResponse
+from src.api.middleware import tenant_rate_limit_key
 from src.api.models.requests import EvaluateGatesBatchRequest, EvaluateGatesRequest
 from src.api.models.responses import (
     EvaluateGatesBatchResponse,
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Rate limiter (uses app.state.limiter from main.py)
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=tenant_rate_limit_key)
 
 
 @router.post(

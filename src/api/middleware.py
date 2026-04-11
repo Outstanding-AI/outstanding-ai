@@ -111,7 +111,8 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             request_id_var.reset(token)
 
 
-# Paths that bypass authentication
+# Paths that bypass authentication. /health/llm intentionally NOT listed —
+# it triggers real LLM calls and must require bearer auth.
 _PUBLIC_PATHS = {"/health", "/ping", "/docs", "/openapi.json", "/redoc"}
 
 
@@ -123,7 +124,13 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
     must include a valid Authorization: Bearer <token> header.
 
     If SERVICE_AUTH_TOKEN is not configured, authentication is disabled
-    (allows local development without a token).
+    (local development only — production startup rejects missing token).
+
+    On successful auth (or in dev with no token), sets
+    ``request.state.service_auth_ok = True`` so downstream rate limiters
+    can trust ``X-Tenant-ID`` as the bucket key. When auth fails, the
+    middleware returns 401 directly and the request never reaches the
+    limiter.
     """
 
     def __init__(self, app, token: str | None = None):
@@ -131,12 +138,16 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         self.token = token
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Skip auth if no token configured (local dev)
+        # Local dev: no token configured, trust everything. Production
+        # startup validates that token is set when ENVIRONMENT=production.
         if not self.token:
+            request.state.service_auth_ok = True
             return await call_next(request)
 
-        # Allow public paths without auth
+        # Public paths bypass auth but still get the flag set so limiter
+        # key functions behave consistently.
         if request.url.path in _PUBLIC_PATHS:
+            request.state.service_auth_ok = True
             return await call_next(request)
 
         # Check Authorization header
@@ -154,4 +165,31 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
                 content={"error": "Invalid service token"},
             )
 
+        request.state.service_auth_ok = True
         return await call_next(request)
+
+
+def tenant_rate_limit_key(request: Request) -> str:
+    """Shared slowapi key function for tenant-aware rate limiting.
+
+    Protected routes are gated by ``ServiceAuthMiddleware`` — by the time
+    this key function runs, ``request.state.service_auth_ok`` is True
+    (either via successful bearer auth or because no token is configured
+    in local dev). The function therefore trusts ``X-Tenant-ID`` as-is.
+
+    Missing ``X-Tenant-ID`` yields a fixed ``"no-tenant"`` bucket key
+    rather than falling back to IP address. Falling back to IP on
+    protected routes would let a caller spoof a new IP to reset their
+    rate bucket; using a fixed key rate-limits all tenant-less callers
+    together, which is the intended behavior for internal service calls
+    that always carry the header.
+    """
+    if not getattr(request.state, "service_auth_ok", False):
+        # Should not happen — middleware rejects unauthenticated protected
+        # routes before this runs. Treat as hostile and key to a shared
+        # penalty bucket.
+        return "unauthenticated"
+    tenant = request.headers.get("X-Tenant-ID")
+    if tenant:
+        return tenant
+    return "no-tenant"

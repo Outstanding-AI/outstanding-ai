@@ -38,7 +38,7 @@ Rate limiting:
 
 from typing import List, Optional
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     For example, ``gemini_api_key`` reads from ``GEMINI_API_KEY``.
     A ``.env`` file in the project root is also loaded automatically.
     """
+
+    # --- Deployment environment ---
+    # "local" | "development" | "staging" | "production"
+    # Production enforces fail-closed checks (service auth required, debug=false).
+    environment: str = "local"
 
     # --- API server ---
     api_host: str = "0.0.0.0"
@@ -145,6 +150,15 @@ class Settings(BaseSettings):
     rate_limit_gates: str = "100/minute"
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @model_validator(mode="after")
+    def _enforce_production_invariants(self) -> "Settings":
+        if self.environment == "production":
+            if not self.service_auth_token:
+                raise ValueError("SERVICE_AUTH_TOKEN is required when ENVIRONMENT=production")
+            if self.debug:
+                raise ValueError("DEBUG must be false when ENVIRONMENT=production")
+        return self
 
 
 settings = Settings()

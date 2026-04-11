@@ -41,6 +41,7 @@ from src.guardrails.pipeline import guardrail_pipeline
 from src.llm.factory import llm_client
 from src.llm.schemas import ClassificationLLMResponse
 from src.prompts import CLASSIFY_EMAIL_SYSTEM, CLASSIFY_EMAIL_USER
+from src.prompts._sanitize import sanitize_delimiter_tags
 
 from .formatters import format_industry_context_for_classification, format_invoice_table
 
@@ -106,8 +107,8 @@ class EmailClassifier:
             industry_context=industry_context,
             from_name=request.email.from_name or "Unknown",
             from_address=request.email.from_address,
-            subject=request.email.subject,
-            body=request.email.body,
+            subject=sanitize_delimiter_tags(request.email.subject),
+            body=sanitize_delimiter_tags(request.email.body),
         )
 
         # Use response_schema for guaranteed valid JSON (no markdown wrapping)

@@ -15,9 +15,9 @@ import logging
 
 from fastapi import APIRouter, Request
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from src.api.errors import ErrorResponse
+from src.api.middleware import tenant_rate_limit_key
 from src.api.models.requests import GeneratePersonaRequest, RefinePersonaRequest
 from src.api.models.responses import (
     GeneratePersonaResponse,
@@ -30,7 +30,7 @@ from src.engine.persona import persona_generator
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=tenant_rate_limit_key)
 
 
 @router.post(

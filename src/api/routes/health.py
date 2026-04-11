@@ -1,11 +1,13 @@
 """
 Health check API endpoints.
 
-GET /ping   -- Simple liveness check for Docker / load balancer probes.
-    Zero cost, returns immediately with uptime.
-GET /health -- Full health check that makes actual LLM API calls to
-    verify provider availability.  Expensive -- use sparingly
-    (e.g., every 15 minutes from monitoring).
+GET /ping       -- Simple liveness check for Docker / load balancer probes.
+                   Zero cost, returns immediately with uptime. Public.
+GET /health     -- Shallow service health: process up, settings parsed.
+                   Zero cost, no LLM calls. Public.
+GET /health/llm -- Deep LLM connectivity check. Makes real API calls to
+                   Gemini / OpenAI to verify provider availability.
+                   Requires service auth — ops-runbook use only.
 """
 
 import logging
@@ -36,6 +38,14 @@ class PingResponse(BaseModel):
     uptime_seconds: float
 
 
+class ShallowHealthResponse(BaseModel):
+    """Shallow service health response. No LLM round-trip."""
+
+    status: str = "ok"
+    version: str
+    uptime_seconds: float
+
+
 @router.get("/ping", response_model=PingResponse)
 async def ping() -> PingResponse:
     """
@@ -48,36 +58,39 @@ async def ping() -> PingResponse:
     return PingResponse(status="ok", uptime_seconds=round(uptime, 2))
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
+@router.get("/health", response_model=ShallowHealthResponse)
+async def health_check() -> ShallowHealthResponse:
     """
-    Full health check with LLM provider verification.
-
-    WARNING: This endpoint makes actual API calls to Gemini and OpenAI
-    to verify they are responding. Use sparingly (e.g., every 15 minutes)
-    to avoid unnecessary API costs.
-
-    Returns:
-        - status: healthy/degraded/unhealthy
-        - version: API version
-        - provider: primary LLM provider (gemini/openai)
-        - model: primary model name
-        - fallback_provider: fallback LLM provider
-        - fallback_model: fallback model name
-        - fallback_count: number of times fallback was used
-        - model_available: whether primary LLM is responding
-        - fallback_available: whether fallback is healthy
-        - uptime_seconds: API uptime
+    Shallow service health check. No LLM API calls — safe for ECS/LB probes.
+    Use /health/llm for end-to-end LLM provider verification.
     """
-    logger.debug("Running full health check (includes LLM API calls)")
+    uptime = time.time() - _start_time
+    return ShallowHealthResponse(
+        status="ok",
+        version="0.1.0",
+        uptime_seconds=round(uptime, 2),
+    )
+
+
+@router.get("/health/llm", response_model=HealthResponse)
+async def llm_health_check() -> HealthResponse:
+    """
+    Deep LLM connectivity check with real provider API calls.
+
+    WARNING: Makes actual API calls to Gemini and OpenAI which consume
+    quota. Requires service auth — not for monitoring probes, only
+    ops-runbook use during incident response.
+    """
+    logger.debug("Running deep LLM health check (burns provider quota)")
     uptime = time.time() - _start_time
 
-    # Check LLM health (makes actual API calls)
     llm_health = await llm_client.health_check()
     primary_healthy = llm_health["primary"]["status"] == "healthy"
     fallback_status = llm_health["fallback"].get("status", "disabled")
 
-    logger.debug(f"Health check complete: primary={primary_healthy}, fallback={fallback_status}")
+    logger.debug(
+        f"LLM health check complete: primary={primary_healthy}, fallback={fallback_status}"
+    )
 
     return HealthResponse(
         status="healthy" if primary_healthy else "degraded",
