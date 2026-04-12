@@ -26,7 +26,7 @@ solvix-ai/
 │   │   └── constants.py     # Tone rules, voice principles
 │   ├── engine/
 │   │   ├── classifier.py    # Email classification
-│   │   ├── generator.py     # Draft generation (orchestration)
+│   │   ├── generator.py     # Draft generation (orchestration: _assemble_prompt → _run_llm_with_guardrails → _build_response)
 │   │   ├── generator_prompts.py # Prompt builders for draft generation
 │   │   ├── formatters.py    # Shared formatting utilities
 │   │   ├── gate_evaluator.py # Gate evaluation (DEPRECATED — gates in Django)

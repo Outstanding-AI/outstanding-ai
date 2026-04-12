@@ -7,7 +7,7 @@ Concept → file navigation index.
 | Concept | File |
 |---------|------|
 | Email classification | `src/engine/classifier.py` |
-| Draft generation (orchestration) | `src/engine/generator.py` |
+| Draft generation (orchestration) | `src/engine/generator.py` | `DraftGenerator.generate()` orchestrates `_assemble_prompt`, `_run_llm_with_guardrails`, `_build_response`; internal dataclasses: `_TokenTotals`, `_TimingInfo`, `_PromptContext` |
 | Draft prompt builders | `src/engine/generator_prompts.py` |
 | Shared formatters | `src/engine/formatters.py` |
 | Gate evaluation (DEPRECATED) | `src/engine/gate_evaluator.py` |
