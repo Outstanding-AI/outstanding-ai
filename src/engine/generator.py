@@ -23,6 +23,7 @@ and ``closure_mode`` flags respectively.
 import json
 import logging
 import time
+from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
@@ -41,6 +42,34 @@ from .formatters import format_industry_context
 from .generator_prompts import build_extra_sections, format_sender_persona
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _TokenTotals:
+    """Accumulated token counts across LLM + guardrail calls."""
+
+    total: int = 0
+    prompt: int = 0
+    completion: int = 0
+
+
+@dataclass
+class _TimingInfo:
+    """Timing data collected during generation attempts."""
+
+    generation_start: float = 0.0
+    llm_latencies: list[float] = field(default_factory=list)
+    guardrail_latencies: list[float] = field(default_factory=list)
+
+
+@dataclass
+class _PromptContext:
+    """Derived values computed during prompt assembly."""
+
+    user_prompt: str = ""
+    total_outstanding: float = 0.0
+    max_days_overdue: int = 0
+    obligation_count: int = 0
 
 
 class DraftGenerator:
@@ -64,30 +93,52 @@ class DraftGenerator:
     """
 
     async def generate(self, request: GenerateDraftRequest) -> GenerateDraftResponse:
-        """
-        Generate a collection email draft with automatic retry on guardrail failures.
+        """Generate a collection email draft with automatic retry on guardrail failures.
+
+        Orchestrates three phases: prompt assembly, LLM generation with
+        guardrail retry, and response construction.
 
         Args:
-            request: Generation request with context and parameters
+            request: Generation request with context and parameters.
 
         Returns:
-            Generated draft with subject, body, and guardrail validation
-
-        The generator will retry up to MAX_GUARDRAIL_RETRIES times if guardrails
-        fail, passing the failure reasons back to the LLM to help it correct
-        the output.
+            Generated draft with subject, body, and guardrail validation.
         """
-        # --- Derived values computed from context obligations ---
+        prompt_ctx = self._assemble_prompt(request)
+        (
+            result,
+            guardrail_result,
+            tokens,
+            timing,
+            last_response,
+        ) = await self._run_llm_with_guardrails(request, prompt_ctx.user_prompt)
+        return self._build_response(
+            request, result, guardrail_result, tokens, timing, prompt_ctx, last_response
+        )
+
+    def _assemble_prompt(self, request: GenerateDraftRequest) -> _PromptContext:
+        """Build the full user prompt from case context.
+
+        Computes derived values (total_outstanding, max_days_overdue,
+        obligation_count), sorts obligations, formats invoice list and
+        communication info, renders the template, and appends config +
+        extra sections.
+
+        Args:
+            request: Generation request with context and parameters.
+
+        Returns:
+            _PromptContext with the assembled prompt and derived values.
+        """
+        # Derived values computed from context obligations.
         # total_outstanding: authoritative sum used by guardrails for math
-        # verification (NumericalConsistencyGuardrail).  Computed here
-        # rather than trusted from the caller.
+        # verification (NumericalConsistencyGuardrail).
         total_outstanding = sum(o.amount_due for o in request.context.obligations)
         max_days_overdue = max((o.days_past_due for o in request.context.obligations), default=0)
         obligation_count = len(request.context.obligations)
 
         # Sort obligations by severity (most overdue first) and cap at 10
-        # to keep the prompt within token limits while surfacing the
-        # highest-priority items for the LLM.
+        # to keep the prompt within token limits.
         sorted_obligations = sorted(
             request.context.obligations,
             key=lambda o: o.days_past_due,
@@ -95,11 +146,7 @@ class DraftGenerator:
         )[:10]
 
         if request.skip_invoice_table:
-            # Follow-up / closure drafts: the LLM receives obligation data
-            # for contextual awareness but is explicitly told NOT to output
-            # the {INVOICE_TABLE} placeholder or list invoice details in
-            # prose.  This prevents guardrail failures on factual grounding
-            # when the draft is an acknowledgment, not a collection demand.
+            # Follow-up / closure drafts: suppress {INVOICE_TABLE} placeholder.
             invoices_list = (
                 "(Invoice table suppressed — this is a follow-up response, NOT a collection email.\n"
                 "Do NOT include {INVOICE_TABLE} or reference 'the table below' or list invoice details.\n"
@@ -119,7 +166,6 @@ class DraftGenerator:
                 else "No specific invoices provided"
             )
 
-        # Get communication info
         comm = request.context.communication
 
         # Calculate days since last touch
@@ -133,19 +179,10 @@ class DraftGenerator:
             delta = datetime.now(timezone.utc) - last_touch
             days_since_last_touch = delta.days
 
-        # Get behavior info
         behavior = request.context.behavior
-
-        # Build industry context section
         industry_context = format_industry_context(request.context.industry)
-
-        # Build sender persona context section
         sender_persona_context = format_sender_persona(request)
-
-        # Build dynamic configuration section (thresholds from tenant/industry settings)
         config_section = self._build_config_section(request, comm)
-
-        # Build extended context sections
         extra_sections = build_extra_sections(request, behavior)
 
         # Determine if this is a follow-up
@@ -216,22 +253,39 @@ class DraftGenerator:
         base_user_prompt += config_section
         base_user_prompt += extra_sections
 
-        # --- Guardrail retry loop ---
-        # On each iteration: call LLM -> validate with guardrails.
-        # If guardrails fail and retries remain, build a feedback prompt
-        # containing the specific failures and append it to the user
-        # prompt so the LLM can self-correct.  Token usage is accumulated
-        # across all attempts (including guardrail LLM calls like entity
-        # verification) for accurate cost tracking.
+        return _PromptContext(
+            user_prompt=base_user_prompt,
+            total_outstanding=total_outstanding,
+            max_days_overdue=max_days_overdue,
+            obligation_count=obligation_count,
+        )
+
+    async def _run_llm_with_guardrails(
+        self, request: GenerateDraftRequest, base_user_prompt: str
+    ) -> tuple[
+        DraftGenerationLLMResponse, GuardrailPipelineResult, _TokenTotals, _TimingInfo, object
+    ]:
+        """Call the LLM and validate with guardrails, retrying on failure.
+
+        On each iteration: call LLM -> validate with guardrails.
+        If guardrails fail and retries remain, build a feedback prompt
+        containing the specific failures and append it so the LLM can
+        self-correct.  Token usage is accumulated across all attempts.
+
+        Args:
+            request: Generation request with context and parameters.
+            base_user_prompt: Fully assembled prompt from _assemble_prompt.
+
+        Returns:
+            Tuple of (LLM result, guardrail result, token totals, timing info,
+            last LLM response object).
+        """
         guardrail_feedback = None
-        total_tokens_used = 0
-        total_prompt_tokens = 0
-        total_completion_tokens = 0
+        tokens = _TokenTotals()
+        timing = _TimingInfo(generation_start=time.perf_counter())
         result = None
         guardrail_result = None
-        generation_start_time = time.perf_counter()
-        llm_latencies = []
-        guardrail_latencies = []
+        response = None
 
         for attempt in range(settings.max_guardrail_retries + 1):
             # Build prompt with any guardrail feedback from previous attempt
@@ -251,12 +305,12 @@ class DraftGenerator:
                 temperature=settings.draft_temperature,
                 response_schema=DraftGenerationLLMResponse,
             )
-            llm_latencies.append((time.perf_counter() - llm_start) * 1000)
+            timing.llm_latencies.append((time.perf_counter() - llm_start) * 1000)
 
             # Track total tokens across retries
-            total_tokens_used += response.usage.get("total_tokens", 0)
-            total_prompt_tokens += response.usage.get("prompt_tokens", 0)
-            total_completion_tokens += response.usage.get("completion_tokens", 0)
+            tokens.total += response.usage.get("total_tokens", 0)
+            tokens.prompt += response.usage.get("prompt_tokens", 0)
+            tokens.completion += response.usage.get("completion_tokens", 0)
 
             # Parse JSON response - structured output guarantees valid JSON
             raw_result = json.loads(response.content)
@@ -271,7 +325,7 @@ class DraftGenerator:
                     details={"validation_errors": e.errors()},
                 )
 
-            # Run guardrails on generated draft body (critical for factual accuracy)
+            # Run guardrails on generated draft body
             guardrail_start = time.perf_counter()
             guardrail_result = guardrail_pipeline.validate(
                 output=result.body,
@@ -283,15 +337,14 @@ class DraftGenerator:
                 escalation_level=getattr(request, "escalation_level", None),
                 allowed_tones=getattr(request, "allowed_tones", None),
             )
-            guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
+            timing.guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
 
             # Accumulate guardrail LLM tokens (entity verification uses LLM)
             gr_tokens = guardrail_result.total_token_usage
-            total_tokens_used += gr_tokens.get("total_tokens", 0)
-            total_prompt_tokens += gr_tokens.get("prompt_tokens", 0)
-            total_completion_tokens += gr_tokens.get("completion_tokens", 0)
+            tokens.total += gr_tokens.get("total_tokens", 0)
+            tokens.prompt += gr_tokens.get("prompt_tokens", 0)
+            tokens.completion += gr_tokens.get("completion_tokens", 0)
 
-            # If all guardrails passed, we're done
             if guardrail_result.all_passed:
                 if attempt > 0:
                     logger.info(
@@ -300,7 +353,6 @@ class DraftGenerator:
                     )
                 break
 
-            # If this was the last attempt, exit loop with failed guardrails
             if attempt >= settings.max_guardrail_retries:
                 logger.warning(
                     f"Guardrails still failing after {settings.max_guardrail_retries + 1} attempts for "
@@ -315,6 +367,36 @@ class DraftGenerator:
                 closure_mode=request.closure_mode,
             )
 
+        return result, guardrail_result, tokens, timing, response
+
+    def _build_response(
+        self,
+        request: GenerateDraftRequest,
+        result: DraftGenerationLLMResponse,
+        guardrail_result: GuardrailPipelineResult,
+        tokens: _TokenTotals,
+        timing: _TimingInfo,
+        prompt_ctx: _PromptContext,
+        last_response: object,
+    ) -> GenerateDraftResponse:
+        """Assemble the final GenerateDraftResponse from LLM + guardrail outputs.
+
+        Extracts referenced invoices, calculates factual accuracy, builds
+        the guardrail validation summary, logs metrics, and constructs
+        the response.
+
+        Args:
+            request: Original generation request.
+            result: Parsed LLM response.
+            guardrail_result: Final guardrail pipeline result.
+            tokens: Accumulated token counts.
+            timing: Generation timing data.
+            prompt_ctx: Derived values from prompt assembly.
+            last_response: Last raw LLM response (for provider/model metadata).
+
+        Returns:
+            The complete GenerateDraftResponse.
+        """
         # Extract referenced invoices from generated body
         invoices_referenced = [
             o.invoice_number
@@ -351,8 +433,8 @@ class DraftGenerator:
             )
 
         # Calculate end-to-end timing
-        total_latency_ms = (time.perf_counter() - generation_start_time) * 1000
-        retry_count = len(llm_latencies) - 1  # First attempt is not a retry
+        total_latency_ms = (time.perf_counter() - timing.generation_start) * 1000
+        retry_count = len(timing.llm_latencies) - 1  # First attempt is not a retry
 
         logger.info(
             "Draft generation completed",
@@ -361,10 +443,10 @@ class DraftGenerator:
                 "customer_code": request.context.party.customer_code,
                 "tone": request.tone,
                 "latency_ms": round(total_latency_ms, 2),
-                "llm_latency_ms": round(sum(llm_latencies), 2),
-                "guardrail_latency_ms": round(sum(guardrail_latencies), 2),
+                "llm_latency_ms": round(sum(timing.llm_latencies), 2),
+                "guardrail_latency_ms": round(sum(timing.guardrail_latencies), 2),
                 "retry_count": retry_count,
-                "total_tokens": total_tokens_used,
+                "total_tokens": tokens.total,
                 "guardrails_passed": guardrail_result.all_passed,
                 "invoices_referenced": len(invoices_referenced),
                 "blocking_failures": guardrail_result.blocking_guardrails,
@@ -378,7 +460,6 @@ class DraftGenerator:
 
         # Use LLM-provided invoices_referenced if available, fall back to body scan,
         # then fall back to all context obligations (since {INVOICE_TABLE} includes them all)
-        # Filter out empty strings (obligations with no invoice number in source data)
         llm_refs = [r for r in (result.invoices_referenced or []) if r]
         final_invoices = llm_refs or invoices_referenced
         if not final_invoices:
@@ -391,13 +472,13 @@ class DraftGenerator:
             body=result.body,
             tone_used=request.tone,
             invoices_referenced=final_invoices,
-            tokens_used=total_tokens_used,
-            prompt_tokens=total_prompt_tokens,
-            completion_tokens=total_completion_tokens,
+            tokens_used=tokens.total,
+            prompt_tokens=tokens.prompt,
+            completion_tokens=tokens.completion,
             guardrail_validation=guardrail_validation,
-            provider=response.provider,
-            model=response.model,
-            is_fallback=(response.provider != llm_client.primary_provider_name),
+            provider=last_response.provider,
+            model=last_response.model,
+            is_fallback=(last_response.provider != llm_client.primary_provider_name),
             reasoning=reasoning_dict,
             primary_cta=result.primary_cta,
             follow_up_days=result.follow_up_days,
