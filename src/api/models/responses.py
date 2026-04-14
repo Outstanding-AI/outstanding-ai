@@ -32,6 +32,26 @@ class ExtractedData(BaseModel):
     redirect_name: Optional[str] = None
     redirect_contact: Optional[str] = None
     redirect_email: Optional[str] = None
+    # EMAIL_BOUNCE
+    bounced_email: Optional[str] = None
+
+
+class IntentDetail(BaseModel):
+    """Per-intent extraction bundle from multi-intent classification (PR4).
+
+    When a debtor email contains multiple intents (e.g. ALREADY_PAID for
+    invoice A and PROMISE_TO_PAY for invoice B), each gets its own
+    ``extracted_data`` block so downstream handlers receive exactly the
+    fields that belong to their intent — no conflation of ``invoice_refs``
+    or ``claimed_*`` / ``promise_*`` between different intents.
+
+    Ordering contract: ``intent_details[0]`` is the primary intent and its
+    ``intent`` field matches ``ClassifyResponse.classification``. Remaining
+    entries correspond to ``secondary_intents`` in the same order.
+    """
+
+    intent: str
+    extracted_data: Optional[ExtractedData] = None
 
 
 class GuardrailValidation(BaseModel):
@@ -58,7 +78,12 @@ class ClassifyResponse(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: Optional[str] = None
     secondary_intents: Optional[List[str]] = None
+    # Flat extraction — kept for backward compat. Populated with the primary
+    # intent's extraction so pre-PR4 consumers still work.
     extracted_data: Optional[ExtractedData] = None
+    # PR4: per-intent extraction. When present, each handler picks its own
+    # extracted_data here instead of the flat field above.
+    intent_details: Optional[List[IntentDetail]] = None
     tokens_used: Optional[int] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None

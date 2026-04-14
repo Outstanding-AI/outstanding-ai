@@ -38,6 +38,36 @@ class LLMExtractedData(BaseModel):
     redirect_name: Optional[str] = None
     redirect_contact: Optional[str] = None  # Kept for backward compat
     redirect_email: Optional[str] = None
+    # EMAIL_BOUNCE — AI fallback for the bounced recipient when the backend's
+    # thread-based lookup can't resolve it. Classifier prompt already asks the
+    # model to emit this; without the field here it was silently dropped.
+    bounced_email: Optional[str] = None
+
+
+class IntentDetailLLM(BaseModel):
+    """Per-intent extraction bundle from multi-intent classification.
+
+    Before PR4, a multi-intent email (e.g. "paid invoice A, promising to pay
+    invoice B next week") returned a single flat ``extracted_data`` shared
+    across primary + ``secondary_intents``. That conflated per-intent fields —
+    the ``claimed_reference`` belonged to ALREADY_PAID while ``promise_date``
+    belonged to PROMISE_TO_PAY, but the consumer had no way to know which
+    intent each field was for when multiple intents used overlapping fields
+    (e.g. ``invoice_refs``).
+
+    ``intent_details`` fixes that by giving each detected intent its own
+    isolated ``extracted_data`` block. Backend routes each handler call to
+    the matching entry.
+    """
+
+    intent: str = Field(
+        ...,
+        description="Classification category for this detail block (same vocabulary as top-level classification)",
+    )
+    extracted_data: Optional[LLMExtractedData] = Field(
+        default=None,
+        description="Fields extracted specifically for this intent",
+    )
 
 
 class ClassificationLLMResponse(BaseModel):
@@ -63,11 +93,21 @@ class ClassificationLLMResponse(BaseModel):
     )
     secondary_intents: Optional[list[str]] = Field(
         default=None,
-        description="Additional intents detected in multi-intent emails",
+        description="Additional intents detected in multi-intent emails. "
+        "Retained for backward compat — prefer intent_details when both are present.",
     )
     extracted_data: Optional[LLMExtractedData] = Field(
         None,
-        description="Data extracted from the email",
+        description="Flat extraction (legacy). Keep populated for the primary intent so "
+        "consumers that have not yet upgraded still work. When intent_details is provided, "
+        "consumers should prefer per-intent extraction.",
+    )
+    intent_details: Optional[list[IntentDetailLLM]] = Field(
+        default=None,
+        description="Per-intent extraction (PR4). First entry must be the primary intent "
+        "(must match the top-level classification field). Subsequent entries match "
+        "secondary_intents in the same order. Optional — consumers fall back to the "
+        "flat extracted_data when absent.",
     )
 
     @field_validator("classification")

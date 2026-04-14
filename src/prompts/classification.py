@@ -57,11 +57,22 @@ Many debtor emails contain MULTIPLE intents across different invoices. For examp
    - Legal/compliance intents (INSOLVENCY, UNSUBSCRIBE, HOSTILE) ALWAYS win
    - Payment claims (ALREADY_PAID, DISPUTE) take priority over commitments (PROMISE_TO_PAY)
    - But if the overall tone is cooperative and the debtor is working with you, consider COOPERATIVE
-2. **ALWAYS extract data for ALL intents, not just the primary one.** This is critical:
-   - If they claim one invoice is paid AND promise to pay others: set BOTH claimed_amount/invoice_refs AND promise_date/promise_amount
-   - If they dispute one invoice and acknowledge others: set BOTH dispute fields AND promise fields
-3. Use the `secondary_intents` field to list any additional classifications detected
-4. Use `invoice_refs` to list ONLY the invoices specifically mentioned by the debtor — do NOT list all invoices
+2. **Emit per-intent extraction via `intent_details`.** This is the preferred
+   shape when an email has multiple intents:
+   - One entry per detected intent. The FIRST entry MUST match the primary
+     `classification` field.
+   - Each entry's `extracted_data` carries ONLY the fields that belong to
+     that intent — e.g. ALREADY_PAID carries `claimed_*` + its own
+     `invoice_refs` (the paid ones), while PROMISE_TO_PAY carries
+     `promise_*` + its own `invoice_refs` (the promised ones). Do not
+     mix them.
+3. Also populate the top-level flat `extracted_data` with the PRIMARY
+   intent's extraction — this is kept for backward compatibility with
+   consumers that haven't upgraded to `intent_details` yet.
+4. Use `secondary_intents` to list the non-primary intents in the same
+   order they appear in `intent_details`.
+5. Use `invoice_refs` to list ONLY the invoices specifically mentioned by
+   the debtor for that intent — do NOT list all invoices.
 
 ## Data Extraction Rules
 
@@ -78,7 +89,7 @@ Extract data for ALL detected intents (primary + secondary):
 - **AMOUNT_DISAGREEMENT**: disputed_amount, invoice_refs
 - **RETENTION_CLAIM**: disputed_amount, dispute_reason
 - **LEGAL_RESPONSE**: redirect_name (legal representative), redirect_email
-- **EMAIL_BOUNCE**: bounce_reason (in dispute_reason field)
+- **EMAIL_BOUNCE**: bounced_email (the failed recipient address — extract from "Original-Recipient", "Final-Recipient", "To:" of the bounce body, or any "delivery failed for X@Y" text), bounce_reason (in dispute_reason field)
 - **ESCALATION_REQUEST**: redirect_name (if specified)
 - **PARTIAL_PAYMENT_NOTIFICATION**: claimed_amount, claimed_reference, invoice_refs
 
@@ -96,22 +107,22 @@ When industry context is provided, use it to better interpret the email:
 
 ## Response Format
 
-Respond in JSON:
+Respond in JSON. Example for a multi-intent ALREADY_PAID + PROMISE_TO_PAY email:
 {
-  "classification": "PRIMARY_CLASSIFICATION",
-  "confidence": 0.0-1.0,
-  "reasoning": "Brief explanation including ALL detected intents and why primary was chosen",
+  "classification": "ALREADY_PAID",
+  "confidence": 0.92,
+  "reasoning": "Debtor states INV-001 was paid last week and promises INV-002 by Friday.",
   "secondary_intents": ["PROMISE_TO_PAY"],
   "extracted_data": {
+    "claimed_amount": 500.00,
+    "claimed_date": "2026-04-10",
+    "claimed_reference": "TRF-88291",
+    "invoice_refs": ["INV-001"],
     "promise_date": null,
     "promise_amount": null,
     "dispute_type": null,
     "dispute_reason": null,
-    "invoice_refs": null,
     "disputed_amount": null,
-    "claimed_amount": null,
-    "claimed_date": null,
-    "claimed_reference": null,
     "claimed_details": null,
     "insolvency_type": null,
     "insolvency_details": null,
@@ -122,8 +133,34 @@ Respond in JSON:
     "redirect_name": null,
     "redirect_contact": null,
     "redirect_email": null
-  }
-}"""
+  },
+  "intent_details": [
+    {
+      "intent": "ALREADY_PAID",
+      "extracted_data": {
+        "claimed_amount": 500.00,
+        "claimed_date": "2026-04-10",
+        "claimed_reference": "TRF-88291",
+        "invoice_refs": ["INV-001"]
+      }
+    },
+    {
+      "intent": "PROMISE_TO_PAY",
+      "extracted_data": {
+        "promise_date": "2026-04-18",
+        "promise_amount": 750.00,
+        "invoice_refs": ["INV-002"]
+      }
+    }
+  ]
+}
+
+For a single-intent email, emit one entry in `intent_details` that mirrors
+`extracted_data` and omit `secondary_intents` (or leave it empty).
+
+Fields you do not need inside an `intent_details[*].extracted_data` block
+may be omitted entirely — only the top-level flat `extracted_data` needs
+the full schema of nullable keys for backward compatibility."""
 
 
 CLASSIFY_EMAIL_USER = """Classify this email from a debtor.

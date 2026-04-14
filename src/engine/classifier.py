@@ -34,7 +34,12 @@ from pydantic import ValidationError
 
 from src.api.errors import LLMResponseInvalidError
 from src.api.models.requests import ClassifyRequest
-from src.api.models.responses import ClassifyResponse, ExtractedData, GuardrailValidation
+from src.api.models.responses import (
+    ClassifyResponse,
+    ExtractedData,
+    GuardrailValidation,
+    IntentDetail,
+)
 from src.config.settings import settings
 from src.guardrails.base import GuardrailSeverity
 from src.guardrails.pipeline import guardrail_pipeline
@@ -135,60 +140,28 @@ class EmailClassifier:
                 details={"validation_errors": e.errors()},
             )
 
-        # Parse extracted data
-        extracted = None
-        if result.extracted_data:
-            extracted_raw = result.extracted_data
-            # Only create ExtractedData if there's actual data
-            if any(v is not None for v in extracted_raw.model_dump().values()):
-                # Parse promise_date string to date if present
-                promise_date_parsed = None
-                if extracted_raw.promise_date:
-                    try:
-                        promise_date_parsed = date.fromisoformat(extracted_raw.promise_date)
-                    except ValueError:
-                        logger.warning(
-                            f"Could not parse promise_date: {extracted_raw.promise_date}"
-                        )
+        # Parse extracted data — flat (legacy) + per-intent (PR4)
+        extracted = _build_extracted_data(result.extracted_data)
 
-                # Parse claimed_date and return_date strings to date
-                claimed_date_parsed = None
-                if extracted_raw.claimed_date:
-                    try:
-                        claimed_date_parsed = date.fromisoformat(extracted_raw.claimed_date)
-                    except ValueError:
-                        logger.warning(
-                            f"Could not parse claimed_date: {extracted_raw.claimed_date}"
-                        )
-
-                return_date_parsed = None
-                if extracted_raw.return_date:
-                    try:
-                        return_date_parsed = date.fromisoformat(extracted_raw.return_date)
-                    except ValueError:
-                        logger.warning(f"Could not parse return_date: {extracted_raw.return_date}")
-
-                extracted = ExtractedData(
-                    promise_date=promise_date_parsed,
-                    promise_amount=extracted_raw.promise_amount,
-                    dispute_type=extracted_raw.dispute_type,
-                    dispute_reason=extracted_raw.dispute_reason,
-                    invoice_refs=extracted_raw.invoice_refs,
-                    disputed_amount=extracted_raw.disputed_amount,
-                    claimed_amount=extracted_raw.claimed_amount,
-                    claimed_date=claimed_date_parsed,
-                    claimed_reference=extracted_raw.claimed_reference,
-                    claimed_details=extracted_raw.claimed_details,
-                    insolvency_type=extracted_raw.insolvency_type,
-                    insolvency_details=extracted_raw.insolvency_details,
-                    administrator_name=extracted_raw.administrator_name,
-                    administrator_email=extracted_raw.administrator_email,
-                    reference_number=extracted_raw.reference_number,
-                    return_date=return_date_parsed,
-                    redirect_name=extracted_raw.redirect_name,
-                    redirect_contact=extracted_raw.redirect_contact,
-                    redirect_email=extracted_raw.redirect_email,
+        intent_details: list[IntentDetail] | None = None
+        if result.intent_details:
+            parsed_details: list[IntentDetail] = []
+            for detail in result.intent_details:
+                detail_extracted = _build_extracted_data(detail.extracted_data)
+                parsed_details.append(
+                    IntentDetail(intent=detail.intent, extracted_data=detail_extracted)
                 )
+            intent_details = parsed_details or None
+
+            # Back-fill the flat extracted_data with the primary intent's
+            # extraction when the LLM omitted the legacy field but provided
+            # intent_details. Pre-PR4 consumers still see the right data.
+            if extracted is None and intent_details:
+                primary_detail = next(
+                    (d for d in intent_details if d.intent == result.classification),
+                    intent_details[0],
+                )
+                extracted = primary_detail.extracted_data
 
         # Run guardrails on LLM reasoning (validate any facts mentioned)
         guardrail_validation = None
@@ -237,6 +210,7 @@ class EmailClassifier:
             reasoning=result.reasoning,
             secondary_intents=result.secondary_intents,
             extracted_data=extracted,
+            intent_details=intent_details,
             tokens_used=tokens_used,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
@@ -245,6 +219,55 @@ class EmailClassifier:
             model=response.model,
             is_fallback=(response.provider != llm_client.primary_provider_name),
         )
+
+
+def _build_extracted_data(raw) -> ExtractedData | None:
+    """Convert an ``LLMExtractedData`` (string dates) to ``ExtractedData`` (date objects).
+
+    Returns ``None`` if ``raw`` is ``None`` or every field is ``None`` — keeps
+    the response payload light when the LLM had nothing to extract for an
+    intent. Date parse failures are logged (not raised) so a single malformed
+    date does not drop the entire extraction.
+
+    Used by both the legacy flat ``extracted_data`` path and the PR4
+    ``intent_details[*].extracted_data`` per-intent extractions.
+    """
+    if raw is None:
+        return None
+    if not any(v is not None for v in raw.model_dump().values()):
+        return None
+
+    def _parse_date(value, field_name: str):
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            logger.warning("Could not parse %s: %s", field_name, value)
+            return None
+
+    return ExtractedData(
+        promise_date=_parse_date(raw.promise_date, "promise_date"),
+        promise_amount=raw.promise_amount,
+        dispute_type=raw.dispute_type,
+        dispute_reason=raw.dispute_reason,
+        invoice_refs=raw.invoice_refs,
+        disputed_amount=raw.disputed_amount,
+        claimed_amount=raw.claimed_amount,
+        claimed_date=_parse_date(raw.claimed_date, "claimed_date"),
+        claimed_reference=raw.claimed_reference,
+        claimed_details=raw.claimed_details,
+        insolvency_type=raw.insolvency_type,
+        insolvency_details=raw.insolvency_details,
+        administrator_name=raw.administrator_name,
+        administrator_email=raw.administrator_email,
+        reference_number=raw.reference_number,
+        return_date=_parse_date(raw.return_date, "return_date"),
+        redirect_name=raw.redirect_name,
+        redirect_contact=raw.redirect_contact,
+        redirect_email=raw.redirect_email,
+        bounced_email=raw.bounced_email,
+    )
 
 
 # Singleton instance used by the /classify route handler.
