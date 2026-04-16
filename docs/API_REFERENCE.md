@@ -100,7 +100,11 @@ Liveness check — no LLM calls. Returns `{"status": "ok"}`.
 
 ### GET /health
 
-Full health check — calls LLM providers. Use `/ping` for ECS health checks (NOT `/health` — it burns LLM quota).
+Shallow health check — no LLM calls. Returns `{"status": "ok"}` and is safe for load balancers and lightweight probes.
+
+### GET /health/llm
+
+Deep provider-aware health check — calls configured LLM providers. Use this for operator diagnostics, not for ECS health checks.
 
 ---
 

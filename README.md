@@ -6,7 +6,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
 [![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet.svg)](https://github.com/astral-sh/uv)
 
-> **Documentation Hub:** For comprehensive platform documentation, see the [Outstanding AI docs](../Solvix/docs/) directory, including [Codebase Analysis](../Solvix/docs/CODEBASE_ANALYSIS.md), [Cross-Repo Integration](../Solvix/docs/architecture/CROSS_REPO_INTEGRATION.md), and [Development Guide](../Solvix/docs/DEVELOPMENT_GUIDE.md).
+> **Documentation Hub:** For cross-repo platform context, start with [Architecture](../Solvix/docs/ARCHITECTURE.md), [Contracts](../Solvix/docs/CONTRACTS.md), and [Single Debtor Email Lineage](../Solvix/docs/SINGLE_DEBTOR_EMAIL_LINEAGE.md) in the backend docs.
 
 ---
 
@@ -48,7 +48,8 @@ The AI Engine is stateless - it receives all context via HTTP requests and does 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/ping` | GET | Simple liveness check (no LLM calls) |
-| `/health` | GET | Full health check with LLM provider verification |
+| `/health` | GET | Shallow probe-safe health check (`{"status": "ok"}`) |
+| `/health/llm` | GET | Deep provider-aware health check with LLM verification |
 | `/classify` | POST | Classify inbound email into 23 categories |
 | `/generate-draft` | POST | Generate response draft with optional sender persona |
 | `/evaluate-gates` | POST | Evaluate compliance gates (deterministic, deprecated — gates now in Django) |
@@ -82,6 +83,7 @@ cp .env.example .env
 make dev
 # API: http://localhost:8001
 # Health: http://localhost:8001/health
+# Deep LLM health: http://localhost:8001/health/llm
 # Ping: http://localhost:8001/ping
 ```
 
@@ -301,7 +303,7 @@ solvix-ai/
 │   │   │   ├── classify.py
 │   │   │   ├── generate.py
 │   │   │   ├── gates.py
-│   │   │   ├── health.py    # /ping + /health
+│   │   │   ├── health.py    # /ping + /health + /health/llm
 │   │   │   └── persona.py   # /generate-persona + /refine-persona
 │   │   ├── errors.py        # Custom API exceptions
 │   │   └── middleware.py     # RequestIDMiddleware + ServiceAuthMiddleware
