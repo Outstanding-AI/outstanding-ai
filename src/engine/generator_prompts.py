@@ -84,6 +84,11 @@ def build_extra_sections(request, behavior) -> str:
         Concatenated string of all applicable prompt sections.
     """
     sections = []
+    tracking = getattr(request.context, "communication_tracking", None)
+    allow_thread_continuity = not tracking or (
+        tracking.tracking_status == "tracked"
+        and tracking.send_confirmation_state in (None, "confirmed")
+    )
 
     # Behaviour segment
     if behavior and behavior.behaviour_segment:
@@ -211,23 +216,35 @@ def build_extra_sections(request, behavior) -> str:
                 line += f"\n  🏛️ Insolvency: {msg['insolvency_type']}"
             msg_lines.append(line)
         if msg_lines:
-            sections.append(
-                "\n\n**Recent Conversation History (IMPORTANT — reference this in your reply):**\n"
-                + "\n".join(msg_lines)
-                + "\n\nThis is a FOLLOW-UP email. You MUST acknowledge the debtor's most recent "
-                "response and build on it. Do NOT write a generic first-contact collection email."
-            )
+            header = "\n\n**Recent Conversation History:**\n"
+            if allow_thread_continuity:
+                footer = (
+                    "\n\nThis is a FOLLOW-UP email. You MUST acknowledge the debtor's most recent "
+                    "response and build on it. Do NOT write a generic first-contact collection email."
+                )
+            else:
+                footer = (
+                    "\n\nCommunication tracking is not fully confirmed for this thread. Use the history above only "
+                    "when directly supported by the provided excerpts. Do not claim to have seen or received any "
+                    "reply that is not explicitly present in context."
+                )
+            sections.append(header + "\n".join(msg_lines) + footer)
 
     # Last response snippet (fallback if no recent_messages)
     if not recent_msgs and request.context.communication:
         comm = request.context.communication
         if comm.last_response_snippet:
+            footer = (
+                "This is a FOLLOW-UP email. Acknowledge the debtor's response and build on it."
+                if allow_thread_continuity
+                else "Only reference this response if you can ground it directly in the snippet above."
+            )
             sections.append(
                 f"\n\n**Debtor's Last Response:**\n"
                 f"- Type: {comm.last_response_type or 'Unknown'}\n"
                 f"- Subject: {comm.last_response_subject or 'N/A'}\n"
                 f"- Content: {comm.last_response_snippet}\n\n"
-                "This is a FOLLOW-UP email. Acknowledge the debtor's response and build on it."
+                f"{footer}"
             )
 
     # Customer segmentation context

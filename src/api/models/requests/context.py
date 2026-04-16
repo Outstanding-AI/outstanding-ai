@@ -58,6 +58,16 @@ class PromiseHistory(BaseModel):
     outcome: Optional[str] = None  # kept, broken, pending
 
 
+class CommunicationTrackingInfo(BaseModel):
+    """Thread monitoring coverage for communication-aware generation."""
+
+    tracking_status: Optional[str] = None
+    tracking_reason: Optional[str] = None
+    send_confirmation_state: Optional[str] = None
+    reply_anchor_email: Optional[str] = None
+    is_ai_tracked_thread: Optional[bool] = None
+
+
 class IndustryInfo(BaseModel):
     """Industry-specific context for AI operations.
 
@@ -90,6 +100,7 @@ class CaseContext(BaseModel):
     behavior: Optional["BehaviorInfo"] = None  # Forward ref resolved at module level
     obligations: List[ObligationInfo] = []
     communication: Optional[CommunicationInfo] = None
+    communication_tracking: Optional[CommunicationTrackingInfo] = None
     recent_touches: List[TouchHistory] = []
     promises: List[PromiseHistory] = []
 

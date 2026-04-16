@@ -7,6 +7,7 @@ Re-exports all request models from sub-modules for backward compatibility.
 from .context import (
     CaseContext,
     CommunicationInfo,
+    CommunicationTrackingInfo,
     IndustryInfo,
     ObligationInfo,
     PromiseHistory,
@@ -37,6 +38,7 @@ __all__ = [
     # Context
     "ObligationInfo",
     "CommunicationInfo",
+    "CommunicationTrackingInfo",
     "TouchHistory",
     "PromiseHistory",
     "IndustryInfo",
