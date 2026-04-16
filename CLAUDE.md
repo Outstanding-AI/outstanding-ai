@@ -127,6 +127,20 @@ CORS_ORIGINS=http://localhost:8000
 - Escalation history builder labels Level 0 senders as "Accounts Team (automated reminders)"
 - `is_generic_mailbox` on `SenderPersona`: skips personal voice, uses team-oriented language
 
+## Communication Tracking Context (April 2026)
+
+`GenerateDraftRequest.communication_tracking` (optional) conveys tracked-thread state from Django backend so the AI can calibrate continuity claims:
+
+- `tracking_status`: `tracked | degraded | manual_only | closed`
+- `tracking_reason`: `send_unconfirmed | visibility_lost | conversation_collision | reply_anchor_unresolved`
+- `send_confirmation_state`: `pending | confirmed | unknown`
+- `reply_anchor_email`: monitored Reply-To mailbox
+- `is_ai_tracked_thread`: whether the thread was AI-originated and enrolled at push time
+
+**Prompt rule**: Continuity language ("following up on your last reply", "as I mentioned in my previous message") is allowed ONLY when `tracking_status='tracked'` AND send is confirmed. If `degraded` or `manual_only`, the prompt must not assert continuity unless the actual prior message text is explicitly present in the rendered context. Claiming a reply we didn't observe = hallucination.
+
+**Why**: BCC/shared-mailbox transport rules are tenant-side and unreliable. The backend can legitimately hold drafts whose send is unconfirmed — the AI must not overclaim chronology when the control plane says we're flying blind.
+
 ## Skills
 
 Use `/debug-drafts` for guided draft generation debugging (prompt failures, guardrail blocks, LLM fallback).
