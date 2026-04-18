@@ -125,6 +125,33 @@ def build_extra_sections(request, behavior) -> str:
                 "THIS IS A LEVEL 0 AUTOMATED REMINDER — keep it simple, factual, and template-like."
             )
 
+    if request.context.lane_contexts:
+        lane_lines = []
+        for lane in request.context.lane_contexts:
+            invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
+            prior_touches = ", ".join(lane.prior_touch_dates) if lane.prior_touch_dates else "none"
+            lane_lines.append(
+                f"- Lane {lane.lane_id} ({lane.role}): current_level={lane.current_level}, "
+                f"entry_level={lane.entry_level}, scheduled_touch_index={lane.scheduled_touch_index}, "
+                f"outstanding_amount={lane.outstanding_amount}, invoice_refs={invoice_refs}, "
+                f"prior_touch_dates={prior_touches}, newly_joined={lane.is_newly_joined}"
+            )
+        bundle_header = [
+            "\n\n**Lane Bundle Context:**",
+            f"- Bundle Mode: {request.context.mode or 'single_lane'}",
+            f"- Bundle Group Key: {request.context.bundle_group_key or 'none'}",
+            f"- Thread Family Key: {request.context.thread_family_key or 'new_thread'}",
+            f"- Owner Lane: {request.context.owner_lane_id or 'none'}",
+            (
+                f"- Guest Lanes: {', '.join(request.context.guest_lane_ids)}"
+                if request.context.guest_lane_ids
+                else "- Guest Lanes: none"
+            ),
+            "- Use the highest urgency lane as the tone ceiling, but only describe prior reminders for lanes that actually have prior_touch_dates.",
+            "- Newly joined lanes must be introduced as newly overdue items, not as previously chased items.",
+        ]
+        sections.append("\n".join(bundle_header + lane_lines))
+
     # Escalation history (all prior senders for handoff narrative)
     esc_history = request.context.escalation_history
     if esc_history:

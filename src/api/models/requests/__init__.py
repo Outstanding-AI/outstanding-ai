@@ -9,6 +9,7 @@ from .context import (
     CommunicationInfo,
     CommunicationTrackingInfo,
     IndustryInfo,
+    LaneContextInfo,
     ObligationInfo,
     PromiseHistory,
     TouchHistory,
@@ -42,6 +43,7 @@ __all__ = [
     "TouchHistory",
     "PromiseHistory",
     "IndustryInfo",
+    "LaneContextInfo",
     "CaseContext",
     # Persona
     "SenderPersona",

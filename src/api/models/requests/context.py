@@ -68,6 +68,24 @@ class CommunicationTrackingInfo(BaseModel):
     is_ai_tracked_thread: Optional[bool] = None
 
 
+class LaneContextInfo(BaseModel):
+    """Per-lane context for bundled draft generation."""
+
+    lane_id: str = Field(..., max_length=100)
+    role: str = Field("single", pattern=r"^(owner|guest|single)$")
+    current_level: int
+    entry_level: Optional[int] = None
+    stage_version: Optional[int] = None
+    level_started_at: Optional[datetime] = None
+    scheduled_touch_index: int = 0
+    max_touches_for_level: Optional[int] = None
+    max_days_for_level: Optional[int] = None
+    invoice_refs: List[str] = []
+    outstanding_amount: float = 0.0
+    prior_touch_dates: List[str] = []
+    is_newly_joined: bool = False
+
+
 class IndustryInfo(BaseModel):
     """Industry-specific context for AI operations.
 
@@ -155,6 +173,17 @@ class CaseContext(BaseModel):
 
     # Currency symbol for invoice table formatting
     currency_symbol: Optional[str] = None
+
+    # Lane-aware bundle context for same-sender multi-lane drafting
+    bundle_group_key: Optional[str] = None
+    thread_family_key: Optional[str] = None
+    owner_lane_id: Optional[str] = None
+    guest_lane_ids: List[str] = []
+    lane_contexts: List[LaneContextInfo] = []
+    mode: Optional[str] = Field(
+        default=None,
+        pattern=r"^(single_lane|bundled_same_sender|replacement_after_delete|separate_fallback_after_delete_failure)$",
+    )
 
 
 # Import here to resolve forward references after all models are defined
