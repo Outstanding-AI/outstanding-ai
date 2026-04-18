@@ -141,6 +141,29 @@ CORS_ORIGINS=http://localhost:8000
 
 **Why**: BCC/shared-mailbox transport rules are tenant-side and unreliable. The backend can legitimately hold drafts whose send is unconfirmed — the AI must not overclaim chronology when the control plane says we're flying blind.
 
+## Collection Lanes Context (April 2026)
+
+`GenerateDraftRequest` carries an optional `collection_lane` block when the backend runs lane-aware scheduling (`LANE_SCHEDULER_ENABLED` tenant flag):
+
+- `lane_id` — UUID of the lane this draft represents
+- `current_level` / `entry_level` — lane's escalation level (strictly monotonic +1)
+- `level_started_at` / `scheduled_touch_index` / `max_touches_for_level` / `max_days_for_level` — cadence state
+- `invoice_refs[]` — obligation references in this lane's cohort (sage_id strings)
+- `outstanding_amount` — sum of open obligations in cohort
+- `previous_same_lane_touch_dates[]` — prior outreach dates for same lane (for natural "we contacted you on..." language)
+- `bundle_mode` — `single_lane | bundled_same_sender | replacement_after_delete | separate_fallback_after_delete_failure`
+- `cc_policy_note` — human-readable CC policy reminder for drafting
+
+**Bundled drafts carry `lanes[]`** (list of per-lane blocks) instead of a single `collection_lane`. Each lane has its own cadence state — acknowledge prior reminders only for lanes that actually had prior reminders; describe newly-joined lanes as newly overdue.
+
+**Prompt rules**:
+- AI never chooses sender, level, thread, bundle membership, or replacement policy. These are backend-owned.
+- In `bundled_same_sender` mode, tone ceiling = highest urgency among bundled lanes.
+- In `replacement_after_delete` mode, the replaced draft's thread is continued — do not re-introduce first-touch framing.
+- In `separate_fallback_after_delete_failure` mode, generate a fresh standalone draft; the previous unsent draft still sits in the debtor's inbox, so do not reference it.
+
+Full contract: backend `docs/CONTRACTS.md` "Collection Lanes Contract".
+
 ## Skills
 
 Use `/debug-drafts` for guided draft generation debugging (prompt failures, guardrail blocks, LLM fallback).
