@@ -43,8 +43,8 @@ Generate a collection email draft (5 tones, persona-aware, with guardrails).
 
 **Request** (`GenerateDraftRequest`):
 - `case: CaseContext`
-- `sender: SenderContext` — persona, escalation level, allowed_tones
-- `tone: str` — friendly_reminder | professional | firm | final_notice | concerned_inquiry
+- `sender: SenderContext` — persona and escalation level context
+- `tone: str` — exact backend-selected tone for this draft (for example `friendly_reminder`, `professional`, `firm`, `final_notice`)
 - `trigger_classification: Optional[str]` — follow-up context (e.g., payment_acknowledgement)
 - `closure_mode: Optional[bool]` — relationship-preserving tone
 - `X-Tenant-ID` header

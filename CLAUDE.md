@@ -119,15 +119,12 @@ CORS_ORIGINS=http://localhost:8000
 
 ## Lane-Only Escalation Protocol (April 2026)
 
-- `GenerateDraftRequest` carries `collection_lane.tone_ladder: list[str]` — an **allowed-tone range** for the level, not an indexed per-touch ladder.
-- Backend does not pick a specific tone — it passes the full range + `scheduled_touch_index` + `max_touches_for_level` + lane signals (`last_reply_classification`, suppression history, days_since_last_touch, `lane_history[]`) to the AI.
-- AI picks tone from within the range based on debtor behaviour:
-  - Silent debtor → lower end of range (normal within-level progression)
-  - Non-cooperative reply or broken promise → firmer end of range (same level, firmer wording)
-  - Cooperative reply → AI may stay soft
-- `ToneClampingGuardrail` (7th guardrail, HIGH severity): validates the chosen tone is in `tone_ladder` for the current level. Rewrites or regenerates if it drifts outside the range.
+- `GenerateDraftRequest` carries `collection_lane.tone_ladder: list[str]` as the deterministic per-touch ladder for the current level.
+- Backend picks the exact `tone` from that ladder using `scheduled_touch_index` and passes that concrete tone to the AI request.
+- AI does not choose a different tone. It uses `scheduled_touch_index`, `max_touches_for_level`, `last_reply_classification`, suppression history, `days_since_last_touch`, and `lane_history[]` to vary urgency/content framing while staying inside the backend-selected tone.
+- `ToneClampingGuardrail` (7th guardrail, HIGH severity): validates the generated copy stays aligned with the requested tone and inside the current level's ladder.
 - Ack drafts are tone-locked to `acknowledgement` regardless of level.
-- Deleted upstream: `escalation_level` + `allowed_tones` as top-level request fields, `clamp_tone()`, indexed-ladder semantics, `min_gap_days`.
+- Deleted upstream: `escalation_level` + `allowed_tones` as top-level request fields, AI-chosen within-range tone selection, `clamp_tone()`, `min_gap_days`.
 - Level 0 prompt section: template-like reminders, team sign-off, no persona, factual subjects.
 - L0→L1 handoff narrative: "Our accounts team has been in touch..." (references generic mailbox as team).
 - Escalation history builder labels Level 0 senders as "Accounts Team (automated reminders)".
@@ -155,7 +152,7 @@ Fields:
 - `collection_lane_id` — UUID of the lane this draft represents.
 - `current_level` / `entry_level` — lane's escalation level.
 - `scheduled_touch_index` / `max_touches_for_level` / `reminder_cadence_days_for_level` / `max_days_for_level` — cadence state.
-- `tone_ladder: list[str]` — **allowed-tone range** (not indexed). AI picks from this list.
+- `tone_ladder: list[str]` — deterministic per-touch ladder for the current level. Runtime has already selected the exact `tone` for the draft from this ladder.
 - `invoice_refs[]` — obligation references in this lane's cohort.
 - `outstanding_amount` — sum of open obligations in cohort.
 - `lane_history[]` — last N `CollectionLaneEvent` rows (mail pushes + replies) for prompt continuity.
@@ -164,10 +161,9 @@ Fields:
 `mail_mode` on the request: `initial | reminder | escalation | ack | handoff_reply`.
 
 **Prompt rules**:
-- AI never chooses sender, level, suppression state, thread, or invoice scope. Those are backend-owned.
-- AI picks `tone` from within `tone_ladder` based on lane signals (see "Lane-Only Escalation Protocol" above).
-- For `mail_mode="reminder"` with `scheduled_touch_index > 1`: reference prior unanswered outreach using `lane_history`; increase urgency through content (approaching escalation, consequences), not by jumping to tones outside `tone_ladder`.
-- For `mail_mode="escalation"`: `scheduled_touch_index` has just reset to 1 and `tone_ladder` is the new level's range — frame as a new sender escalation, not a continuation.
+- AI never chooses sender, level, suppression state, thread, invoice scope, or tone. Those are backend-owned.
+- For `mail_mode="reminder"` with `scheduled_touch_index > 1`: reference prior unanswered outreach using `lane_history`; increase urgency through content (approaching escalation, consequences), not by switching away from the backend-selected tone.
+- For `mail_mode="escalation"`: `scheduled_touch_index` has just reset to 1 and backend has already selected the new level's first tone — frame as a new sender escalation, not a continuation.
 - For `mail_mode="ack"`: tone-locked to `acknowledgement`; one-shot acknowledgement, no collection asks.
 - For `mail_mode="handoff_reply"`: acknowledge the redirect/new-contact request; sender has just changed but the lane ID stays the same.
 
