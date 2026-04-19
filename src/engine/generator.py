@@ -186,7 +186,22 @@ class DraftGenerator:
         extra_sections = build_extra_sections(request, behavior)
 
         # Determine if this is a follow-up
-        has_conversation = bool(request.context.recent_messages)
+        recent_messages = request.context.lane_recent_messages or request.context.recent_messages
+        lane_broken_promises_count = (
+            request.context.lane_broken_promises_count
+            if request.context.lane_broken_promises_count is not None
+            else request.context.broken_promises_count
+        )
+        lane_active_dispute = (
+            request.context.lane_active_dispute
+            if request.context.lane_active_dispute is not None
+            else request.context.active_dispute
+        )
+        last_tone_used = request.context.lane_last_tone_used or (
+            comm.last_tone_used if comm else "None"
+        )
+
+        has_conversation = bool(recent_messages)
         has_response = (
             comm
             and comm.last_response_type
@@ -221,12 +236,12 @@ class DraftGenerator:
             last_touch_at=comm.last_touch_at.strftime("%Y-%m-%d")
             if comm and comm.last_touch_at
             else "Never",
-            last_tone_used=comm.last_tone_used if comm else "None",
+            last_tone_used=last_tone_used,
             last_response_type=comm.last_response_type if comm else "No response",
             case_state=request.context.case_state or "ACTIVE",
             days_since_last_touch=days_since_last_touch,
-            broken_promises_count=request.context.broken_promises_count,
-            active_dispute=request.context.active_dispute,
+            broken_promises_count=lane_broken_promises_count,
+            active_dispute=lane_active_dispute,
             hardship_indicated=request.context.hardship_indicated,
             segment=behavior.behaviour_segment or behavior.segment if behavior else "standard",
             on_time_rate=f"{behavior.on_time_rate:.0%}"

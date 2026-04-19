@@ -270,7 +270,15 @@ class GeminiProvider(BaseLLMProvider):
                         "error_type": type(e).__name__,
                     },
                 )
-            logger.error(f"Gemini provider error: {e}")
+            logger.error(
+                "Gemini provider error",
+                extra={
+                    "provider": "gemini",
+                    "model": self._model,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
             raise
 
     async def health_check(self) -> Dict[str, Any]:

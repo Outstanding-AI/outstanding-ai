@@ -20,7 +20,7 @@ from fastapi import APIRouter, Request
 from slowapi import Limiter
 
 from src.api.errors import ErrorResponse
-from src.api.middleware import tenant_rate_limit_key
+from src.api.middleware import get_request_id, tenant_rate_limit_key
 from src.api.models.requests import GenerateDraftRequest
 from src.api.models.responses import GenerateDraftResponse
 from src.config.settings import settings
@@ -59,7 +59,58 @@ async def generate_draft(
     metadata.  The Django backend replaces the placeholder with a
     formatted HTML/plain-text invoice table before pushing to Outlook.
     """
-    logger.info(f"Generating draft for party: {generate_request.context.party.party_id}")
-    result = await generator.generate(generate_request)
-    logger.info(f"Generated draft with tone: {result.tone_used}")
+    request_id = get_request_id()
+    tenant_id = request.headers.get("X-Tenant-ID")
+    party_id = generate_request.context.party.party_id
+    lane_id = generate_request.context.collection_lane_id
+    obligation_count = len(generate_request.context.obligations or [])
+    provider = settings.llm_provider
+    model = settings.gemini_model if provider == "gemini" else settings.openai_model
+
+    logger.info(
+        "Generating draft request",
+        extra={
+            "request_id": request_id,
+            "tenant_id": tenant_id,
+            "party_id": party_id,
+            "collection_lane_id": lane_id,
+            "lane_mail_mode": generate_request.context.lane_mail_mode,
+            "provider": provider,
+            "model": model,
+            "obligation_count": obligation_count,
+        },
+    )
+    try:
+        result = await generator.generate(generate_request)
+    except Exception as exc:
+        logger.exception(
+            "Draft generation request failed",
+            extra={
+                "request_id": request_id,
+                "tenant_id": tenant_id,
+                "party_id": party_id,
+                "collection_lane_id": lane_id,
+                "lane_mail_mode": generate_request.context.lane_mail_mode,
+                "provider": provider,
+                "model": model,
+                "obligation_count": obligation_count,
+                "exception_type": type(exc).__name__,
+            },
+        )
+        raise
+
+    logger.info(
+        "Generated draft response",
+        extra={
+            "request_id": request_id,
+            "tenant_id": tenant_id,
+            "party_id": party_id,
+            "collection_lane_id": lane_id,
+            "lane_mail_mode": generate_request.context.lane_mail_mode,
+            "provider": result.provider,
+            "model": result.model,
+            "obligation_count": obligation_count,
+            "tone_used": result.tone_used,
+        },
+    )
     return result

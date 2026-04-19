@@ -181,6 +181,13 @@ class CaseContext(BaseModel):
     lane: Optional[dict] = None
     lane_history: Optional[list] = None
     lane_mail_mode: Optional[str] = None
+    sendable_obligation_ids: Optional[List[str]] = None
+    blocked_obligation_ids: Optional[List[str]] = None
+    blocked_reasons_by_obligation_id: Optional[dict] = None
+    lane_recent_messages: Optional[list] = None
+    lane_active_dispute: Optional[bool] = None
+    lane_broken_promises_count: Optional[int] = None
+    lane_last_tone_used: Optional[str] = None
     lane_contexts: List[LaneContextInfo] = []
     mode: Optional[str] = Field(
         default=None,

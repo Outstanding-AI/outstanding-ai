@@ -192,8 +192,9 @@ class FactualGroundingGuardrail(BaseGuardrail):
             valid_amounts.add(round(a, 0))  # same but explicit
 
         # For follow-up drafts, also extract amounts from conversation history.
-        if skip_invoice_table and context.recent_messages:
-            conversation_amounts = self._extract_conversation_amounts(context.recent_messages)
+        recent_messages = context.lane_recent_messages or context.recent_messages
+        if skip_invoice_table and recent_messages:
+            conversation_amounts = self._extract_conversation_amounts(recent_messages)
             valid_amounts.update(
                 {round(float(a), 2) for a in conversation_amounts if a is not None}
             )

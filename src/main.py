@@ -78,6 +78,11 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     model = settings.gemini_model if settings.llm_provider == "gemini" else settings.openai_model
     logger.info(f"Provider: {settings.llm_provider}, Model: {model}")
+    logger.info(
+        "Provider key availability: gemini=%s openai=%s",
+        bool(settings.gemini_api_key),
+        bool(settings.openai_api_key),
+    )
     logger.info(f"Port: {settings.api_port}")
     logger.info(f"Debug: {settings.debug}")
     logger.info("Rate limiting: ENABLED")
@@ -140,10 +145,24 @@ else:
 @app.exception_handler(OutstandingAIBaseError)
 async def app_error_handler(request: Request, exc: OutstandingAIBaseError) -> JSONResponse:
     """Handle all Outstanding AI custom exceptions with structured response."""
+    logger.error(
+        "Outstanding AI application error",
+        extra={
+            "request_id": get_request_id(),
+            "path": request.url.path,
+            "error_code": exc.error_code,
+            "exception_type": type(exc).__name__,
+            "provider": settings.llm_provider,
+        },
+    )
     error_response = ErrorResponse(
         error=exc.message,
         error_code=exc.error_code,
-        details=exc.details,
+        details={
+            **(exc.details or {}),
+            "exception_type": type(exc).__name__,
+            "provider": settings.llm_provider,
+        },
         request_id=get_request_id(),
     )
     return JSONResponse(
@@ -155,11 +174,23 @@ async def app_error_handler(request: Request, exc: OutstandingAIBaseError) -> JS
 @app.exception_handler(Exception)
 async def generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle unexpected exceptions with structured response."""
-    logger.exception(f"Unhandled exception: {exc}")
+    logger.exception(
+        "Unhandled exception",
+        extra={
+            "request_id": get_request_id(),
+            "path": request.url.path,
+            "exception_type": type(exc).__name__,
+            "provider": settings.llm_provider,
+        },
+    )
     error_response = ErrorResponse(
         error="An unexpected error occurred",
         error_code=ErrorCode.INTERNAL_ERROR,
-        details={"exception_type": type(exc).__name__} if settings.debug else None,
+        details={
+            "exception_type": type(exc).__name__,
+            "provider": settings.llm_provider,
+            "path": request.url.path,
+        },
         request_id=get_request_id(),
     )
     return JSONResponse(

@@ -177,6 +177,14 @@ def build_extra_sections(request, behavior) -> str:
             )
         sections.append("\n\n**Lane History:**\n" + "\n".join(history_lines))
 
+    if request.context.sendable_obligation_ids or request.context.blocked_obligation_ids:
+        sections.append(
+            "\n\n**Lane Sendable Scope:**\n"
+            f"- Sendable Obligations: {', '.join(request.context.sendable_obligation_ids or []) or 'none'}\n"
+            f"- Blocked Obligations: {', '.join(request.context.blocked_obligation_ids or []) or 'none'}\n"
+            f"- Blocked Reasons: {request.context.blocked_reasons_by_obligation_id or {}}"
+        )
+
     # Escalation history (all prior senders for handoff narrative)
     esc_history = request.context.escalation_history
     if esc_history:
@@ -224,7 +232,7 @@ def build_extra_sections(request, behavior) -> str:
             sections.append("\n\n**Sender Style:**\n" + "\n".join(style_lines))
 
     # Conversation history (recent messages for follow-up context)
-    recent_msgs = request.context.recent_messages
+    recent_msgs = request.context.lane_recent_messages or request.context.recent_messages
     if recent_msgs:
         msg_lines = []
         for msg in reversed(recent_msgs):  # chronological order

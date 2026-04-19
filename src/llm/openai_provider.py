@@ -262,7 +262,15 @@ class OpenAIProvider(BaseLLMProvider):
                     f"Increase openai_max_tokens in settings."
                 ) from e
 
-            logger.error(f"OpenAI provider error: {e}")
+            logger.error(
+                "OpenAI provider error",
+                extra={
+                    "provider": "openai",
+                    "model": self._model,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
             raise
 
     async def health_check(self) -> Dict[str, Any]:

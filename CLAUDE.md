@@ -117,15 +117,21 @@ CORS_ORIGINS=http://localhost:8000
 | solvix-etl | `../solvix-etl` | ETL — no direct integration |
 | solvix_frontend | `../solvix_frontend` | Frontend — no direct integration |
 
-## Escalation Protocol V2 Support
+## Lane-Only Escalation Protocol (April 2026)
 
-- `GenerateDraftRequest` has `escalation_level` (int 0-4) and `allowed_tones` (list[str]) fields
-- Generator passes `tone`, `escalation_level`, `allowed_tones` to guardrail pipeline as kwargs
-- `ToneClampingGuardrail` (7th guardrail, HIGH severity): validates tone is in `allowed_tones` for the level
-- Level 0 prompt section: template-like reminders, team sign-off, no persona, factual subjects
-- L0→L1 handoff narrative: "Our accounts team has been in touch..." (references generic mailbox as team)
-- Escalation history builder labels Level 0 senders as "Accounts Team (automated reminders)"
-- `is_generic_mailbox` on `SenderPersona`: skips personal voice, uses team-oriented language
+- `GenerateDraftRequest` carries `collection_lane.tone_ladder: list[str]` — an **allowed-tone range** for the level, not an indexed per-touch ladder.
+- Backend does not pick a specific tone — it passes the full range + `scheduled_touch_index` + `max_touches_for_level` + lane signals (`last_reply_classification`, suppression history, days_since_last_touch, `lane_history[]`) to the AI.
+- AI picks tone from within the range based on debtor behaviour:
+  - Silent debtor → lower end of range (normal within-level progression)
+  - Non-cooperative reply or broken promise → firmer end of range (same level, firmer wording)
+  - Cooperative reply → AI may stay soft
+- `ToneClampingGuardrail` (7th guardrail, HIGH severity): validates the chosen tone is in `tone_ladder` for the current level. Rewrites or regenerates if it drifts outside the range.
+- Ack drafts are tone-locked to `acknowledgement` regardless of level.
+- Deleted upstream: `escalation_level` + `allowed_tones` as top-level request fields, `clamp_tone()`, indexed-ladder semantics, `min_gap_days`.
+- Level 0 prompt section: template-like reminders, team sign-off, no persona, factual subjects.
+- L0→L1 handoff narrative: "Our accounts team has been in touch..." (references generic mailbox as team).
+- Escalation history builder labels Level 0 senders as "Accounts Team (automated reminders)".
+- `is_generic_mailbox` on `SenderPersona`: skips personal voice, uses team-oriented language.
 
 ## Communication Tracking Context (April 2026)
 
@@ -141,28 +147,31 @@ CORS_ORIGINS=http://localhost:8000
 
 **Why**: BCC/shared-mailbox transport rules are tenant-side and unreliable. The backend can legitimately hold drafts whose send is unconfirmed — the AI must not overclaim chronology when the control plane says we're flying blind.
 
-## Collection Lanes Context (April 2026)
+## Collection Lane Context (April 2026 — Single-Lane Only)
 
-`GenerateDraftRequest` carries an optional `collection_lane` block when the backend runs lane-aware scheduling (`LANE_SCHEDULER_ENABLED` tenant flag):
+`GenerateDraftRequest` carries a `collection_lane` / `lane_context` block for every collection-mode draft. Runtime is lane-only — no bundling, no owner/guest semantics, no replacement flow.
 
-- `lane_id` — UUID of the lane this draft represents
-- `current_level` / `entry_level` — lane's escalation level (strictly monotonic +1)
-- `level_started_at` / `scheduled_touch_index` / `max_touches_for_level` / `max_days_for_level` — cadence state
-- `invoice_refs[]` — obligation references in this lane's cohort (sage_id strings)
-- `outstanding_amount` — sum of open obligations in cohort
-- `previous_same_lane_touch_dates[]` — prior outreach dates for same lane (for natural "we contacted you on..." language)
-- `bundle_mode` — `single_lane | bundled_same_sender | replacement_after_delete | separate_fallback_after_delete_failure`
-- `cc_policy_note` — human-readable CC policy reminder for drafting
+Fields:
+- `collection_lane_id` — UUID of the lane this draft represents.
+- `current_level` / `entry_level` — lane's escalation level.
+- `scheduled_touch_index` / `max_touches_for_level` / `reminder_cadence_days_for_level` / `max_days_for_level` — cadence state.
+- `tone_ladder: list[str]` — **allowed-tone range** (not indexed). AI picks from this list.
+- `invoice_refs[]` — obligation references in this lane's cohort.
+- `outstanding_amount` — sum of open obligations in cohort.
+- `lane_history[]` — last N `CollectionLaneEvent` rows (mail pushes + replies) for prompt continuity.
+- `last_reply_classification` — most recent inbound intent for this lane, if any.
 
-**Bundled drafts carry `lanes[]`** (list of per-lane blocks) instead of a single `collection_lane`. Each lane has its own cadence state — acknowledge prior reminders only for lanes that actually had prior reminders; describe newly-joined lanes as newly overdue.
+`mail_mode` on the request: `initial | reminder | escalation | ack | handoff_reply`.
 
 **Prompt rules**:
-- AI never chooses sender, level, thread, bundle membership, or replacement policy. These are backend-owned.
-- In `bundled_same_sender` mode, tone ceiling = highest urgency among bundled lanes.
-- In `replacement_after_delete` mode, the replaced draft's thread is continued — do not re-introduce first-touch framing.
-- In `separate_fallback_after_delete_failure` mode, generate a fresh standalone draft; the previous unsent draft still sits in the debtor's inbox, so do not reference it.
+- AI never chooses sender, level, suppression state, thread, or invoice scope. Those are backend-owned.
+- AI picks `tone` from within `tone_ladder` based on lane signals (see "Lane-Only Escalation Protocol" above).
+- For `mail_mode="reminder"` with `scheduled_touch_index > 1`: reference prior unanswered outreach using `lane_history`; increase urgency through content (approaching escalation, consequences), not by jumping to tones outside `tone_ladder`.
+- For `mail_mode="escalation"`: `scheduled_touch_index` has just reset to 1 and `tone_ladder` is the new level's range — frame as a new sender escalation, not a continuation.
+- For `mail_mode="ack"`: tone-locked to `acknowledgement`; one-shot acknowledgement, no collection asks.
+- For `mail_mode="handoff_reply"`: acknowledge the redirect/new-contact request; sender has just changed but the lane ID stays the same.
 
-Full contract: backend `docs/CONTRACTS.md` "Collection Lanes Contract".
+Full contract: backend `docs/CONTRACTS.md` section 5 (Tone Contract) + section 8 (App DB Contract).
 
 ## Skills
 

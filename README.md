@@ -225,7 +225,7 @@ The guardrail pipeline validates AI-generated content before it's returned. Guar
 | `entity_verification` | High | Verifies customer code and company name match |
 | `temporal_consistency` | Medium | Validates date references are accurate |
 | `contextual_coherence` | Low | Checks overall response coherence |
-| `tone_clamping` | High | Validates draft tone is within level's `allowed_tones` (escalation v2) |
+| `tone_clamping` | High | Validates AI-chosen tone is within level's `tone_ladder` range (lane protocol); rewrites/regenerates on drift |
 
 **Blocking Behavior:**
 - `Critical` and `High` severity failures block the output
@@ -328,7 +328,7 @@ solvix-ai/
 │   │   ├── entity.py        # Customer code/name validation (HIGH)
 │   │   ├── temporal.py      # Date reference validation (MEDIUM)
 │   │   ├── contextual.py    # Coherence checking (LOW)
-│   │   └── tone_clamping.py # Tone within allowed_tones (HIGH)
+│   │   └── tone_clamping.py # AI tone within level's tone_ladder range (HIGH)
 │   ├── llm/
 │   │   ├── base.py          # BaseLLMProvider abstract class
 │   │   ├── factory.py       # LLM client factory (Gemini→OpenAI fallback)

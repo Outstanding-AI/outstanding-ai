@@ -58,9 +58,19 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
             List of GuardrailResult objects (one per applicable check).
         """
         results = []
+        active_dispute = (
+            context.lane_active_dispute
+            if getattr(context, "lane_active_dispute", None) is not None
+            else context.active_dispute
+        )
+        broken_promises_count = (
+            context.lane_broken_promises_count
+            if getattr(context, "lane_broken_promises_count", None) is not None
+            else context.broken_promises_count
+        )
 
         # Check dispute handling
-        if context.active_dispute:
+        if active_dispute:
             results.append(self._validate_dispute_awareness(output, context))
 
         # Check hardship handling
@@ -68,7 +78,7 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
             results.append(self._validate_hardship_tone(output, context))
 
         # Check broken promise awareness
-        if context.broken_promises_count > 0:
+        if broken_promises_count > 0:
             results.append(self._validate_promise_awareness(output, context))
 
         # If no special conditions, just pass
@@ -214,7 +224,13 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
         output_lower = output.lower()
 
         # If multiple broken promises, output should acknowledge history
-        if context.broken_promises_count >= 2:
+        broken_promises_count = (
+            context.lane_broken_promises_count
+            if getattr(context, "lane_broken_promises_count", None) is not None
+            else context.broken_promises_count
+        )
+
+        if broken_promises_count >= 2:
             history_phrases = [
                 "previous",
                 "history",
@@ -231,11 +247,11 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
             if not acknowledges_history:
                 # This is a medium severity - just warn
                 return self._fail(
-                    message=f"Output doesn't reference {context.broken_promises_count} broken promises",
+                    message=f"Output doesn't reference {broken_promises_count} broken promises",
                     expected="Acknowledgment of payment history",
                     found="No history reference",
                     details={
-                        "broken_promises_count": context.broken_promises_count,
+                        "broken_promises_count": broken_promises_count,
                         "history_acknowledged": False,
                     },
                 )
@@ -243,12 +259,12 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
             return self._pass(
                 message="Output acknowledges payment history",
                 details={
-                    "broken_promises_count": context.broken_promises_count,
+                    "broken_promises_count": broken_promises_count,
                     "history_acknowledged": True,
                 },
             )
 
         return self._pass(
             message="No significant promise history to reference",
-            details={"broken_promises_count": context.broken_promises_count},
+            details={"broken_promises_count": broken_promises_count},
         )
