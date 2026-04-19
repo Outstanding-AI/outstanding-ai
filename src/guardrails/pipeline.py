@@ -96,7 +96,7 @@ class GuardrailPipeline:
             PlaceholderValidationGuardrail(),  # Deterministic, zero-cost — runs first
             FactualGroundingGuardrail(),
             NumericalConsistencyGuardrail(),
-            ToneClampingGuardrail(),  # Validates tone vs level's allowed_tones
+            ToneClampingGuardrail(),  # Confirms a runtime-selected tone was provided
             EntityVerificationGuardrail(),
             TemporalConsistencyGuardrail(),
             ContextualCoherenceGuardrail(),

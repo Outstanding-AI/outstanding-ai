@@ -1,8 +1,7 @@
 """
 Request validation models for AI Engine API endpoints.
 
-Contains the main request classes: ClassifyRequest, GenerateDraftRequest,
-EvaluateGatesRequest, and EvaluateGatesBatchRequest.
+Contains the main request classes used by the AI service.
 
 Security:
 - All string fields have max_length constraints to prevent memory exhaustion
@@ -52,7 +51,7 @@ class GenerateDraftRequest(BaseModel):
     sender_context: Optional[SenderContext] = None
     tone: str = Field(
         default="professional",
-        pattern=r"^(friendly_reminder|professional|firm|final_notice|concerned_inquiry)$",
+        pattern=r"^(friendly_reminder|friendly_escalating|professional|professional_escalating|firm|firm_escalating|final_notice|legal_pre_action|acknowledgement|concerned_inquiry)$",
     )
     objective: Optional[str] = Field(
         default=None,
@@ -62,9 +61,6 @@ class GenerateDraftRequest(BaseModel):
     skip_invoice_table: bool = False
     trigger_classification: Optional[str] = Field(None, max_length=50)
     escalation_level: Optional[int] = Field(None, description="Current escalation level (0-4)")
-    allowed_tones: Optional[list[str]] = Field(
-        None, description="Tones allowed at this level from protocol v2"
-    )
     tone_preference: Optional[str] = Field(None, pattern=r"^(diplomatic|professional|direct)$")
     # SECURITY: Limited to 1000 chars with prompt injection detection
     custom_instructions: Optional[str] = Field(default=None, max_length=1000)
@@ -97,7 +93,7 @@ class EvaluateGatesRequest(BaseModel):
     )
     proposed_tone: Optional[str] = Field(
         default=None,
-        pattern=r"^(friendly_reminder|professional|firm|final_notice|concerned_inquiry)$",
+        pattern=r"^(friendly_reminder|friendly_escalating|professional|professional_escalating|firm|firm_escalating|final_notice|legal_pre_action|acknowledgement|concerned_inquiry)$",
     )
 
 
@@ -116,5 +112,5 @@ class EvaluateGatesBatchRequest(BaseModel):
     )
     proposed_tone: Optional[str] = Field(
         default=None,
-        pattern=r"^(friendly_reminder|professional|firm|final_notice|concerned_inquiry)$",
+        pattern=r"^(friendly_reminder|friendly_escalating|professional|professional_escalating|firm|firm_escalating|final_notice|legal_pre_action|acknowledgement|concerned_inquiry)$",
     )

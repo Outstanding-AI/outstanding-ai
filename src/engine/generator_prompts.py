@@ -125,32 +125,57 @@ def build_extra_sections(request, behavior) -> str:
                 "THIS IS A LEVEL 0 AUTOMATED REMINDER — keep it simple, factual, and template-like."
             )
 
-    if request.context.lane_contexts:
-        lane_lines = []
-        for lane in request.context.lane_contexts:
-            invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
-            prior_touches = ", ".join(lane.prior_touch_dates) if lane.prior_touch_dates else "none"
-            lane_lines.append(
-                f"- Lane {lane.lane_id} ({lane.role}): current_level={lane.current_level}, "
-                f"entry_level={lane.entry_level}, scheduled_touch_index={lane.scheduled_touch_index}, "
-                f"outstanding_amount={lane.outstanding_amount}, invoice_refs={invoice_refs}, "
-                f"prior_touch_dates={prior_touches}, newly_joined={lane.is_newly_joined}"
+    lane_state = getattr(request.context, "lane", None)
+    if lane_state:
+        invoice_refs = ", ".join(lane_state.get("invoice_refs") or []) or "none"
+        tone_ladder = ", ".join(lane_state.get("tone_ladder") or []) or "none"
+        sections.append(
+            "\n\n**Collection Lane Context:**\n"
+            f"- Collection Lane: {request.context.collection_lane_id or lane_state.get('collection_lane_id') or 'unknown'}\n"
+            f"- Current Level: {lane_state.get('current_level')} (entry level {lane_state.get('entry_level')})\n"
+            f"- Mail Mode: {getattr(request.context, 'lane_mail_mode', None) or 'initial'}\n"
+            f"- Scheduled Touch Index: {lane_state.get('scheduled_touch_index')} of {lane_state.get('max_touches_for_level')}\n"
+            f"- Reminder Cadence (days): {lane_state.get('reminder_cadence_days_for_level')}\n"
+            f"- Level Window (days): {lane_state.get('max_days_for_level')}\n"
+            f"- Tone Ladder: {tone_ladder}\n"
+            f"- Open Invoices: {invoice_refs}\n"
+            f"- Outstanding Amount: {lane_state.get('outstanding_amount')}\n"
+            f"- Suppression State: {lane_state.get('suppression_state') or 'none'}"
+        )
+    elif request.context.lane_contexts:
+        lane = request.context.lane_contexts[0]
+        invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
+        tone_ladder = ", ".join(lane.tone_ladder) if getattr(lane, "tone_ladder", None) else "none"
+        sections.append(
+            "\n\n**Collection Lane Context:**\n"
+            f"- Collection Lane: {lane.lane_id}\n"
+            f"- Current Level: {lane.current_level} (entry level {lane.entry_level})\n"
+            f"- Scheduled Touch Index: {lane.scheduled_touch_index} of {lane.max_touches_for_level}\n"
+            f"- Reminder Cadence (days): {lane.reminder_cadence_days_for_level}\n"
+            f"- Level Window (days): {lane.max_days_for_level}\n"
+            f"- Tone Ladder: {tone_ladder}\n"
+            f"- Open Invoices: {invoice_refs}\n"
+            f"- Outstanding Amount: {lane.outstanding_amount}"
+        )
+
+    lane_history = getattr(request.context, "lane_history", None)
+    if lane_history:
+        history_lines = []
+        for event in lane_history[-8:]:
+            detail = event.get("detail") or {}
+            detail_bits = []
+            if detail.get("mail_mode"):
+                detail_bits.append(f"mail_mode={detail['mail_mode']}")
+            if detail.get("tone_used"):
+                detail_bits.append(f"tone={detail['tone_used']}")
+            if detail.get("reason"):
+                detail_bits.append(f"reason={detail['reason']}")
+            suffix = f" ({', '.join(detail_bits)})" if detail_bits else ""
+            history_lines.append(
+                f"- {event.get('created_at', 'unknown')}: {event.get('event_type', 'event')} "
+                f"level {event.get('from_level')}→{event.get('to_level')}{suffix}"
             )
-        bundle_header = [
-            "\n\n**Lane Bundle Context:**",
-            f"- Bundle Mode: {request.context.mode or 'single_lane'}",
-            f"- Bundle Group Key: {request.context.bundle_group_key or 'none'}",
-            f"- Thread Family Key: {request.context.thread_family_key or 'new_thread'}",
-            f"- Owner Lane: {request.context.owner_lane_id or 'none'}",
-            (
-                f"- Guest Lanes: {', '.join(request.context.guest_lane_ids)}"
-                if request.context.guest_lane_ids
-                else "- Guest Lanes: none"
-            ),
-            "- Use the highest urgency lane as the tone ceiling, but only describe prior reminders for lanes that actually have prior_touch_dates.",
-            "- Newly joined lanes must be introduced as newly overdue items, not as previously chased items.",
-        ]
-        sections.append("\n".join(bundle_header + lane_lines))
+        sections.append("\n\n**Lane History:**\n" + "\n".join(history_lines))
 
     # Escalation history (all prior senders for handoff narrative)
     esc_history = request.context.escalation_history

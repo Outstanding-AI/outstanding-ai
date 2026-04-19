@@ -335,7 +335,6 @@ class DraftGenerator:
                 closure_mode=request.closure_mode,
                 tone=request.tone,
                 escalation_level=getattr(request, "escalation_level", None),
-                allowed_tones=getattr(request, "allowed_tones", None),
             )
             timing.guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
 

@@ -69,7 +69,7 @@ class CommunicationTrackingInfo(BaseModel):
 
 
 class LaneContextInfo(BaseModel):
-    """Per-lane context for bundled draft generation."""
+    """Lane-aware collection context for one draft generation request."""
 
     lane_id: str = Field(..., max_length=100)
     role: str = Field("single", pattern=r"^(owner|guest|single)$")
@@ -79,7 +79,9 @@ class LaneContextInfo(BaseModel):
     level_started_at: Optional[datetime] = None
     scheduled_touch_index: int = 0
     max_touches_for_level: Optional[int] = None
+    reminder_cadence_days_for_level: Optional[int] = None
     max_days_for_level: Optional[int] = None
+    tone_ladder: List[str] = []
     invoice_refs: List[str] = []
     outstanding_amount: float = 0.0
     prior_touch_dates: List[str] = []
@@ -174,15 +176,15 @@ class CaseContext(BaseModel):
     # Currency symbol for invoice table formatting
     currency_symbol: Optional[str] = None
 
-    # Lane-aware bundle context for same-sender multi-lane drafting
-    bundle_group_key: Optional[str] = None
-    thread_family_key: Optional[str] = None
-    owner_lane_id: Optional[str] = None
-    guest_lane_ids: List[str] = []
+    # Lane-only pilot runtime context
+    collection_lane_id: Optional[str] = None
+    lane: Optional[dict] = None
+    lane_history: Optional[list] = None
+    lane_mail_mode: Optional[str] = None
     lane_contexts: List[LaneContextInfo] = []
     mode: Optional[str] = Field(
         default=None,
-        pattern=r"^(single_lane|bundled_same_sender|replacement_after_delete|separate_fallback_after_delete_failure)$",
+        pattern=r"^(single_lane)$",
     )
 
 
