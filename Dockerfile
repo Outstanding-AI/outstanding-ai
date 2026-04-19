@@ -39,6 +39,9 @@ USER appuser
 RUN --mount=type=cache,target=/home/appuser/.cache/uv,uid=1000 \
     uv sync --no-dev --frozen
 
+# Copy runtime config (non-secret WIF descriptor)
+COPY --chown=appuser:appuser infra/ infra/
+
 # Copy source code (only src/ needed in production)
 COPY --chown=appuser:appuser src/ src/
 

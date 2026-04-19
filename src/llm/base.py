@@ -11,7 +11,7 @@ class LLMResponse(BaseModel):
 
     content: str
     model: str
-    provider: str  # "openai", "gemini", etc.
+    provider: str  # "vertex", "openai", etc.
     usage: Dict[str, int]  # prompt_tokens, completion_tokens, total_tokens
     raw_response: Optional[Dict[str, Any]] = None
 
@@ -52,7 +52,7 @@ class BaseLLMProvider(ABC):
     @property
     @abstractmethod
     def provider_name(self) -> str:
-        """Return provider name (openai, gemini, etc.)."""
+        """Return provider name (vertex, openai, etc.)."""
         pass
 
     @property

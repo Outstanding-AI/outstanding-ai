@@ -1,6 +1,6 @@
 """Anthropic Claude LLM provider.
 
-Optional third provider alongside Gemini (default primary) and OpenAI (fallback).
+Optional third provider alongside Vertex (default primary) and OpenAI (fallback).
 Supports structured output via tool_use for guaranteed JSON.
 """
 
@@ -51,7 +51,7 @@ def _log_retry(retry_state):
 
 
 class AnthropicProvider(BaseLLMProvider):
-    """Anthropic Claude provider. Optional alongside Gemini (default) and OpenAI (fallback)."""
+    """Anthropic Claude provider. Optional alongside Vertex and OpenAI."""
 
     def __init__(
         self,

@@ -65,7 +65,7 @@ async def generate_draft(
     lane_id = generate_request.context.collection_lane_id
     obligation_count = len(generate_request.context.obligations or [])
     provider = settings.llm_provider
-    model = settings.gemini_model if provider == "gemini" else settings.openai_model
+    model = settings.model_for_provider(provider)
 
     logger.info(
         "Generating draft request",

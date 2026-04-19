@@ -42,7 +42,7 @@ Concept → file navigation index.
 | Concept | File |
 |---------|------|
 | Provider factory | `src/llm/factory.py` |
-| Gemini provider | `src/llm/gemini_provider.py` |
+| Vertex provider | `src/llm/vertex_provider.py` |
 | OpenAI provider | `src/llm/openai_provider.py` |
 | Anthropic provider | `src/llm/anthropic_provider.py` |
 

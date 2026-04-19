@@ -6,7 +6,7 @@ GET /ping       -- Simple liveness check for Docker / load balancer probes.
 GET /health     -- Shallow service health: process up, settings parsed.
                    Zero cost, no LLM calls. Public.
 GET /health/llm -- Deep LLM connectivity check. Makes real API calls to
-                   Gemini / OpenAI to verify provider availability.
+                   the configured LLM providers to verify availability.
                    Requires service auth — ops-runbook use only.
 """
 
@@ -77,9 +77,9 @@ async def llm_health_check() -> HealthResponse:
     """
     Deep LLM connectivity check with real provider API calls.
 
-    WARNING: Makes actual API calls to Gemini and OpenAI which consume
-    quota. Requires service auth — not for monitoring probes, only
-    ops-runbook use during incident response.
+    WARNING: Makes actual API calls which consume provider quota.
+    Requires service auth — not for monitoring probes, only ops-runbook
+    use during incident response.
     """
     logger.debug("Running deep LLM health check (burns provider quota)")
     uptime = time.time() - _start_time

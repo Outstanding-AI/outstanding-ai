@@ -1,41 +1,13 @@
 """Outstanding AI Engine application settings.
 
 Load configuration from environment variables (and ``.env`` file) using
-Pydantic Settings.  All settings have sensible defaults for local
-development; production values are injected via Docker environment or
-a secrets manager.
-
-Provider hierarchy:
-    1. **Gemini** (primary) -- ``gemini-2.5-pro``, best reliability and
-       structured output support.  Set via ``GEMINI_API_KEY``.
-    2. **OpenAI** (fallback) -- ``gpt-5-nano``, activated automatically
-       when Gemini is unavailable.  Set via ``OPENAI_API_KEY``.
-       Note: reasoning models consume ``max_tokens`` for "thinking",
-       so the budget is set very high (32768).
-    3. **Anthropic** (optional) -- ``claude-sonnet-4-20250514`` for
-       generation, ``claude-haiku-4-5-20251001`` for classification.
-       Only used when explicitly configured via ``ANTHROPIC_API_KEY``.
-
-Task-specific temperatures override provider defaults:
-    - Draft generation: 0.7 (creative)
-    - Classification: 0.2 (deterministic)
-    - Persona generation: 0.7 (creative)
-    - Persona refinement: 0.5 (moderate consistency)
-
-Dev/prod switching:
-    - ``DEBUG=true``: enables wildcard CORS, verbose logging.
-    - ``SERVICE_AUTH_TOKEN``: when set, all endpoints (except /health,
-      /ping) require ``Authorization: Bearer <token>``.
-    - ``CORS_ALLOWED_ORIGINS``: comma-separated list of allowed
-      origins; empty + debug=false = no CORS allowed.
-
-Rate limiting:
-    - Per-IP, per-minute via slowapi.  Defaults to 100/minute for all
-      endpoints (appropriate for internal service-to-service calls).
-    - Configurable per-endpoint via ``RATE_LIMIT_CLASSIFY``,
-      ``RATE_LIMIT_GENERATE``, ``RATE_LIMIT_GATES`` env vars.
+Pydantic Settings. Production uses Vertex AI via AWS workload identity
+federation. Local development can use ADC when ECS task-role credentials
+are not available.
 """
 
+import os
+from pathlib import Path
 from typing import List, Optional
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -46,7 +18,6 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables.
 
     All fields map 1:1 to environment variables (case-insensitive).
-    For example, ``gemini_api_key`` reads from ``GEMINI_API_KEY``.
     A ``.env`` file in the project root is also loaded automatically.
     """
 
@@ -59,6 +30,15 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8001
     debug: bool = False
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def parse_debug_flag(cls, v):
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized in {"release", "prod", "production"}:
+                return False
+        return v
 
     # --- CORS ---
     # Comma-separated list of allowed origins.
@@ -88,27 +68,21 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
 
     # --- LLM Provider Selection ---
-    # Controls which provider is used as primary.
-    # The fallback provider is the other one (if its API key is set).
-    llm_provider: str = "gemini"  # "openai" or "gemini"
+    llm_provider: str = "vertex"  # "vertex", "openai", "anthropic"
 
-    # --- Gemini Configuration (PRIMARY) ---
-    # gemini-2.5-pro: best reliability and structured output support.
-    # Options: gemini-2.5-flash (fast/cheap), gemini-2.5-pro (capable).
-    # Upgrade path: gemini-3.1-pro when JSON-mode stability confirmed.
-    gemini_api_key: Optional[str] = Field(None, repr=False)
-    gemini_model: str = "gemini-2.5-pro"
-    gemini_temperature: float = 0.3
-    gemini_max_tokens: int = 8192  # High for structured output
+    # --- Vertex AI Configuration (PRIMARY) ---
+    vertex_project_id: str = "production-493814"
+    vertex_location: str = "europe-west2"
+    vertex_model: str = "gemini-2.5-flash"
+    vertex_temperature: float = 0.3
+    vertex_max_tokens: int = 8192
+    vertex_wif_config_path: str = "/app/infra/vertex-wif-config.json"
 
     # --- OpenAI Configuration (FALLBACK) ---
-    # gpt-5-nano is a reasoning model: reasoning tokens consume from
-    # max_tokens budget, so the budget must be very high (32768).
-    # Upgrade path: gpt-5.3-instant for better quality at ~3x cost.
     openai_api_key: Optional[str] = Field(None, repr=False)
     openai_model: str = "gpt-5-nano"
     openai_temperature: float = 0.3
-    openai_max_tokens: int = 32768  # Headroom for reasoning tokens
+    openai_max_tokens: int = 32768
 
     # --- Anthropic Configuration (OPTIONAL third provider) ---
     # Only activated when ANTHROPIC_API_KEY is set.
@@ -149,7 +123,34 @@ class Settings(BaseSettings):
     rate_limit_generate: str = "100/minute"
     rate_limit_gates: str = "100/minute"
 
-    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    def running_on_ecs(self) -> bool:
+        return bool(
+            os.environ.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+            or os.environ.get("AWS_CONTAINER_CREDENTIALS_FULL_URI")
+        )
+
+    def vertex_wif_path(self) -> Path:
+        return Path(self.vertex_wif_config_path)
+
+    def model_for_provider(self, provider: Optional[str] = None) -> str:
+        provider_name = provider or self.llm_provider
+        if provider_name == "vertex":
+            return self.vertex_model
+        if provider_name == "openai":
+            return self.openai_model
+        if provider_name == "anthropic":
+            return self.anthropic_model
+        return "unknown"
+
+    def provider_status(self) -> dict[str, bool]:
+        return {
+            "vertex_config": self.vertex_wif_path().is_file(),
+            "ecs_task_role": self.running_on_ecs(),
+            "openai": bool(self.openai_api_key),
+            "anthropic": bool(self.anthropic_api_key),
+        }
 
     @model_validator(mode="after")
     def _enforce_production_invariants(self) -> "Settings":
@@ -158,6 +159,22 @@ class Settings(BaseSettings):
                 raise ValueError("SERVICE_AUTH_TOKEN is required when ENVIRONMENT=production")
             if self.debug:
                 raise ValueError("DEBUG must be false when ENVIRONMENT=production")
+            if self.llm_provider == "vertex":
+                if not self.vertex_project_id or self.vertex_project_id.startswith("REPLACE_"):
+                    raise ValueError(
+                        "VERTEX_PROJECT_ID must be set to a non-placeholder value in production"
+                    )
+                if not self.vertex_wif_path().is_file():
+                    raise ValueError(
+                        "VERTEX_WIF_CONFIG_PATH must point to a readable file in production"
+                    )
+                if not self.running_on_ecs():
+                    raise ValueError(
+                        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI or "
+                        "AWS_CONTAINER_CREDENTIALS_FULL_URI is required in production"
+                    )
+                if not (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")):
+                    raise ValueError("AWS_REGION or AWS_DEFAULT_REGION is required in production")
         return self
 
 

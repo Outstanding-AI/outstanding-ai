@@ -5,7 +5,7 @@ Stateless AI microservice powering intelligent debt collection workflows.
 ## Project Identity
 
 - **Purpose**: Email classification (23 categories), draft generation (5 tones), compliance gates, persona management
-- **Stack**: FastAPI + LangChain with Gemini (primary) / OpenAI (fallback) / Anthropic (optional)
+- **Stack**: FastAPI + Vertex AI (`google-genai`) primary / OpenAI fallback / Anthropic optional
 - **Port**: 8001
 
 ## Directory Structure
@@ -76,9 +76,10 @@ pytest tests/ -x               # Stop on first failure
 ## Environment Variables
 
 ```bash
-# Required
-GEMINI_API_KEY=<key>
-GEMINI_MODEL=gemini-2.5-pro
+# Required for local Vertex work
+VERTEX_PROJECT_ID=production-493814
+VERTEX_LOCATION=europe-west2
+VERTEX_MODEL=gemini-2.5-flash
 
 # Fallback
 OPENAI_API_KEY=<key>
@@ -100,11 +101,11 @@ CORS_ORIGINS=http://localhost:8000
 | Setting | Local | Production |
 |---------|-------|-----------|
 | `SERVICE_AUTH_TOKEN` | Empty (disabled) | Required (AWS Secrets Manager) |
-| LLM API keys | `.env` file | AWS Secrets Manager |
+| Vertex auth | ADC / local creds | AWS task role + WIF config file |
 | Deployment | Docker Compose on localhost | ECS Fargate |
 | Log level | `INFO` | `WARNING` |
 | `IDLE_SHUTDOWN_SECONDS` | Not set (disabled) | e.g. `300` — background watchdog sends SIGTERM after idle period |
-| ECS health check | N/A | `/ping` (NOT `/health` — `/health` calls Gemini and burns quota) |
+| ECS health check | N/A | `/ping` (NOT `/health` — `/health/llm` burns provider quota) |
 | Auth bypass paths | `_PUBLIC_PATHS` in `src/api/middleware.py` | `/health`, `/ping`, `/docs`, `/openapi.json`, `/redoc` |
 
 **ECS Fargate idle shutdown**: When `IDLE_SHUTDOWN_SECONDS` > 0, a background watchdog thread monitors time since last request and sends SIGTERM after the idle period expires. This allows the AI Engine container to shut down when unused, reducing Fargate costs.

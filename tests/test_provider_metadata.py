@@ -38,8 +38,8 @@ class TestProviderMetadata:
                     },
                 }
             ),
-            model="gemini-2.0-flash",
-            provider="gemini",
+            model="gemini-2.5-flash",
+            provider="vertex",
             usage={"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
         )
 
@@ -47,7 +47,7 @@ class TestProviderMetadata:
 
         with patch("src.engine.classifier.llm_client") as mock_llm:
             mock_llm.complete = AsyncMock(return_value=mock_response)
-            mock_llm.primary_provider_name = "gemini"
+            mock_llm.primary_provider_name = "vertex"
 
             with patch("src.engine.classifier.guardrail_pipeline") as mock_pipeline:
                 mock_result = type(
@@ -63,8 +63,8 @@ class TestProviderMetadata:
 
                 result = await classifier.classify(sample_classify_request)
 
-        assert result.provider == "gemini"
-        assert result.model == "gemini-2.0-flash"
+        assert result.provider == "vertex"
+        assert result.model == "gemini-2.5-flash"
         assert result.is_fallback is False
 
     @pytest.mark.asyncio
@@ -88,7 +88,7 @@ class TestProviderMetadata:
 
         with patch("src.engine.generator.llm_client") as mock_llm:
             mock_llm.complete = AsyncMock(return_value=mock_response)
-            mock_llm.primary_provider_name = "gemini"  # Primary is gemini
+            mock_llm.primary_provider_name = "vertex"
 
             with patch("src.engine.generator.guardrail_pipeline") as mock_pipeline:
                 mock_result = type(
@@ -111,7 +111,7 @@ class TestProviderMetadata:
 
         assert result.provider == "openai"
         assert result.model == "gpt-4o-mini"
-        assert result.is_fallback is True  # openai != gemini (primary)
+        assert result.is_fallback is True
 
     @pytest.mark.asyncio
     async def test_gate_evaluation_returns_deterministic_metadata(

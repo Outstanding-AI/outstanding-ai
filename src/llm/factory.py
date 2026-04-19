@@ -1,4 +1,4 @@
-"""LLM Provider factory with automatic fallback."""
+"""LLM provider factory with automatic fallback."""
 
 import logging
 import time
@@ -6,23 +6,22 @@ import time
 from src.config.settings import settings
 
 from .base import LLMResponse
-from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider
+from .vertex_provider import VertexProvider
 
 logger = logging.getLogger(__name__)
 
 
 class LLMProviderWithFallback:
     """
-    LLM Provider with automatic fallback from Gemini → OpenAI.
-
-    Primary: Gemini 3 Flash (free tier, fast)
-    Fallback: OpenAI gpt-5-nano (if Gemini fails)
+    LLM provider with automatic fallback from Vertex → OpenAI.
     """
 
     def __init__(self, primary_provider: str = None, fallback_provider: str = "openai"):
         self.primary_provider_name = primary_provider or settings.llm_provider
-        self.fallback_provider_name = fallback_provider
+        self.fallback_provider_name = (
+            None if fallback_provider == self.primary_provider_name else fallback_provider
+        )
 
         # Lazy initialization - providers created on first use
         self._primary = None
@@ -61,19 +60,19 @@ class LLMProviderWithFallback:
 
     def _create_provider(self, name: str):
         """Create a provider instance by name."""
-        if name == "gemini":
-            return GeminiProvider(
-                model=settings.gemini_model,
-                temperature=settings.gemini_temperature,
-                max_tokens=settings.gemini_max_tokens,
+        if name == "vertex":
+            return VertexProvider(
+                model=settings.vertex_model,
+                temperature=settings.vertex_temperature,
+                max_tokens=settings.vertex_max_tokens,
             )
-        elif name == "openai":
+        if name == "openai":
             return OpenAIProvider(
                 model=settings.openai_model,
                 temperature=settings.openai_temperature,
                 max_tokens=settings.openai_max_tokens,
             )
-        elif name == "anthropic":
+        if name == "anthropic":
             from .anthropic_provider import AnthropicProvider
 
             return AnthropicProvider(

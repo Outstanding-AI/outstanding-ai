@@ -11,11 +11,11 @@ dependencies = [
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
 
-    # LLM Abstraction (LangChain)
-    "langchain>=0.3.0",
+    # LLM Providers
     "langchain-core>=0.3.0",
-    "langchain-google-genai>=2.0.0",  # Gemini provider (primary)
     "langchain-openai>=0.2.0",        # OpenAI provider (fallback)
+    "google-genai>=1.0,<2",
+    "google-auth>=2.30,<3",
 
     # Security & Rate Limiting
     "slowapi>=0.1.9",  # Rate limiting for FastAPI
@@ -26,7 +26,7 @@ dependencies = [
     "httpx>=0.26.0",
     "nest-asyncio>=1.5.0",
 
-    # Google API (for Gemini rate limit error handling)
+    # Google API (for Vertex retry handling)
     "google-api-core>=2.15.0",
 ]
 

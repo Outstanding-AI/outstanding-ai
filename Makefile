@@ -15,7 +15,7 @@ help:
 	@echo "Testing:"
 	@echo "  make test             - Run unit tests (mocked, no API calls)"
 	@echo "  make test-cov         - Run tests with coverage report"
-	@echo "  make test-live        - Run live integration tests (requires API key)"
+	@echo "  make test-live        - Print the manual live-validation workflow"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  make lint             - Run linter (ruff)"
@@ -59,14 +59,17 @@ dev:
 # =============================================================================
 
 test:
-	uv run pytest tests/ -v --ignore=tests/test_live_integration.py
+	uv run pytest tests/ -v
 
 test-cov:
-	uv run pytest tests/ --cov=src --cov-report=html --ignore=tests/test_live_integration.py
+	uv run pytest tests/ --cov=src --cov-report=html
 
 test-live:
-	@echo "Running live integration tests (requires OPENAI_API_KEY or GOOGLE_API_KEY)..."
-	uv run pytest tests/test_live_integration.py -v -s
+	@echo "No dedicated live test file is checked in."
+	@echo "Validate live on a running service with:"
+	@echo "  1. GET /health/llm"
+	@echo "  2. POST /classify with a representative payload"
+	@echo "  3. POST /generate-draft with a representative payload"
 
 # =============================================================================
 # CODE QUALITY

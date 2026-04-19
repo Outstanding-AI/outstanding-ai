@@ -38,10 +38,10 @@ class TestHealthEndpoint:
                 "fallback": {"status": "healthy"},
             }
         )
-        mock_llm_client.provider_name = "openai"
-        mock_llm_client.model_name = "gpt-5"
+        mock_llm_client.provider_name = "vertex"
+        mock_llm_client.model_name = "gemini-2.5-flash"
         mock_fallback = type(
-            "Fallback", (), {"provider_name": "gemini", "model_name": "gemini-2.5-flash"}
+            "Fallback", (), {"provider_name": "openai", "model_name": "gpt-5-nano"}
         )()
         mock_llm_client.fallback = mock_fallback
         mock_llm_client.fallback_count = 0
@@ -51,10 +51,10 @@ class TestHealthEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
-        assert data["provider"] == "openai"
-        assert data["model"] == "gpt-5"
-        assert data["fallback_provider"] == "gemini"
-        assert data["fallback_model"] == "gemini-2.5-flash"
+        assert data["provider"] == "vertex"
+        assert data["model"] == "gemini-2.5-flash"
+        assert data["fallback_provider"] == "openai"
+        assert data["fallback_model"] == "gpt-5-nano"
         assert "uptime_seconds" in data
 
 

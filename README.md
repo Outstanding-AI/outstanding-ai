@@ -17,7 +17,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 - **Gate Evaluation**: Evaluate compliance gates (deterministic, deprecated — gates now run in Django backend)
 - **Sender Persona Management**: Generate and refine sender personas for a 4-level escalation hierarchy
 - **Guardrails Pipeline**: Validate AI outputs with 7 parallel guardrails (placeholder validation, factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence, tone clamping)
-- **Triple LLM Support**: Primary Gemini 2.5 Pro, fallback OpenAI gpt-5-nano, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
+- **Triple LLM Support**: Primary Vertex AI (`gemini-2.5-flash`), fallback OpenAI gpt-5-nano, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
 - **Service Authentication**: Bearer token auth for service-to-service calls
 - **Rate Limiting**: Per-tenant rate limits via `X-Tenant-ID` header (falls back to IP for direct callers)
 - **Robust JSON Parsing**: Multi-strategy JSON extraction from LLM responses (handles markdown blocks, trailing commas, etc.)
@@ -26,7 +26,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌───────────────┐
-│  Outstanding AI │────▶│  Outstanding AI   │────▶│   Gemini 2.5  │
+│  Outstanding AI │────▶│  Outstanding AI   │────▶│ Vertex Gemini  │
 │  Backend        │◀────│   Engine          │◀────│   (Primary)   │
 │                 │     │   Port 8001       │     │   gpt-5-nano  │
 └─────────────────┘     └──────────────────┘     │   (Fallback)  │
@@ -64,7 +64,7 @@ The AI Engine is stateless - it receives all context via HTTP requests and does 
 
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) (fast Python package manager)
-- Google API key (Gemini) or OpenAI API key
+- Google Cloud ADC for Vertex AI or an OpenAI API key for fallback
 
 ### Local Development (uv - Recommended)
 
@@ -77,7 +77,7 @@ make install
 
 # Configure environment
 cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY (or OPENAI_API_KEY for fallback)
+# Edit .env for your local setup. For Vertex, use ADC outside ECS.
 
 # Run the server with auto-reload
 make dev
@@ -116,7 +116,7 @@ make dev              # Run with auto-reload
 # Testing
 make test             # Run unit tests (mocked, no API calls)
 make test-cov         # Run with coverage report
-make test-live        # Run live integration tests (requires API key)
+make test-live        # Print the manual live validation workflow
 
 # Code Quality
 make lint             # Run ruff linter
@@ -139,11 +139,13 @@ Environment variables (in `.env`):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GEMINI_API_KEY` | Google Gemini API key | Primary LLM |
+| `VERTEX_PROJECT_ID` | GCP project for Vertex AI | `production-493814` |
+| `VERTEX_LOCATION` | Vertex region | `europe-west2` |
+| `VERTEX_MODEL` | Vertex model | `gemini-2.5-flash` |
+| `VERTEX_WIF_CONFIG_PATH` | WIF config file in the container | `/app/infra/vertex-wif-config.json` |
 | `OPENAI_API_KEY` | OpenAI API key | Fallback LLM |
-| `GEMINI_MODEL` | Gemini model | `gemini-2.5-pro` |
 | `OPENAI_MODEL` | OpenAI model | `gpt-5-nano` |
-| `GEMINI_MAX_TOKENS` | Gemini max tokens | `8192` |
+| `VERTEX_MAX_TOKENS` | Vertex max tokens | `8192` |
 | `OPENAI_MAX_TOKENS` | OpenAI max tokens | `32768` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | Optional 3rd provider |
 | `ANTHROPIC_MODEL` | Anthropic model (drafts) | `claude-sonnet-4-20250514` |
@@ -257,7 +259,7 @@ The default unit tests **mock** the LLM layer so they are fast, deterministic, a
 ```bash
 make test
 # or directly:
-uv run pytest tests/ -v --ignore=tests/test_live_integration.py
+uv run pytest tests/ -v
 ```
 
 ### Test Suite
@@ -270,18 +272,15 @@ uv run pytest tests/ -v --ignore=tests/test_live_integration.py
 | `test_gate_evaluator.py` | Gate evaluation + escalation validation |
 | `test_guardrail_severities.py` | Guardrail severity level verification |
 | `test_provider_metadata.py` | Provider/model metadata in responses |
-| `test_llm_providers.py` | LLM provider and fallback mechanism |
-| `test_live_integration.py` | Real LLM integration (requires API key) |
+| `test_vertex_provider.py` | Vertex provider, WIF auth wiring, fallback behavior |
+| `test_aws_ecs_supplier.py` | ECS task-role metadata supplier |
 | `test_guardrails/` | Individual guardrail and pipeline tests |
 | `test_evals/` | Evaluation system tests |
 
-### Live integration tests (real API calls)
+### Live validation
 
-`tests/test_live_integration.py` makes **real network calls** to LLM providers. These tests:
-
-- require `GEMINI_API_KEY` or `OPENAI_API_KEY`
-- may incur cost and take longer
-- validate real LLM responses
+The repo does not carry a dedicated live-integration test file today. Use
+`make test-live` for the manual smoke-test checklist against a running service.
 
 ```bash
 make test-live
@@ -331,8 +330,9 @@ solvix-ai/
 │   │   └── tone_clamping.py # AI tone within level's tone_ladder range (HIGH)
 │   ├── llm/
 │   │   ├── base.py          # BaseLLMProvider abstract class
-│   │   ├── factory.py       # LLM client factory (Gemini→OpenAI fallback)
-│   │   ├── gemini_provider.py
+│   │   ├── factory.py       # LLM client factory (Vertex→OpenAI fallback)
+│   │   ├── aws_ecs_supplier.py
+│   │   ├── vertex_provider.py
 │   │   ├── openai_provider.py
 │   │   └── schemas.py       # LLM response validation schemas
 │   ├── prompts/             # Prompt templates
@@ -354,8 +354,8 @@ solvix-ai/
 │   ├── test_gate_evaluator.py
 │   ├── test_guardrail_severities.py
 │   ├── test_provider_metadata.py
-│   ├── test_llm_providers.py
-│   ├── test_live_integration.py
+│   ├── test_vertex_provider.py
+│   ├── test_aws_ecs_supplier.py
 │   ├── test_guardrails/
 │   └── test_evals/
 ├── docs/

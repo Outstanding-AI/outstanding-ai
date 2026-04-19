@@ -201,7 +201,7 @@ class HealthResponse(BaseModel):
 
     status: str  # "healthy", "degraded", "unhealthy"
     version: str
-    provider: str  # "gemini", "openai", etc.
+    provider: str  # "vertex", "openai", etc.
     model: str
     fallback_provider: Optional[str] = None
     fallback_model: Optional[str] = None

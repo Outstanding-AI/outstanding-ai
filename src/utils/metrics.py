@@ -57,7 +57,7 @@ def log_metric(metric_type: str, **data: Any) -> None:
     """Log a metric event with structured data.
 
     Usage:
-        log_metric("rate_limit_hit", provider="gemini", model="gemini-2.0-flash")
+        log_metric("rate_limit_hit", provider="vertex", model="gemini-2.5-flash")
 
     Args:
         metric_type: Type of metric event

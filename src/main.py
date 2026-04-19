@@ -76,13 +76,9 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     logger.info("Starting Outstanding AI Engine")
     logger.info("=" * 60)
-    model = settings.gemini_model if settings.llm_provider == "gemini" else settings.openai_model
+    model = settings.model_for_provider()
     logger.info(f"Provider: {settings.llm_provider}, Model: {model}")
-    logger.info(
-        "Provider key availability: gemini=%s openai=%s",
-        bool(settings.gemini_api_key),
-        bool(settings.openai_api_key),
-    )
+    logger.info("Provider readiness: %s", settings.provider_status())
     logger.info(f"Port: {settings.api_port}")
     logger.info(f"Debug: {settings.debug}")
     logger.info("Rate limiting: ENABLED")

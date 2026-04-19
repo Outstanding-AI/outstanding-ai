@@ -4,7 +4,7 @@ Draft generation engine.
 Orchestrate collection email draft creation through a multi-step pipeline:
 1. Build a rich user prompt from case context (party, obligations, behaviour,
    escalation history, conversation history, industry, sender persona).
-2. Call the primary LLM (Gemini) with structured output for guaranteed JSON.
+2. Call the primary LLM (Vertex AI) with structured output for guaranteed JSON.
 3. Run 6 parallel guardrails on the generated body.
 4. On guardrail failure, feed specific error details back to the LLM and
    retry (up to ``MAX_GUARDRAIL_RETRIES`` times).
