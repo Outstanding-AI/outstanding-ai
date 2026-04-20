@@ -76,10 +76,14 @@ pytest tests/ -x               # Stop on first failure
 ## Environment Variables
 
 ```bash
-# Required for local Vertex work
+# Required for Vertex AI (primary)
 VERTEX_PROJECT_ID=production-493814
 VERTEX_LOCATION=europe-west2
 VERTEX_MODEL=gemini-2.5-flash
+VERTEX_WIF_CONFIG_PATH=/app/infra/vertex-wif-config.json
+# No static Google credentials — auth is Workload Identity Federation from the
+# AWS ECS task role -> GCP STS -> Google SA impersonation. WIF runtime also needs
+# AWS_CONTAINER_CREDENTIALS_RELATIVE_URI (auto-set on ECS) + AWS_REGION.
 
 # Fallback
 OPENAI_API_KEY=<key>

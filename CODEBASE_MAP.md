@@ -43,6 +43,7 @@ Concept → file navigation index.
 |---------|------|
 | Provider factory | `src/llm/factory.py` |
 | Vertex provider | `src/llm/vertex_provider.py` |
+| AWS ECS WIF credential supplier | `src/llm/aws_ecs_supplier.py` |
 | OpenAI provider | `src/llm/openai_provider.py` |
 | Anthropic provider | `src/llm/anthropic_provider.py` |
 
