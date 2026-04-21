@@ -16,9 +16,8 @@ env/
 *.swp
 *.swo
 
-# VSCode - allow settings.json for team consistency
-.vscode/*
-!.vscode/settings.json
+# VSCode
+.vscode/
 
 # Security - never commit credentials
 *.pem
