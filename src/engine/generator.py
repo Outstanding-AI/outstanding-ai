@@ -319,6 +319,7 @@ class DraftGenerator:
                 user_prompt=user_prompt,
                 temperature=settings.draft_temperature,
                 response_schema=DraftGenerationLLMResponse,
+                caller="draft_generation",
             )
             timing.llm_latencies.append((time.perf_counter() - llm_start) * 1000)
 

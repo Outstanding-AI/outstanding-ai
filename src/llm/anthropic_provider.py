@@ -90,6 +90,8 @@ class AnthropicProvider(BaseLLMProvider):
         max_tokens: int = None,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
+        *,
+        caller: str = "unknown",
     ) -> LLMResponse:
         """Generate completion using Anthropic Claude."""
         temp = temperature if temperature is not None else self.temperature
@@ -149,6 +151,7 @@ class AnthropicProvider(BaseLLMProvider):
                 "latency_ms": round(latency_ms, 2),
                 "input_tokens": usage["prompt_tokens"],
                 "output_tokens": usage["completion_tokens"],
+                "caller": caller,
             },
         )
 

@@ -175,6 +175,7 @@ class PersonaGenerator:
             user_prompt=user_prompt,
             temperature=settings.persona_gen_temperature,
             response_schema=PersonaLLMResponse,
+            caller="persona_generation",
         )
 
         raw_result = json.loads(response.content)
@@ -309,6 +310,7 @@ class PersonaGenerator:
             user_prompt=user_prompt,
             temperature=settings.persona_refine_temperature,
             response_schema=PersonaRefinementLLMResponse,
+            caller="persona_refinement",
         )
 
         raw_result = json.loads(response.content)

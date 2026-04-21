@@ -7,9 +7,65 @@ and gate evaluation.
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+def _coalesce_lane_value(*values):
+    """Return the first non-empty lane value."""
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and value == "":
+            continue
+        return value
+    return None
+
+
+def _normalize_lane_context(
+    raw_context: dict[str, Any],
+    lane: dict[str, Any],
+    collection_lane_id: str | None,
+) -> dict[str, Any]:
+    """Backfill sparse lane_context payloads from the canonical lane dict."""
+    normalized = dict(raw_context)
+    lane_id = _coalesce_lane_value(
+        normalized.get("lane_id"),
+        normalized.get("collection_lane_id"),
+        collection_lane_id,
+        lane.get("collection_lane_id"),
+    )
+    if lane_id is not None:
+        normalized["lane_id"] = str(lane_id)
+
+    current_level = _coalesce_lane_value(
+        normalized.get("current_level"),
+        lane.get("current_level"),
+        lane.get("entry_level"),
+        0,
+    )
+    if current_level is not None:
+        normalized["current_level"] = current_level
+
+    for field_name in (
+        "entry_level",
+        "stage_version",
+        "scheduled_touch_index",
+        "max_touches_for_level",
+        "reminder_cadence_days_for_level",
+        "max_days_for_level",
+        "outstanding_amount",
+    ):
+        if normalized.get(field_name) is None and lane.get(field_name) is not None:
+            normalized[field_name] = lane.get(field_name)
+
+    if not normalized.get("tone_ladder"):
+        normalized["tone_ladder"] = lane.get("tone_ladder") or []
+    if normalized.get("outstanding_amount") is None:
+        normalized["outstanding_amount"] = lane.get("outstanding_amount") or 0.0
+
+    return normalized
 
 
 class ObligationInfo(BaseModel):
@@ -193,6 +249,45 @@ class CaseContext(BaseModel):
         default=None,
         pattern=r"^(single_lane)$",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def hydrate_sparse_lane_contexts(cls, data: Any) -> Any:
+        """Accept sparse lane bundles from older backend producers.
+
+        Some backend flows only pass invoice refs + obligation ids in
+        `lane_contexts` while the full lane metadata is already present in
+        `context.lane`. Backfill the required lane fields from that canonical
+        lane snapshot so request validation remains backward-compatible.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        lane = data.get("lane") if isinstance(data.get("lane"), dict) else {}
+        collection_lane_id = _coalesce_lane_value(
+            data.get("collection_lane_id"), lane.get("collection_lane_id")
+        )
+        raw_lane_contexts = data.get("lane_contexts") or []
+
+        if raw_lane_contexts:
+            normalized_contexts = [
+                _normalize_lane_context(raw_context, lane, collection_lane_id)
+                if isinstance(raw_context, dict)
+                else raw_context
+                for raw_context in raw_lane_contexts
+            ]
+            hydrated = dict(data)
+            hydrated["lane_contexts"] = normalized_contexts
+            return hydrated
+
+        if lane and collection_lane_id:
+            hydrated = dict(data)
+            hydrated["lane_contexts"] = [
+                _normalize_lane_context({}, lane, collection_lane_id),
+            ]
+            return hydrated
+
+        return data
 
 
 # Import here to resolve forward references after all models are defined

@@ -34,8 +34,25 @@ from src.config.settings import settings
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, settings.log_level),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s "
+        "[caller=%(caller)s error_type=%(error_type)s error=%(error)s]"
+    ),
 )
+
+
+class _DefaultExtrasFilter(logging.Filter):
+    """Populate optional logging extras so the formatter stays stable."""
+
+    def filter(self, record):
+        for key, value in (("caller", "-"), ("error_type", "-"), ("error", "-")):
+            if not hasattr(record, key):
+                setattr(record, key, value)
+        return True
+
+
+for handler in logging.getLogger().handlers:
+    handler.addFilter(_DefaultExtrasFilter())
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +95,12 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     model = settings.model_for_provider()
     logger.info(f"Provider: {settings.llm_provider}, Model: {model}")
+    logger.info(
+        "Fallback provider config: provider=openai model=%s vertex_max_tokens=%s openai_max_tokens=%s",
+        settings.openai_model,
+        settings.vertex_max_tokens,
+        settings.openai_max_tokens,
+    )
     logger.info("Provider readiness: %s", settings.provider_status())
     logger.info(f"Port: {settings.api_port}")
     logger.info(f"Debug: {settings.debug}")

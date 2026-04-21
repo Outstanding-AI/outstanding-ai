@@ -14,6 +14,7 @@ class LLMResponse(BaseModel):
     provider: str  # "vertex", "openai", etc.
     usage: Dict[str, int]  # prompt_tokens, completion_tokens, total_tokens
     raw_response: Optional[Dict[str, Any]] = None
+    is_fallback: bool = False
 
 
 class BaseLLMProvider(ABC):
@@ -28,6 +29,8 @@ class BaseLLMProvider(ABC):
         max_tokens: int = 2048,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
+        *,
+        caller: str = "unknown",
     ) -> LLMResponse:
         """
         Generate completion from prompts.
@@ -41,6 +44,7 @@ class BaseLLMProvider(ABC):
             response_schema: Optional Pydantic model to enforce structured output.
                 When provided, the model is constrained to output valid JSON
                 matching this schema. More reliable than json_mode alone.
+            caller: Logical caller identifier used for diagnostics.
         """
         pass
 

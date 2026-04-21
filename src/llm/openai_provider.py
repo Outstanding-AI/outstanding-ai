@@ -95,6 +95,8 @@ class OpenAIProvider(BaseLLMProvider):
         max_tokens: int = None,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
+        *,
+        caller: str = "unknown",
     ) -> LLMResponse:
         """
         Generate completion using OpenAI via LangChain.
@@ -180,15 +182,16 @@ class OpenAIProvider(BaseLLMProvider):
                         "output_tokens": usage["completion_tokens"],
                         "success": True,
                         "structured": True,
+                        "caller": caller,
                     },
                 )
-                return LLMResponse(
-                    content=content,
-                    model=self._model,
-                    provider="openai",
-                    usage=usage,
-                    raw_response={"structured": True},
-                )
+            return LLMResponse(
+                content=content,
+                model=self._model,
+                provider="openai",
+                usage=usage,
+                raw_response={"structured": True},
+            )
 
             # Standard invoke for non-structured output
             response = await _invoke_with_retry(client, messages)
@@ -218,6 +221,7 @@ class OpenAIProvider(BaseLLMProvider):
                     "output_tokens": usage["completion_tokens"],
                     "success": True,
                     "structured": False,
+                    "caller": caller,
                 },
             )
 
@@ -265,11 +269,13 @@ class OpenAIProvider(BaseLLMProvider):
             logger.error(
                 "OpenAI provider error",
                 extra={
+                    "caller": caller,
                     "provider": "openai",
                     "model": self._model,
                     "error": str(e),
                     "error_type": type(e).__name__,
                 },
+                exc_info=True,
             )
             raise
 
@@ -280,6 +286,7 @@ class OpenAIProvider(BaseLLMProvider):
                 system_prompt="You are a test assistant.",
                 user_prompt="Reply with 'OK'",
                 max_tokens=10,
+                caller="health_check",
             )
             return {
                 "status": "healthy",

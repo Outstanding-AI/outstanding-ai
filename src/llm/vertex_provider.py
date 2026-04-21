@@ -55,12 +55,6 @@ class VertexProvider(BaseLLMProvider):
         self._project = settings.vertex_project_id
         self._location = settings.vertex_location
         self._credentials = self._build_credentials()
-        self.client = Client(
-            vertexai=True,
-            project=self._project,
-            location=self._location,
-            credentials=self._credentials,
-        )
         logger.info(
             "Initialized Vertex provider with model=%s project=%s location=%s",
             self._model,
@@ -84,6 +78,8 @@ class VertexProvider(BaseLLMProvider):
         max_tokens: int = None,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
+        *,
+        caller: str = "unknown",
     ) -> LLMResponse:
         config = types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -96,6 +92,13 @@ class VertexProvider(BaseLLMProvider):
         if response_schema:
             config.response_schema = response_schema
 
+        client = Client(
+            vertexai=True,
+            project=self._project,
+            location=self._location,
+            credentials=self._credentials,
+        )
+
         @retry(
             retry=retry_if_exception_type(VERTEX_RETRYABLE_ERRORS),
             stop=stop_after_attempt(settings.llm_max_retries),
@@ -104,7 +107,7 @@ class VertexProvider(BaseLLMProvider):
             reraise=True,
         )
         async def _generate() -> types.GenerateContentResponse:
-            return await self.client.aio.models.generate_content(
+            return await client.aio.models.generate_content(
                 model=self._model,
                 contents=user_prompt,
                 config=config,
@@ -127,6 +130,7 @@ class VertexProvider(BaseLLMProvider):
                     "output_tokens": usage["completion_tokens"],
                     "success": True,
                     "structured": bool(response_schema),
+                    "caller": caller,
                 },
             )
             return LLMResponse(
@@ -140,11 +144,15 @@ class VertexProvider(BaseLLMProvider):
             logger.error(
                 "Vertex provider error",
                 extra={
+                    "caller": caller,
                     "provider": "vertex",
                     "model": self._model,
                     "error": str(exc),
                     "error_type": type(exc).__name__,
+                    "max_tokens": config.max_output_tokens,
+                    "structured": bool(response_schema),
                 },
+                exc_info=True,
             )
             raise
 
@@ -155,6 +163,7 @@ class VertexProvider(BaseLLMProvider):
                 system_prompt="You are a test assistant.",
                 user_prompt="Reply with OK",
                 max_tokens=10,
+                caller="health_check",
             )
             return {
                 "status": "healthy",

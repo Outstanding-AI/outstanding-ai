@@ -100,6 +100,9 @@ async def llm_health_check() -> HealthResponse:
         fallback_provider=llm_client.fallback.provider_name if llm_client.fallback else None,
         fallback_model=llm_client.fallback.model_name if llm_client.fallback else None,
         fallback_count=llm_client.fallback_count,
+        primary_failures_by_caller=llm_client.get_failure_metrics().get(
+            "primary_failures_by_caller", {}
+        ),
         model_available=primary_healthy,
         fallback_available=fallback_status == "healthy",
         uptime_seconds=round(uptime, 2),

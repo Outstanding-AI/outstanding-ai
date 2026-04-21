@@ -27,6 +27,7 @@ class LLMProviderWithFallback:
         self._primary = None
         self._fallback = None
         self.fallback_count = 0
+        self._primary_failures_by_caller: dict[str, int] = {}
 
         logger.info(
             "LLM factory created with primary=%s, fallback=%s",
@@ -81,7 +82,9 @@ class LLMProviderWithFallback:
             )
         raise ValueError(f"Unknown provider: {name}")
 
-    async def complete(self, system_prompt: str, user_prompt: str, **kwargs) -> LLMResponse:
+    async def complete(
+        self, system_prompt: str, user_prompt: str, *, caller: str = "unknown", **kwargs
+    ) -> LLMResponse:
         """
         Generate completion with automatic fallback.
 
@@ -90,7 +93,12 @@ class LLMProviderWithFallback:
         start_time = time.perf_counter()
 
         try:
-            response = await self.primary.complete(system_prompt, user_prompt, **kwargs)
+            response = await self.primary.complete(
+                system_prompt,
+                user_prompt,
+                caller=caller,
+                **kwargs,
+            )
             latency_ms = (time.perf_counter() - start_time) * 1000
             logger.info(
                 "LLM request completed",
@@ -104,20 +112,26 @@ class LLMProviderWithFallback:
                     "total_tokens": response.usage.get("total_tokens", 0),
                     "success": True,
                     "used_fallback": False,
+                    "caller": caller,
                 },
             )
             return response
         except Exception as e:
             primary_latency_ms = (time.perf_counter() - start_time) * 1000
+            self._primary_failures_by_caller[caller] = (
+                self._primary_failures_by_caller.get(caller, 0) + 1
+            )
             logger.error(
                 "Primary provider failed",
                 extra={
+                    "caller": caller,
                     "metric_type": "llm_primary_failed",
                     "provider": self.primary.provider_name,
                     "latency_ms": round(primary_latency_ms, 2),
                     "error": str(e),
                     "error_type": type(e).__name__,
                 },
+                exc_info=True,
             )
 
             if not self.fallback_enabled:
@@ -129,7 +143,12 @@ class LLMProviderWithFallback:
             fallback_start = time.perf_counter()
 
             try:
-                response = await self.fallback.complete(system_prompt, user_prompt, **kwargs)
+                response = await self.fallback.complete(
+                    system_prompt,
+                    user_prompt,
+                    caller=caller,
+                    **kwargs,
+                )
                 total_latency_ms = (time.perf_counter() - start_time) * 1000
                 fallback_latency_ms = (time.perf_counter() - fallback_start) * 1000
                 logger.info(
@@ -146,14 +165,16 @@ class LLMProviderWithFallback:
                         "success": True,
                         "used_fallback": True,
                         "fallback_count": self.fallback_count,
+                        "caller": caller,
                     },
                 )
-                return response
+                return response.model_copy(update={"is_fallback": True})
             except Exception as fallback_error:
                 total_latency_ms = (time.perf_counter() - start_time) * 1000
                 logger.error(
                     "Fallback provider also failed",
                     extra={
+                        "caller": caller,
                         "metric_type": "llm_factory_call",
                         "latency_ms": round(total_latency_ms, 2),
                         "success": False,
@@ -161,6 +182,7 @@ class LLMProviderWithFallback:
                         "error": str(fallback_error),
                         "error_type": type(fallback_error).__name__,
                     },
+                    exc_info=True,
                 )
                 raise fallback_error
 
@@ -176,6 +198,9 @@ class LLMProviderWithFallback:
             "fallback": fallback_health,
             "fallback_count": self.fallback_count,
         }
+
+    def get_failure_metrics(self) -> dict[str, dict[str, int]]:
+        return {"primary_failures_by_caller": dict(self._primary_failures_by_caller)}
 
     @property
     def provider_name(self) -> str:

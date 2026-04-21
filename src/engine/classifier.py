@@ -122,6 +122,7 @@ class EmailClassifier:
             user_prompt=user_prompt,
             temperature=settings.classification_temperature,
             response_schema=ClassificationLLMResponse,
+            caller="classification",
         )
 
         # Parse JSON response - structured output guarantees valid JSON

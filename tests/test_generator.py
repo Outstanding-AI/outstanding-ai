@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.api.models.requests import GenerateDraftRequest
 from src.api.models.responses import GenerateDraftResponse
 from src.engine.generator import DraftGenerator
 from src.llm.base import LLMResponse
@@ -101,3 +102,45 @@ class TestDraftGenerator:
 
             assert isinstance(result, GenerateDraftResponse)
             assert len(result.invoices_referenced) == 0
+
+
+def test_generate_request_hydrates_sparse_lane_context(sample_generate_draft_request):
+    """Sparse lane_context payloads should inherit required fields from context.lane."""
+    payload = sample_generate_draft_request.model_dump(mode="python")
+    payload["context"].update(
+        {
+            "collection_lane_id": "lane-123",
+            "lane": {
+                "collection_lane_id": "lane-123",
+                "current_level": 2,
+                "entry_level": 1,
+                "scheduled_touch_index": 1,
+                "max_touches_for_level": 3,
+                "reminder_cadence_days_for_level": 7,
+                "max_days_for_level": 21,
+                "tone_ladder": ["professional", "firm"],
+                "outstanding_amount": 1500.0,
+            },
+            "lane_contexts": [
+                {
+                    "collection_lane_id": "lane-123",
+                    "lane_id": "lane-123",
+                    "invoice_refs": ["INV-12345"],
+                }
+            ],
+            "mode": "single_lane",
+        }
+    )
+
+    request = GenerateDraftRequest.model_validate(payload)
+
+    lane_context = request.context.lane_contexts[0]
+    assert lane_context.lane_id == "lane-123"
+    assert lane_context.current_level == 2
+    assert lane_context.entry_level == 1
+    assert lane_context.scheduled_touch_index == 1
+    assert lane_context.max_touches_for_level == 3
+    assert lane_context.reminder_cadence_days_for_level == 7
+    assert lane_context.max_days_for_level == 21
+    assert lane_context.tone_ladder == ["professional", "firm"]
+    assert lane_context.outstanding_amount == 1500.0

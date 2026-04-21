@@ -27,6 +27,7 @@ from typing import Any, List
 from pydantic import BaseModel, Field
 
 from src.api.models.requests import CaseContext
+from src.config.settings import settings
 from src.llm.factory import llm_client
 
 from .base import BaseGuardrail, GuardrailResult, GuardrailSeverity
@@ -221,9 +222,10 @@ class EntityVerificationGuardrail(BaseGuardrail):
                         system_prompt="You are a validation assistant.",
                         user_prompt=prompt,
                         temperature=0,  # Deterministic for validation
-                        max_tokens=2048,  # High for reasoning models that consume tokens for "thinking"
+                        max_tokens=settings.openai_max_tokens,
                         # Use structured output for guaranteed valid JSON
                         response_schema=EntityValidationResult,
+                        caller="entity_verification",
                     )
                 )
             finally:

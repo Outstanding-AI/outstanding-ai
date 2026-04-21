@@ -206,6 +206,7 @@ class HealthResponse(BaseModel):
     fallback_provider: Optional[str] = None
     fallback_model: Optional[str] = None
     fallback_count: int = 0
+    primary_failures_by_caller: Dict[str, int] = Field(default_factory=dict)
     model_available: bool = True
     fallback_available: bool = False
     uptime_seconds: Optional[float] = None

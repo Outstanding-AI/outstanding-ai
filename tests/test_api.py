@@ -45,6 +45,7 @@ class TestHealthEndpoint:
         )()
         mock_llm_client.fallback = mock_fallback
         mock_llm_client.fallback_count = 0
+        mock_llm_client.get_failure_metrics.return_value = {"primary_failures_by_caller": {}}
 
         response = authed_client.get("/health/llm")
 
@@ -55,6 +56,7 @@ class TestHealthEndpoint:
         assert data["model"] == "gemini-2.5-flash"
         assert data["fallback_provider"] == "openai"
         assert data["fallback_model"] == "gpt-5-nano"
+        assert data["primary_failures_by_caller"] == {}
         assert "uptime_seconds" in data
 
 

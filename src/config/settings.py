@@ -75,12 +75,12 @@ class Settings(BaseSettings):
     vertex_location: str = "europe-west2"
     vertex_model: str = "gemini-2.5-flash"
     vertex_temperature: float = 0.3
-    vertex_max_tokens: int = 8192
+    vertex_max_tokens: int = 65535
     vertex_wif_config_path: str = "/app/infra/vertex-wif-config.json"
 
     # --- OpenAI Configuration (FALLBACK) ---
     openai_api_key: Optional[str] = Field(None, repr=False)
-    openai_model: str = "gpt-5-nano"
+    openai_model: str = "gpt-5-mini"
     openai_temperature: float = 0.3
     openai_max_tokens: int = 32768
 
