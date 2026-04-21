@@ -11,9 +11,9 @@ Execution order is by severity (CRITICAL first, LOW last) so that the
 most important checks are prioritised in sequential mode and their
 results appear first in logs.
 
-Thread pool size is fixed at 6 (one thread per guardrail) to match
-the default guardrail set.  The pool is module-level to avoid
-per-request thread creation overhead.
+Thread pool size is fixed at 6 worker threads for the default
+7-guardrail set. The pool is module-level to avoid per-request
+thread creation overhead.
 """
 
 import logging
@@ -42,7 +42,7 @@ class GuardrailPipeline:
     """Orchestrate all 7 guardrails via parallel or sequential execution.
 
     Default mode is **parallel** using a module-level ``ThreadPoolExecutor``
-    (7 workers, one per guardrail).  This allows I/O-bound checks (entity
+    (6 shared workers across 7 guardrails). This allows I/O-bound checks (entity
     verification LLM call) to overlap with CPU-bound regex checks.
 
     Guardrails are sorted by severity (CRITICAL first) so that in

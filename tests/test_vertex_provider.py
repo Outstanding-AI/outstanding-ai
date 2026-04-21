@@ -97,6 +97,7 @@ async def test_vertex_complete_uses_structured_output(monkeypatch):
     fake_client.aio.models.generate_content = AsyncMock(
         return_value=_fake_response(parsed={"subject": "Hi"})
     )
+    fake_client.aio.aclose = AsyncMock()
 
     monkeypatch.setattr(VertexProvider, "_build_credentials", lambda self: object())
 
@@ -116,6 +117,7 @@ async def test_vertex_complete_uses_structured_output(monkeypatch):
     config = fake_client.aio.models.generate_content.await_args.kwargs["config"]
     assert config.response_mime_type == "application/json"
     assert config.response_schema is _Schema
+    fake_client.aio.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -124,6 +126,7 @@ async def test_vertex_complete_json_mode_uses_text(monkeypatch):
     fake_client.aio.models.generate_content = AsyncMock(
         return_value=_fake_response(text='{"ok": true}')
     )
+    fake_client.aio.aclose = AsyncMock()
 
     monkeypatch.setattr(VertexProvider, "_build_credentials", lambda self: object())
 
@@ -134,6 +137,7 @@ async def test_vertex_complete_json_mode_uses_text(monkeypatch):
     assert response.content == '{"ok": true}'
     config = fake_client.aio.models.generate_content.await_args.kwargs["config"]
     assert config.response_mime_type == "application/json"
+    fake_client.aio.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -143,6 +147,7 @@ async def test_vertex_complete_uses_fresh_client_per_call(monkeypatch):
     def _make_client(*args, **kwargs):
         client = MagicMock()
         client.aio.models.generate_content = AsyncMock(return_value=_fake_response(text="ok"))
+        client.aio.aclose = AsyncMock()
         clients.append(client)
         return client
 
@@ -155,12 +160,15 @@ async def test_vertex_complete_uses_fresh_client_per_call(monkeypatch):
 
     assert mock_client.call_count == 2
     assert clients[0] is not clients[1]
+    clients[0].aio.aclose.assert_awaited_once()
+    clients[1].aio.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_vertex_complete_logs_caller_on_failure(monkeypatch, caplog):
     fake_client = MagicMock()
     fake_client.aio.models.generate_content = AsyncMock(side_effect=RuntimeError("boom"))
+    fake_client.aio.aclose = AsyncMock()
 
     monkeypatch.setattr(VertexProvider, "_build_credentials", lambda self: object())
 
@@ -175,6 +183,7 @@ async def test_vertex_complete_logs_caller_on_failure(monkeypatch, caplog):
     assert matching
     assert matching[-1].caller == "draft_generation"
     assert matching[-1].error_type == "RuntimeError"
+    fake_client.aio.aclose.assert_awaited_once()
 
 
 def test_vertex_provider_thread_isolation_with_fresh_client(monkeypatch):
@@ -191,7 +200,8 @@ def test_vertex_provider_thread_isolation_with_fresh_client(monkeypatch):
         def __init__(self, *args, **kwargs):
             loop = asyncio.get_event_loop()
             self.aio = SimpleNamespace(
-                models=SimpleNamespace(generate_content=_LoopBoundGenerate(loop))
+                models=SimpleNamespace(generate_content=_LoopBoundGenerate(loop)),
+                aclose=AsyncMock(),
             )
 
     monkeypatch.setattr(VertexProvider, "_build_credentials", lambda self: object())

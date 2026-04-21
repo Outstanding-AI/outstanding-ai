@@ -70,26 +70,31 @@ class EntityValidationResult(BaseModel):
 # Validation prompt for LLM-based entity verification
 ENTITY_VALIDATION_PROMPT = """Validate the following draft email for entity accuracy.
 
-EXPECTED ENTITIES:
+EXPECTED DEBTOR ENTITIES:
 - Customer Code: {customer_code}
-- Party/Company Name: {party_name}
-- Contact Person Name: {contact_person_name}
+- Debtor Company Name: {party_name}
+- Debtor Contact Person Name: {contact_person_name}
+
+ALLOWED SENDER ENTITIES:
+- Sender Company Name: {sender_company}
+- Sender Mailbox / Sender Name: {sender_name}
 
 DRAFT TO VALIDATE:
 {draft}
 
 Your task:
 1. Check if the draft correctly references the customer code (if mentioned at all)
-2. Check if the draft addresses the correct party/company name
+2. Check if the draft addresses the correct debtor party/company name
 3. Identify any hallucinated, fabricated, or mismatched identifiers
 
 IMPORTANT: The draft does NOT need to explicitly mention the customer code. Only flag it as invalid if it mentions a DIFFERENT code than expected.
 
 For party name validation:
-- Accept reasonable variations (e.g., "Acme Corp" vs "ACME Corporation Ltd")
+- Accept reasonable variations of the debtor company (e.g., "Acme Corp" vs "ACME Corporation Ltd")
 - Accept generic greetings like "Dear Customer", "Dear Accounts Team", "Dear Sir/Madam"
 - Accept greetings addressing the contact person (e.g., "Dear {contact_person_name}") — this is CORRECT behavior since emails are sent to individual contacts at the company.
-- Only flag as invalid if the draft clearly addresses a DIFFERENT company or a DIFFERENT person than the contact person
+- Accept references to the ALLOWED SENDER ENTITIES in signatures/sign-offs and sender-side phrases such as "your account with {sender_company}" when a sender company is provided.
+- Only flag as invalid if the draft clearly addresses a DIFFERENT debtor company or a DIFFERENT person than the contact person, or invents an unrelated company that is neither the debtor nor an allowed sender entity.
 
 Set "passed" to false only if there are actual mismatches or hallucinated identifiers."""
 
@@ -146,7 +151,12 @@ class EntityVerificationGuardrail(BaseGuardrail):
         last_error = None
         for attempt in range(MAX_RETRIES):
             try:
-                llm_result = self._validate_entities_with_llm(output, context)
+                llm_result = self._validate_entities_with_llm(
+                    output,
+                    context,
+                    sender_company=kwargs.get("sender_company"),
+                    sender_name=kwargs.get("sender_name") or kwargs.get("sender_mailbox_name"),
+                )
                 results.extend(llm_result)
                 last_error = None
                 break
@@ -183,7 +193,12 @@ class EntityVerificationGuardrail(BaseGuardrail):
         return results
 
     def _validate_entities_with_llm(
-        self, output: str, context: CaseContext
+        self,
+        output: str,
+        context: CaseContext,
+        *,
+        sender_company: str | None = None,
+        sender_name: str | None = None,
     ) -> list[GuardrailResult]:
         """
         Use LLM to validate entity accuracy with structured output.
@@ -209,6 +224,8 @@ class EntityVerificationGuardrail(BaseGuardrail):
             customer_code=context.party.customer_code,
             party_name=context.party.name,
             contact_person_name=contact_person_name,
+            sender_company=sender_company or "(not provided)",
+            sender_name=sender_name or "(not provided)",
             draft=output,
         )
 
@@ -229,6 +246,7 @@ class EntityVerificationGuardrail(BaseGuardrail):
                     )
                 )
             finally:
+                asyncio.set_event_loop(None)
                 loop.close()
         except Exception as e:
             logger.error("LLM call failed in entity verification: %s", e)

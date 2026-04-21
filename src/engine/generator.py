@@ -6,9 +6,10 @@ Orchestrate collection email draft creation through a multi-step pipeline:
    escalation history, conversation history, industry, sender persona).
 2. Call the primary LLM (Vertex AI) with structured output for guaranteed JSON.
 3. Run 6 parallel guardrails on the generated body.
-4. On guardrail failure, feed specific error details back to the LLM and
+4. Run the guardrail pipeline over the shared thread pool.
+5. On guardrail failure, feed specific error details back to the LLM and
    retry (up to ``MAX_GUARDRAIL_RETRIES`` times).
-5. Return the final draft with subject, body, tone, guardrail validation,
+6. Return the final draft with subject, body, tone, guardrail validation,
    and token usage metadata.
 
 Supported tones (see ``ai_logic.md``):
@@ -351,6 +352,9 @@ class DraftGenerator:
                 closure_mode=request.closure_mode,
                 tone=request.tone,
                 escalation_level=getattr(request, "escalation_level", None),
+                sender_company=request.sender_company,
+                sender_name=request.sender_name,
+                sender_mailbox_name=request.sender_persona.name if request.sender_persona else None,
             )
             timing.guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
 

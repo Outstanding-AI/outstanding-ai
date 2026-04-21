@@ -155,6 +155,21 @@ class VertexProvider(BaseLLMProvider):
                 exc_info=True,
             )
             raise
+        finally:
+            try:
+                await client.aio.aclose()
+            except Exception as close_exc:
+                logger.warning(
+                    "Vertex async client close failed",
+                    extra={
+                        "caller": caller,
+                        "provider": "vertex",
+                        "model": self._model,
+                        "error": str(close_exc),
+                        "error_type": type(close_exc).__name__,
+                    },
+                    exc_info=True,
+                )
 
     async def health_check(self) -> Dict[str, Any]:
         """Check Vertex availability with a small live request."""
