@@ -1,16 +1,25 @@
 name: Deploy AI Engine
 
-# PHASE 1 (PR-1): workflow_dispatch only — no push trigger yet.
-# Merging this file does NOT trigger a deploy. Smoke-test via GitHub UI first
-# (Actions -> Deploy AI Engine -> Run workflow -> smoke_test=true), then ship
-# PR-2 which adds the push: branches: [main] block.
+# PHASE 2 (PR-2): push trigger enabled after PR-1 smoke + local dry-run
+# validated OIDC/IAM/write perms and x86_64 build correctness.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'infra/**'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.pre-commit-config.yaml'
+      - '.github/workflows/deploy.yml'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
     inputs:
       smoke_test:
         description: 'Run OIDC/IAM smoke test only (no build, no deploy)'
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: deploy-${{ github.ref_name }}
@@ -152,10 +161,14 @@ jobs:
           echo "image=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push (SHA only — no :latest; ECR is IMMUTABLE)
+        # platforms: linux/amd64 matches task-def cpuArchitecture=X86_64 in
+        # infra/ecs-task-ai.json. Without this, an arm64 runner would produce
+        # an image that Fargate rejects with 'exec format error'.
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.image }}
           cache-from: type=gha
@@ -171,7 +184,7 @@ jobs:
           IMAGE: ${{ steps.meta.outputs.image }}
         run: |
           docker pull "$IMAGE"
-          docker run --rm \
+          docker run --rm --platform linux/amd64 \
             -e ENVIRONMENT=production \
             -e DEBUG=false \
             -e SERVICE_AUTH_TOKEN=preflight-token \
