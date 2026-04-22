@@ -1,0 +1,16 @@
+# Auto-requests review from @Bicky23 on PRs touching these paths.
+# On GitHub Free (no branch protection on private repos) this is advisory
+# only — upgrade to GitHub Team + "require review from CODEOWNERS" rule
+# once the team reaches 2+ engineers.
+
+* @Bicky23
+
+# Deploy + infrastructure — extra attention
+/.github/workflows/     @Bicky23
+/infra/                 @Bicky23
+/Dockerfile             @Bicky23
+/docker-compose*.yml    @Bicky23
+
+# Cross-repo contracts — changes affect backend callers
+/src/api/models/        @Bicky23
+/src/config/            @Bicky23
