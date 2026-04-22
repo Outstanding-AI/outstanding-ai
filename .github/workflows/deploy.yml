@@ -1,0 +1,216 @@
+name: Deploy AI Engine
+
+# PHASE 1 (PR-1): workflow_dispatch only — no push trigger yet.
+# Merging this file does NOT trigger a deploy. Smoke-test via GitHub UI first
+# (Actions -> Deploy AI Engine -> Run workflow -> smoke_test=true), then ship
+# PR-2 which adds the push: branches: [main] block.
+on:
+  workflow_dispatch:
+    inputs:
+      smoke_test:
+        description: 'Run OIDC/IAM smoke test only (no build, no deploy)'
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  lint-smoke:
+    if: ${{ !inputs.smoke_test }}
+    uses: ./.github/workflows/ci.yml
+
+  pre-commit-verify:
+    if: ${{ !inputs.smoke_test }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: astral-sh/setup-uv@v4
+        with: { enable-cache: true, cache-dependency-glob: 'uv.lock' }
+      - run: uv sync --frozen --extra dev
+      - run: pip install pre-commit
+      - run: pre-commit run --all-files --show-diff-on-failure
+
+  # Smoke test — validates OIDC trust AND the write permissions that most
+  # often fail on first real deploy: ecs:RegisterTaskDefinition, iam:PassRole
+  # (implicit in register), ecs:UpdateService. Mutates control-plane state
+  # (bumps task-def revision, re-points service, leaves one smoke-<RUN_ID>
+  # ECR tag), but with desiredCount=0 there is no user-visible impact.
+  oidc-smoke:
+    if: ${{ inputs.smoke_test }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: eu-west-2
+      AWS_ACCOUNT_ID: '593212028144'
+      ECS_CLUSTER: outstandingai
+      ECS_SERVICE: ai-engine
+      TASK_FAMILY: outstandingai-ai-engine
+      ECR_REPOSITORY: outstandingai/ai-engine
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify role assumption + read perms
+        run: |
+          aws sts get-caller-identity
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[0].{name:serviceName,td:taskDefinition}'
+          aws ecs describe-task-definition --task-definition "$TASK_FAMILY" \
+            --query 'taskDefinition.revision'
+          aws ecr get-login-password --region "$AWS_REGION" > /dev/null
+          echo "Read perms OK"
+
+      - name: Verify ECR write path (re-tag existing image under smoke tag)
+        # Re-tags the live image under smoke-${RUN_ID}. Proves ecr:PutImage +
+        # layer-upload perms without a build. No delete step — that would
+        # require ecr:BatchDeleteImage; keeping role surface tight. Clean up
+        # smoke tags manually or via a lifecycle rule (see infra/README.md).
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          CURRENT_IMAGE=$(aws ecs describe-task-definition --task-definition "$TASK_FAMILY" \
+            --query 'taskDefinition.containerDefinitions[0].image' --output text)
+          docker pull "$CURRENT_IMAGE"
+          SMOKE_TAG="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:smoke-${GITHUB_RUN_ID}"
+          docker tag "$CURRENT_IMAGE" "$SMOKE_TAG"
+          docker push "$SMOKE_TAG"
+          echo "ECR write path OK (smoke tag left in place intentionally)"
+
+      - name: Verify ECS write perms (register identical revision + update-service no-op)
+        # Re-registering the current task def produces a byte-identical new
+        # revision. register-task-definition internally validates iam:PassRole
+        # on executionRoleArn + taskRoleArn.
+        run: |
+          aws ecs describe-task-definition --task-definition "$TASK_FAMILY" \
+            --query taskDefinition > /tmp/td.json
+          python3 -c "
+          import json
+          td = json.load(open('/tmp/td.json'))
+          for k in ['taskDefinitionArn','revision','status','requiresAttributes','compatibilities','registeredAt','registeredBy']:
+              td.pop(k, None)
+          json.dump(td, open('/tmp/td-new.json','w'))
+          "
+          NEW_REV=$(aws ecs register-task-definition --cli-input-json file:///tmp/td-new.json \
+            --query 'taskDefinition.revision' --output text)
+          echo "Registered new revision: $NEW_REV (ecs:RegisterTaskDefinition + iam:PassRole OK)"
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --task-definition "$TASK_FAMILY" --query 'service.taskDefinition' --output text
+          echo "ecs:UpdateService OK"
+          echo "Smoke test passed — OIDC + IAM read + IAM write + ECR write all verified"
+
+  # Gate on push events only. In PR-1 there is no push trigger, so
+  # github.event_name is always 'workflow_dispatch' and this job never runs —
+  # regardless of any smoke_test input combination. PR-2 adds push: branches:
+  # [main], at which point merges to main fire this job.
+  build-and-deploy:
+    if: github.event_name == 'push'
+    needs: [lint-smoke, pre-commit-verify]
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: eu-west-2
+      ECR_REGISTRY: 593212028144.dkr.ecr.eu-west-2.amazonaws.com
+      ECR_REPOSITORY: outstandingai/ai-engine
+      ECS_CLUSTER: outstandingai
+      ECS_SERVICE: ai-engine
+      TASK_FAMILY: outstandingai-ai-engine
+      CONTAINER_NAME: ai-engine
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: meta
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          IMAGE_TAG="$(echo "$COMMIT_SHA" | cut -c1-7)"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "image=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push (SHA only — no :latest; ECR is IMMUTABLE)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Runtime preflight — production settings + app instantiation
+        # Satisfies every invariant in src/config/settings.py::_enforce_production_invariants:
+        # SERVICE_AUTH_TOKEN set, DEBUG=false, vertex project non-placeholder,
+        # VERTEX_WIF_CONFIG_PATH file present (baked into image),
+        # running_on_ecs() True (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI set),
+        # AWS_REGION set.
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          docker pull "$IMAGE"
+          docker run --rm \
+            -e ENVIRONMENT=production \
+            -e DEBUG=false \
+            -e SERVICE_AUTH_TOKEN=preflight-token \
+            -e LLM_PROVIDER=vertex \
+            -e VERTEX_PROJECT_ID=preflight-project \
+            -e VERTEX_LOCATION=europe-west2 \
+            -e VERTEX_WIF_CONFIG_PATH=/app/infra/vertex-wif-config.json \
+            -e AWS_REGION=eu-west-2 \
+            -e AWS_CONTAINER_CREDENTIALS_RELATIVE_URI=/preflight \
+            -e OPENAI_API_KEY=preflight \
+            --entrypoint python \
+            "$IMAGE" \
+            -c "
+          from src.main import app
+          routes = [r.path for r in app.routes]
+          assert '/ping' in routes, f'Expected /ping in routes, got {routes}'
+          print(f'AI Engine preflight OK ({len(routes)} routes registered)')
+          "
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_FAMILY" \
+            --query taskDefinition \
+            > task-definition.json
+
+      - name: Render new image into task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.meta.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          wait-for-minutes: 10
