@@ -103,7 +103,11 @@ class EmailClassifier:
             total_outstanding=total_outstanding,
             days_overdue_max=days_overdue_max,
             broken_promises_count=request.context.broken_promises_count,
-            segment=request.context.behavior.segment if request.context.behavior else "unknown",
+            segment=(
+                request.context.behavior.behaviour_segment
+                if request.context.behavior
+                else "unknown"
+            ),
             active_dispute=request.context.active_dispute,
             hardship_indicated=request.context.hardship_indicated,
             invoice_table=invoice_table,
@@ -191,6 +195,7 @@ class EmailClassifier:
                 guardrails_passed=passed_checks,
                 blocking_failures=guardrail_result.blocking_guardrails,
                 warnings=warnings,
+                review_findings=guardrail_result.review_findings,
                 factual_accuracy=factual_accuracy,
             )
 
@@ -215,6 +220,7 @@ class EmailClassifier:
             tokens_used=tokens_used,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            forbidden_content_detected=result.forbidden_content_detected or [],
             guardrail_validation=guardrail_validation,
             provider=response.provider,
             model=response.model,

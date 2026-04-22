@@ -1,4 +1,4 @@
-"""Guardrail Pipeline -- orchestrate all 7 guardrails.
+"""Guardrail Pipeline -- orchestrate the default guardrail suite.
 
 Run guardrails either in parallel (default, via ``ThreadPoolExecutor``)
 or sequentially (with optional fail-fast on CRITICAL failures).  The
@@ -12,7 +12,7 @@ most important checks are prioritised in sequential mode and their
 results appear first in logs.
 
 Thread pool size is fixed at 6 worker threads for the default
-7-guardrail set. The pool is module-level to avoid per-request
+guardrail set. The pool is module-level to avoid per-request
 thread creation overhead.
 """
 
@@ -24,12 +24,16 @@ from src.api.models.requests import CaseContext
 
 from .base import BaseGuardrail, GuardrailPipelineResult, GuardrailResult, GuardrailSeverity
 from .contextual import ContextualCoherenceGuardrail
-from .entity import EntityVerificationGuardrail
 from .executor import validate_parallel, validate_sequential
 from .factual_grounding import FactualGroundingGuardrail
 from .feedback import get_retry_prompt_addition
+from .forbidden_content import ForbiddenContentDetector
+from .identity_scope import IdentityScopeGuardrail
+from .lane_scope import LaneScopeGuardrail
 from .numerical import NumericalConsistencyGuardrail
 from .placeholder import PlaceholderValidationGuardrail
+from .policy_grounding import PolicyGroundingGuardrail
+from .semantic_coherence import SemanticCoherenceGuardrail
 from .temporal import TemporalConsistencyGuardrail
 
 logger = logging.getLogger(__name__)
@@ -39,11 +43,11 @@ DEFAULT_MAX_RETRIES = 2
 
 
 class GuardrailPipeline:
-    """Orchestrate all 7 guardrails via parallel or sequential execution.
+    """Orchestrate guardrails via parallel or sequential execution.
 
     Default mode is **parallel** using a module-level ``ThreadPoolExecutor``
-    (6 shared workers across 7 guardrails). This allows I/O-bound checks (entity
-    verification LLM call) to overlap with CPU-bound regex checks.
+    (6 shared workers across the default guardrail set). This allows
+    I/O-bound checks to overlap with CPU-bound regex checks.
 
     Guardrails are sorted by severity (CRITICAL first) so that in
     sequential/fail-fast mode the most important checks run first.
@@ -75,6 +79,7 @@ class GuardrailPipeline:
             GuardrailSeverity.HIGH: 1,
             GuardrailSeverity.MEDIUM: 2,
             GuardrailSeverity.LOW: 3,
+            GuardrailSeverity.REVIEW: 4,
         }
         self.guardrails.sort(key=lambda g: severity_order[g.severity])
 
@@ -84,7 +89,7 @@ class GuardrailPipeline:
         )
 
     def _get_default_guardrails(self) -> list[BaseGuardrail]:
-        """Return the default set of 7 guardrails.
+        """Return the default set of guardrails.
 
         Order here does not matter -- the ``__init__`` sorts by severity.
         PlaceholderValidation is listed first as a hint that it is the
@@ -96,8 +101,12 @@ class GuardrailPipeline:
             PlaceholderValidationGuardrail(),  # Deterministic, zero-cost — runs first
             FactualGroundingGuardrail(),
             NumericalConsistencyGuardrail(),
+            LaneScopeGuardrail(),
+            IdentityScopeGuardrail(),
+            PolicyGroundingGuardrail(),
+            ForbiddenContentDetector(),
             ToneClampingGuardrail(),  # Confirms a runtime-selected tone was provided
-            EntityVerificationGuardrail(),
+            SemanticCoherenceGuardrail(),
             TemporalConsistencyGuardrail(),
             ContextualCoherenceGuardrail(),
         ]

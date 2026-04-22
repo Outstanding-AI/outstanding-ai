@@ -47,28 +47,20 @@ class SenderPerformanceStats(BaseModel):
 
     total_touches: int = 0
     total_unique_parties: int = 0
-    responses_received: int = 0
+    responded_touches: int = 0
     response_rate: Optional[float] = None
     avg_response_days: Optional[float] = None
+    avg_days_between_touches: Optional[float] = None
     cooperative_count: int = 0
     hostile_count: int = 0
-    promise_count: int = 0
-    dispute_count: int = 0
-    no_response_count: int = 0
     cases_resolved_pif: int = 0
     amount_collected_after: Optional[float] = None
     avg_days_to_payment: Optional[float] = None
     promises_elicited: int = 0
     promises_kept: int = 0
-    promises_broken: int = 0
     promise_fulfillment_rate: Optional[float] = None
     disputes_raised_after: int = 0
     disputes_resolved: int = 0
-    early_state_pct: Optional[float] = None
-    escalated_state_pct: Optional[float] = None
-    tone_distribution: Optional[dict] = None
-    segment_distribution: Optional[dict] = None
-    avg_days_between_touches: Optional[float] = None
 
 
 class RefinePersonaRequest(BaseModel):

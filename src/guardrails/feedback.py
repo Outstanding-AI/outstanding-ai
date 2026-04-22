@@ -80,9 +80,15 @@ def get_retry_prompt_addition(pipeline_result: GuardrailPipelineResult, **kwargs
                         "{INVOICE_TABLE} handles all figures. "
                         "Remove any stated totals from the email body."
                     )
-            elif result.guardrail_name == "entity_verification":
-                additions.append("- Use exact customer code and company name from context")
-                if result.expected:
-                    additions.append(f"- Expected: {result.expected}")
+            elif result.guardrail_name == "identity_scope":
+                additions.append(
+                    "- Use only the recipient, sender, reply-to, and contact emails provided in context."
+                )
+            elif result.guardrail_name == "lane_scope":
+                additions.append("- Only mention invoices and totals from the current lane cohort.")
+            elif result.guardrail_name == "policy_grounding":
+                additions.append(
+                    "- Remove any discount, settlement, statutory-interest, or legal-escalation language unless authorized."
+                )
 
     return "\n".join(additions)

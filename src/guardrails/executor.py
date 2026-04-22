@@ -46,6 +46,7 @@ def validate_parallel(
     blocking_guardrails: list[str] = []
     should_block = False
     guardrail_latencies = {}
+    review_findings: list[dict] = []
 
     # Submit all guardrails concurrently.  Each guardrail runs in
     # its own thread, allowing I/O-bound checks (e.g., entity
@@ -83,6 +84,8 @@ def validate_parallel(
                     if guardrail_name not in blocking_guardrails:
                         blocking_guardrails.append(guardrail_name)
                     logger.warning(f"Guardrail {guardrail_name} BLOCKED output: {result.message}")
+                if result.is_review_finding:
+                    review_findings.append(result.to_dict())
 
     all_passed = all(r.passed for r in all_results)
     pipeline_latency_ms = (time.perf_counter() - pipeline_start) * 1000
@@ -110,6 +113,7 @@ def validate_parallel(
         results=all_results,
         retry_suggested=should_block and len(blocking_guardrails) <= 2,
         blocking_guardrails=blocking_guardrails,
+        review_findings=review_findings,
     )
 
 
@@ -137,6 +141,7 @@ def validate_sequential(
     blocking_guardrails: list[str] = []
     should_block = False
     guardrail_latencies = {}
+    review_findings: list[dict] = []
 
     for guardrail in guardrails:
         start_time = time.perf_counter()
@@ -189,7 +194,10 @@ def validate_sequential(
                             results=all_results,
                             retry_suggested=True,
                             blocking_guardrails=blocking_guardrails,
+                            review_findings=review_findings,
                         )
+                if result.is_review_finding:
+                    review_findings.append(result.to_dict())
 
         except Exception as e:
             latency_ms = (time.perf_counter() - start_time) * 1000
@@ -240,4 +248,5 @@ def validate_sequential(
         results=all_results,
         retry_suggested=should_block and len(blocking_guardrails) <= 2,
         blocking_guardrails=blocking_guardrails,
+        review_findings=review_findings,
     )

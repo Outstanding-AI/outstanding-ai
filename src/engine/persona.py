@@ -19,10 +19,10 @@ Two operations:
   using a single LLM call per contact.
 - **Refinement** (``refine_persona``): Called during the sync cycle
   (``gold.refine_sender_personas``) for senders with >= 10 accumulated
-  touches.  The LLM receives the current persona alongside aggregated
+  touches. The LLM receives the current persona alongside aggregated
   performance stats (response rate, cooperative count, hostile count,
-  promise fulfillment, tone distribution, etc.) and outputs an updated
-  persona with reasoning.
+  promise fulfillment, normalized dispute/promise outcomes, cadence,
+  and tone distribution) and outputs an updated persona with reasoning.
 """
 
 import json
@@ -229,9 +229,11 @@ class PersonaGenerator:
             contact: Dict with ``name``, ``title``, ``level``.
             current_persona: Dict with ``communication_style``,
                 ``formality_level``, ``emphasis``.
-            performance: Dict with all ``sender_performance`` stats
-                (response_rate, cooperative_count, hostile_count,
-                promise_fulfillment_rate, tone_distribution, etc.).
+            performance: Dict with the refiner-safe subset of
+                ``sender_performance`` stats (responded_touches,
+                response_rate, cooperative_count, hostile_count,
+                promises_elicited, disputes_raised_after,
+                promise_fulfillment_rate, cadence, etc.).
             persona_version: Current persona version number for
                 tracking refinement iterations.
             style_description: Optional user-provided style guidance.
@@ -280,28 +282,21 @@ class PersonaGenerator:
             style_section=style_section,
             total_touches=total_touches,
             total_unique_parties=performance.get("total_unique_parties", 0),
+            responded_touches=performance.get("responded_touches", 0),
             response_rate=fmt(performance.get("response_rate"), ""),
             avg_response_days=fmt(performance.get("avg_response_days"), " days"),
-            no_response_count=performance.get("no_response_count", 0),
             cooperative_count=performance.get("cooperative_count", 0),
             cooperative_pct=pct(performance.get("cooperative_count", 0), total_touches),
             hostile_count=performance.get("hostile_count", 0),
             hostile_pct=pct(performance.get("hostile_count", 0), total_touches),
-            promise_count=performance.get("promise_count", 0),
-            promise_pct=pct(performance.get("promise_count", 0), total_touches),
-            dispute_count=performance.get("dispute_count", 0),
-            dispute_pct=pct(performance.get("dispute_count", 0), total_touches),
             cases_resolved_pif=performance.get("cases_resolved_pif", 0),
             amount_collected_after=fmt(performance.get("amount_collected_after")),
             avg_days_to_payment=fmt(performance.get("avg_days_to_payment"), " days"),
             promises_elicited=performance.get("promises_elicited", 0),
             promises_kept=performance.get("promises_kept", 0),
-            promises_broken=performance.get("promises_broken", 0),
             promise_fulfillment_rate=fmt(performance.get("promise_fulfillment_rate")),
-            early_state_pct=fmt(performance.get("early_state_pct")),
-            escalated_state_pct=fmt(performance.get("escalated_state_pct")),
-            tone_distribution=json.dumps(performance.get("tone_distribution") or {}),
-            segment_distribution=json.dumps(performance.get("segment_distribution") or {}),
+            disputes_raised_after=performance.get("disputes_raised_after", 0),
+            disputes_resolved=performance.get("disputes_resolved", 0),
             avg_days_between_touches=fmt(performance.get("avg_days_between_touches"), " days"),
         )
 

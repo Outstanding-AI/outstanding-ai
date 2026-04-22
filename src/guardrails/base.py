@@ -37,6 +37,7 @@ class GuardrailSeverity(Enum):
     HIGH = "high"  # Block output, log for review
     MEDIUM = "medium"  # Warn, allow with flag
     LOW = "low"  # Log only, allow
+    REVIEW = "review"  # Surface to operator review, do not block
 
 
 @dataclass
@@ -67,6 +68,7 @@ class GuardrailResult:
     expected: Any = None
     found: Any = None
     token_usage: dict = field(default_factory=dict)
+    is_review_finding: bool = False
 
     @property
     def should_block(self) -> bool:
@@ -86,6 +88,7 @@ class GuardrailResult:
             "details": self.details,
             "expected": str(self.expected) if self.expected else None,
             "found": str(self.found) if self.found else None,
+            "is_review_finding": self.is_review_finding,
         }
 
 
@@ -109,6 +112,7 @@ class GuardrailPipelineResult:
     results: list[GuardrailResult]
     retry_suggested: bool = False
     blocking_guardrails: list[str] = field(default_factory=list)
+    review_findings: list[dict] = field(default_factory=list)
 
     @property
     def critical_failures(self) -> list[GuardrailResult]:
@@ -140,6 +144,7 @@ class GuardrailPipelineResult:
             "should_block": self.should_block,
             "retry_suggested": self.retry_suggested,
             "blocking_guardrails": self.blocking_guardrails,
+            "review_findings": self.review_findings,
             "results": [r.to_dict() for r in self.results],
         }
 
@@ -198,4 +203,21 @@ class BaseGuardrail(ABC):
             details=details or {},
             expected=expected,
             found=found,
+        )
+
+    def _flag_for_review(
+        self,
+        message: str,
+        *,
+        details: dict | None = None,
+    ) -> GuardrailResult:
+        """Create a non-blocking review finding."""
+        self.logger.warning("Guardrail %s flagged review: %s", self.name, message)
+        return GuardrailResult(
+            passed=False,
+            guardrail_name=self.name,
+            severity=self.severity,
+            message=message,
+            details=details or {},
+            is_review_finding=True,
         )

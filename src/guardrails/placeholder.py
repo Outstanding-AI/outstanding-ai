@@ -24,20 +24,21 @@ Context-aware behaviour:
 import re
 from typing import Any
 
+from src.config.constants import ALLOWED_PLACEHOLDERS
+
 from .base import BaseGuardrail, GuardrailResult, GuardrailSeverity
 
-# Allowed placeholders that the system handles programmatically
-ALLOWED_PLACEHOLDERS = {
-    "{INVOICE_TABLE}",  # Replaced by Django's invoice_table_builder
-    "[SENDER_NAME]",  # Replaced by Django's _store_draft
-    "[SENDER_TITLE]",  # Replaced by Django's _store_draft
-    "[SENDER_COMPANY]",  # Replaced by Django's _store_draft
-}
-
 # Patterns to detect placeholder-style text in draft output
-# Matches [WORD_WORD] and {WORD_WORD} patterns (all-caps with underscores/spaces)
-BRACKET_PATTERN = re.compile(r"\[([A-Z][A-Z_\s]{2,})\]")
-BRACE_PATTERN = re.compile(r"\{([A-Z][A-Z_\s]{2,})\}")
+# Matches uppercase, lowercase, and camelCase placeholders
+BRACKET_PATTERNS = [
+    re.compile(r"\[([A-Z][A-Z_\s]{2,})\]"),
+    re.compile(r"\[([a-z][a-z_\s]{2,})\]"),
+    re.compile(r"\[([a-z]+[A-Z][a-zA-Z]*)\]"),
+]
+BRACE_PATTERNS = [
+    re.compile(r"\{([A-Z][A-Z_\s]{2,})\}"),
+    re.compile(r"\{([a-z][a-z_\s]{2,})\}"),
+]
 
 
 class PlaceholderValidationGuardrail(BaseGuardrail):
@@ -89,16 +90,18 @@ class PlaceholderValidationGuardrail(BaseGuardrail):
         found_placeholders = set()
 
         # Find all [PLACEHOLDER] patterns
-        for match in BRACKET_PATTERN.finditer(output):
-            placeholder = f"[{match.group(1)}]"
-            if placeholder not in allowed:
-                found_placeholders.add(placeholder)
+        for pattern in BRACKET_PATTERNS:
+            for match in pattern.finditer(output):
+                placeholder = f"[{match.group(1)}]"
+                if placeholder not in allowed:
+                    found_placeholders.add(placeholder)
 
         # Find all {PLACEHOLDER} patterns
-        for match in BRACE_PATTERN.finditer(output):
-            placeholder = f"{{{match.group(1)}}}"
-            if placeholder not in allowed:
-                found_placeholders.add(placeholder)
+        for pattern in BRACE_PATTERNS:
+            for match in pattern.finditer(output):
+                placeholder = f"{{{match.group(1)}}}"
+                if placeholder not in allowed:
+                    found_placeholders.add(placeholder)
 
         if found_placeholders:
             # Provide context-specific error message

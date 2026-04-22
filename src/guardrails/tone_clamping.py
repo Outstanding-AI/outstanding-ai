@@ -17,7 +17,7 @@ class ToneClampingGuardrail(BaseGuardrail):
     """Validate that a concrete runtime-selected tone was provided."""
 
     def __init__(self):
-        super().__init__(name="tone_clamping", severity=GuardrailSeverity.HIGH)
+        super().__init__(name="tone_clamping", severity=GuardrailSeverity.MEDIUM)
 
     def validate(self, output: str, context: Any, **kwargs) -> list[GuardrailResult]:
         """Validate tone presence for the current draft request.

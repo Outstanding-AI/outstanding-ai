@@ -6,6 +6,7 @@ and related context models used across classification, generation,
 and gate evaluation.
 """
 
+import warnings
 from datetime import datetime
 from typing import Any, List, Optional
 
@@ -71,6 +72,7 @@ def _normalize_lane_context(
 class ObligationInfo(BaseModel):
     """Single invoice/obligation."""
 
+    sage_id: Optional[str] = Field(None, max_length=100)
     invoice_number: str = Field(..., max_length=100)
     original_amount: float
     amount_due: float
@@ -92,8 +94,24 @@ class CommunicationInfo(BaseModel):
     last_response_at: Optional[datetime] = None
     last_response_type: Optional[str] = None
     last_response_subject: Optional[str] = None
-    last_response_snippet: Optional[str] = None
+    last_response_snippet: Optional[str] = Field(
+        default=None,
+        deprecated="Use CaseContext.recent_messages[0].body_snippet instead.",
+    )
     last_outbound_subject: Optional[str] = None
+
+    @model_validator(mode="after")
+    def warn_deprecated_last_response_snippet(self) -> "CommunicationInfo":
+        """Warn when legacy response snippets are still being passed."""
+        legacy_snippet = self.__dict__.get("last_response_snippet")
+        if legacy_snippet is not None:
+            warnings.warn(
+                "CommunicationInfo.last_response_snippet is deprecated; "
+                "use CaseContext.recent_messages[0].body_snippet instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        return self
 
 
 class TouchHistory(BaseModel):
@@ -138,8 +156,14 @@ class LaneContextInfo(BaseModel):
     reminder_cadence_days_for_level: Optional[int] = None
     max_days_for_level: Optional[int] = None
     tone_ladder: List[str] = []
-    invoice_refs: List[str] = []
-    outstanding_amount: float = 0.0
+    invoice_refs: List[str] = Field(
+        default_factory=list,
+        deprecated="Use CaseContext.lane.invoice_refs instead.",
+    )
+    outstanding_amount: float = Field(
+        default=0.0,
+        deprecated="Use CaseContext.lane.outstanding_amount instead.",
+    )
     prior_touch_dates: List[str] = []
     is_newly_joined: bool = False
 
@@ -213,9 +237,11 @@ class CaseContext(BaseModel):
 
     # Debtor contact details
     debtor_contact: Optional[dict] = None
+    party_contacts: Optional[List[dict]] = Field(default_factory=list)
 
     # Sender context (R&R, style)
     sender_context: Optional[dict] = None
+    authorized_policies: Optional[dict] = Field(default_factory=dict)
 
     # Per-obligation collection statuses
     obligation_statuses: Optional[list] = None
@@ -268,6 +294,25 @@ class CaseContext(BaseModel):
             data.get("collection_lane_id"), lane.get("collection_lane_id")
         )
         raw_lane_contexts = data.get("lane_contexts") or []
+
+        if isinstance(raw_lane_contexts, list):
+            for raw_context in raw_lane_contexts:
+                if not isinstance(raw_context, dict):
+                    continue
+                if "invoice_refs" in raw_context:
+                    warnings.warn(
+                        "LaneContextInfo.invoice_refs is deprecated; "
+                        "use CaseContext.lane.invoice_refs instead.",
+                        DeprecationWarning,
+                        stacklevel=3,
+                    )
+                if "outstanding_amount" in raw_context:
+                    warnings.warn(
+                        "LaneContextInfo.outstanding_amount is deprecated; "
+                        "use CaseContext.lane.outstanding_amount instead.",
+                        DeprecationWarning,
+                        stacklevel=3,
+                    )
 
         if raw_lane_contexts:
             normalized_contexts = [

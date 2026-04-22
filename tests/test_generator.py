@@ -132,7 +132,11 @@ def test_generate_request_hydrates_sparse_lane_context(sample_generate_draft_req
         }
     )
 
-    request = GenerateDraftRequest.model_validate(payload)
+    with pytest.warns(
+        DeprecationWarning,
+        match="LaneContextInfo.invoice_refs is deprecated",
+    ):
+        request = GenerateDraftRequest.model_validate(payload)
 
     lane_context = request.context.lane_contexts[0]
     assert lane_context.lane_id == "lane-123"
@@ -143,4 +147,4 @@ def test_generate_request_hydrates_sparse_lane_context(sample_generate_draft_req
     assert lane_context.reminder_cadence_days_for_level == 7
     assert lane_context.max_days_for_level == 21
     assert lane_context.tone_ladder == ["professional", "firm"]
-    assert lane_context.outstanding_amount == 1500.0
+    assert lane_context.__dict__["outstanding_amount"] == 1500.0

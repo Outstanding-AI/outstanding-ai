@@ -1,7 +1,7 @@
 """Tests for guardrail severity alignment with CLAUDE.md documentation.
 
 Validates:
-- Entity → HIGH (not CRITICAL)
+- Identity scope → HIGH (not CRITICAL)
 - Temporal → MEDIUM (not HIGH) — failures don't block
 - Contextual → LOW (not MEDIUM) — failures don't block
 - Pipeline behavior with mixed severities
@@ -10,7 +10,8 @@ Validates:
 from src.api.models.requests import CaseContext, ObligationInfo, PartyInfo
 from src.guardrails.base import GuardrailResult, GuardrailSeverity
 from src.guardrails.contextual import ContextualCoherenceGuardrail
-from src.guardrails.entity import EntityVerificationGuardrail
+from src.guardrails.forbidden_content import ForbiddenContentDetector
+from src.guardrails.identity_scope import IdentityScopeGuardrail
 from src.guardrails.pipeline import GuardrailPipeline
 from src.guardrails.temporal import TemporalConsistencyGuardrail
 
@@ -18,9 +19,9 @@ from src.guardrails.temporal import TemporalConsistencyGuardrail
 class TestGuardrailSeverities:
     """Test that guardrail severities match documented values."""
 
-    def test_entity_severity_is_high(self):
-        """Entity guardrail should be HIGH severity."""
-        guardrail = EntityVerificationGuardrail()
+    def test_identity_scope_severity_is_high(self):
+        """Identity scope guardrail should be HIGH severity."""
+        guardrail = IdentityScopeGuardrail()
         assert guardrail.severity == GuardrailSeverity.HIGH
 
     def test_temporal_severity_is_medium(self):
@@ -32,6 +33,11 @@ class TestGuardrailSeverities:
         """Contextual guardrail should be LOW severity."""
         guardrail = ContextualCoherenceGuardrail()
         assert guardrail.severity == GuardrailSeverity.LOW
+
+    def test_forbidden_content_severity_is_review(self):
+        """Forbidden content findings should surface for review, not block."""
+        guardrail = ForbiddenContentDetector()
+        assert guardrail.severity == GuardrailSeverity.REVIEW
 
     def test_temporal_failure_does_not_block(self):
         """MEDIUM severity failure should not have should_block=True."""
@@ -50,6 +56,17 @@ class TestGuardrailSeverities:
             guardrail_name="contextual_coherence",
             severity=GuardrailSeverity.LOW,
             message="Tone mismatch",
+        )
+        assert result.should_block is False
+
+    def test_review_finding_does_not_block(self):
+        """REVIEW severity findings should not have should_block=True."""
+        result = GuardrailResult(
+            passed=False,
+            guardrail_name="forbidden_content",
+            severity=GuardrailSeverity.REVIEW,
+            message="IBAN detected",
+            is_review_finding=True,
         )
         assert result.should_block is False
 

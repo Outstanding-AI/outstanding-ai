@@ -5,10 +5,11 @@ Contains PartyInfo, BehaviorInfo, and EmailContent models used
 to describe debtors and their email communications.
 """
 
+import warnings
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class EmailContent(BaseModel):
@@ -52,10 +53,32 @@ class BehaviorInfo(BaseModel):
     """Historical payment behavior."""
 
     lifetime_value: Optional[float] = None
+    total_collected: Optional[float] = None
     avg_days_to_pay: Optional[float] = None
     on_time_rate: Optional[float] = None
     partial_payment_rate: Optional[float] = None
-    segment: Optional[str] = None
+    segment: Optional[str] = Field(
+        default=None,
+        deprecated="Use behaviour_segment instead.",
+    )
     # Enhanced behaviour context
     behaviour_profile: Optional[dict] = None
     behaviour_segment: Optional[str] = None
+
+    @model_validator(mode="after")
+    def normalize_deprecated_segment(self) -> "BehaviorInfo":
+        """Backfill the canonical behaviour_segment during the deprecation window."""
+        legacy_segment = self.__dict__.get("segment")
+        if legacy_segment is not None:
+            warnings.warn(
+                "BehaviorInfo.segment is deprecated; use behaviour_segment instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            if self.behaviour_segment and self.behaviour_segment != legacy_segment:
+                raise ValueError(
+                    "BehaviorInfo.segment must match behaviour_segment when both are provided"
+                )
+            if not self.behaviour_segment:
+                self.behaviour_segment = legacy_segment
+        return self

@@ -9,6 +9,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.config.constants import CLASSIFICATION_CATEGORIES
+
 
 class LLMExtractedData(BaseModel):
     """Data extracted from email content by the LLM."""
@@ -109,39 +111,18 @@ class ClassificationLLMResponse(BaseModel):
         "secondary_intents in the same order. Optional — consumers fall back to the "
         "flat extracted_data when absent.",
     )
+    forbidden_content_detected: list[dict] = Field(
+        default_factory=list,
+        description="Forbidden-content patterns detected in the inbound email body.",
+    )
 
     @field_validator("classification")
     @classmethod
     def validate_classification(cls, v: str) -> str:
-        valid_classifications = {
-            "INSOLVENCY",
-            "DISPUTE",
-            "ALREADY_PAID",
-            "PAYMENT_CONFIRMATION",
-            "REMITTANCE_ADVICE",
-            "UNSUBSCRIBE",
-            "HOSTILE",
-            "PROMISE_TO_PAY",
-            "HARDSHIP",
-            "PLAN_REQUEST",
-            "REDIRECT",
-            "REQUEST_INFO",
-            "AMOUNT_DISAGREEMENT",
-            "RETENTION_CLAIM",
-            "LEGAL_RESPONSE",
-            "OUT_OF_OFFICE",
-            "EMAIL_BOUNCE",
-            "COOPERATIVE",
-            "GENERIC_ACKNOWLEDGEMENT",
-            "QUERY_QUESTION",
-            "ESCALATION_REQUEST",
-            "PARTIAL_PAYMENT_NOTIFICATION",
-            "UNCLEAR",
-        }
         upper_v = v.upper()
-        if upper_v not in valid_classifications:
+        if upper_v not in CLASSIFICATION_CATEGORIES:
             raise ValueError(
-                f"Invalid classification '{v}'. Must be one of: {', '.join(sorted(valid_classifications))}"
+                f"Invalid classification '{v}'. Must be one of: {', '.join(sorted(CLASSIFICATION_CATEGORIES))}"
             )
         return upper_v
 

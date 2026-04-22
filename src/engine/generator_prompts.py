@@ -6,6 +6,10 @@ Extracted from ``DraftGenerator`` to keep the orchestration class focused
 on the generate/retry loop.
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def format_sender_persona(request) -> str:
     """Format sender persona context for prompt inclusion.
@@ -25,7 +29,7 @@ def format_sender_persona(request) -> str:
 
     if is_generic:
         # Generic/shared mailbox — no personal identity
-        name = persona.name if persona else request.sender_name or "Collections Team"
+        name = request.sender_name or "Collections Team"
         lines = [
             f"- Mailbox Name: {name}",
             "- THIS IS A GENERIC/SHARED MAILBOX (e.g., accounts@, collections@)",
@@ -45,8 +49,8 @@ def format_sender_persona(request) -> str:
         return f"Name: {name}, Title: {title}{company_line} (no persona profile — use neutral professional voice)"
 
     lines = [
-        f"- Name: {persona.name}",
-        f"- Title: {persona.title or 'Team Member'}",
+        f"- Name: {request.sender_name or persona.name}",
+        f"- Title: {request.sender_title or persona.title or 'Team Member'}",
     ]
     if company:
         lines.append(f"- Company: {company}")
@@ -70,7 +74,6 @@ def build_extra_sections(request, behavior) -> str:
     - Escalation history (prior senders for handoff narrative)
     - Sender style guidance and examples
     - Conversation history (recent inbound/outbound messages)
-    - Last response snippet (fallback when no full history)
     - Tone preference override
     - Closure mode instructions
     - Invoice table placeholder instructions
@@ -143,6 +146,10 @@ def build_extra_sections(request, behavior) -> str:
             f"- Suppression State: {lane_state.get('suppression_state') or 'none'}"
         )
     elif request.context.lane_contexts:
+        logger.warning(
+            "LaneContextInfo.invoice_refs and outstanding_amount are deprecated; "
+            "prefer CaseContext.lane for prompt construction."
+        )
         lane = request.context.lane_contexts[0]
         invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
         tone_ladder = ", ".join(lane.tone_ladder) if getattr(lane, "tone_ladder", None) else "none"
@@ -231,6 +238,24 @@ def build_extra_sections(request, behavior) -> str:
         if style_lines:
             sections.append("\n\n**Sender Style:**\n" + "\n".join(style_lines))
 
+    if getattr(request.context, "authorized_policies", None):
+        policies = request.context.authorized_policies or {}
+        sections.append(
+            "\n\n**Authorized Policies:**\n"
+            f"- legal_escalation_enabled: {policies.get('legal_escalation_enabled')}\n"
+            f"- statutory_interest_enabled: {policies.get('statutory_interest_enabled')}\n"
+            f"- discount_allowed: {policies.get('discount_allowed')}\n"
+            f"- settlement_allowed: {policies.get('settlement_allowed')}\n"
+            f"- settlement_authority_max_pct: {policies.get('settlement_authority_max_pct')}"
+        )
+        sections.append(
+            "\n\n**Forbidden Content:**\n"
+            "- Do not include bank account details, sort codes, IBANs, SWIFT/BIC codes, routing numbers, or other payment instructions.\n"
+            "- Do not quote legal statutes, sections, or acts unless the authorized policies explicitly permit it.\n"
+            "- Do not include external URLs.\n"
+            "- If a prior message contains forbidden content, acknowledge the issue without repeating the forbidden detail."
+        )
+
     # Conversation history (recent messages for follow-up context)
     recent_msgs = request.context.lane_recent_messages or request.context.recent_messages
     if recent_msgs:
@@ -290,21 +315,13 @@ def build_extra_sections(request, behavior) -> str:
                 )
             sections.append(header + "\n".join(msg_lines) + footer)
 
-    # Last response snippet (fallback if no recent_messages)
+    # last_response_snippet is deprecated; recent_messages is the canonical source.
     if not recent_msgs and request.context.communication:
         comm = request.context.communication
-        if comm.last_response_snippet:
-            footer = (
-                "This is a FOLLOW-UP email. Acknowledge the debtor's response and build on it."
-                if allow_thread_continuity
-                else "Only reference this response if you can ground it directly in the snippet above."
-            )
-            sections.append(
-                f"\n\n**Debtor's Last Response:**\n"
-                f"- Type: {comm.last_response_type or 'Unknown'}\n"
-                f"- Subject: {comm.last_response_subject or 'N/A'}\n"
-                f"- Content: {comm.last_response_snippet}\n\n"
-                f"{footer}"
+        if comm.__dict__.get("last_response_snippet"):
+            logger.warning(
+                "CommunicationInfo.last_response_snippet is deprecated and ignored; "
+                "populate CaseContext.recent_messages[0].body_snippet instead."
             )
 
     # Customer segmentation context

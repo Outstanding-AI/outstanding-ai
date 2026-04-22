@@ -1,24 +1,10 @@
 """Tests for Guardrail Pipeline."""
 
-from unittest.mock import patch
-
 import pytest
 
 from src.api.models.requests import CaseContext, ObligationInfo, PartyInfo
 from src.guardrails.base import GuardrailResult, GuardrailSeverity
 from src.guardrails.pipeline import GuardrailPipeline
-
-
-def _mock_entity_validate(self, output, context, **kwargs):
-    """Mock entity validation that always passes (no LLM call)."""
-    return [
-        GuardrailResult(
-            passed=True,
-            guardrail_name="entity_verification",
-            severity=GuardrailSeverity.HIGH,
-            message="Entity validation passed (mocked)",
-        )
-    ]
 
 
 @pytest.fixture
@@ -53,10 +39,6 @@ def sample_context() -> CaseContext:
 class TestGuardrailPipeline:
     """Tests for GuardrailPipeline."""
 
-    @patch(
-        "src.guardrails.entity.EntityVerificationGuardrail.validate",
-        _mock_entity_validate,
-    )
     def test_valid_output_passes_all_guardrails(self, sample_context):
         """Test that valid output passes all guardrails."""
         pipeline = GuardrailPipeline()
@@ -157,6 +139,38 @@ class TestGuardrailPipeline:
         assert "should_block" in result_dict
         assert "results" in result_dict
         assert isinstance(result_dict["results"], list)
+        assert "review_findings" in result_dict
+
+    def test_review_findings_are_aggregated_without_blocking(self, sample_context):
+        """Forbidden content review findings should not block output delivery."""
+
+        class AlwaysFlagReview:
+            name = "forbidden_content"
+            severity = GuardrailSeverity.REVIEW
+
+            def validate(self, output, context, **kwargs):
+                return [
+                    GuardrailResult(
+                        passed=False,
+                        guardrail_name=self.name,
+                        severity=self.severity,
+                        message="IBAN detected",
+                        details={
+                            "findings": [
+                                {"category": "bank_payment_details", "excerpts": ["GB29..."]}
+                            ]
+                        },
+                        is_review_finding=True,
+                    )
+                ]
+
+        pipeline = GuardrailPipeline(guardrails=[AlwaysFlagReview()])
+        result = pipeline.validate("Pay via GB29...", sample_context, parallel=False)
+
+        assert result.all_passed is False
+        assert result.should_block is False
+        assert result.blocking_guardrails == []
+        assert len(result.review_findings) == 1
 
     def test_multiple_guardrail_failures(self, sample_context):
         """Test output with multiple guardrail failures."""
@@ -180,12 +194,8 @@ class TestGuardrailPipeline:
         failed_results = [r for r in result.results if not r.passed]
         assert len(failed_results) >= 1
 
-    @patch(
-        "src.guardrails.entity.EntityVerificationGuardrail.validate",
-        _mock_entity_validate,
-    )
     def test_partial_name_match_passes(self, sample_context):
-        """Test that partial company name match passes entity verification."""
+        """Draft without lane scope or unknown emails should pass deterministic identity checks."""
         pipeline = GuardrailPipeline()
 
         # Uses "Acme" which is part of "Acme Corp"

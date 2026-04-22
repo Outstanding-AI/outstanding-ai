@@ -55,7 +55,7 @@ def sample_behavior_info() -> BehaviorInfo:
         lifetime_value=50000.0,
         avg_days_to_pay=35.5,
         on_time_rate=0.65,
-        segment="medium_risk",
+        behaviour_segment="reliable_late_payer",
     )
 
 

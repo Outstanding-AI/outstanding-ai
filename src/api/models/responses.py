@@ -62,7 +62,12 @@ class GuardrailValidation(BaseModel):
     guardrails_passed: int = 0
     blocking_failures: List[str] = []
     warnings: List[str] = []
+    review_findings: List[dict] = []
     factual_accuracy: float = Field(ge=0.0, le=1.0, default=1.0)
+    results: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Individual guardrail check results: pass/fail, severity, expected/found, messages",
+    )
     results: Optional[List[Dict[str, Any]]] = Field(
         default=None,
         description="Individual guardrail check results: pass/fail, severity, expected/found, messages",
@@ -87,6 +92,7 @@ class ClassifyResponse(BaseModel):
     tokens_used: Optional[int] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
+    forbidden_content_detected: List[dict] = []
     # Guardrail validation results
     guardrail_validation: Optional[GuardrailValidation] = None
     # Provider metadata

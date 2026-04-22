@@ -5,6 +5,78 @@ All persona-related prompt fragments and configuration as importable constants.
 Used by persona generation, refinement, and draft generation.
 """
 
+import re
+
+# =============================================================================
+# SHARED CONSTANTS
+# =============================================================================
+
+CLASSIFICATION_CATEGORIES = frozenset(
+    {
+        "INSOLVENCY",
+        "UNSUBSCRIBE",
+        "HOSTILE",
+        "ALREADY_PAID",
+        "PAYMENT_CONFIRMATION",
+        "REMITTANCE_ADVICE",
+        "PARTIAL_PAYMENT_NOTIFICATION",
+        "DISPUTE",
+        "AMOUNT_DISAGREEMENT",
+        "RETENTION_CLAIM",
+        "PROMISE_TO_PAY",
+        "HARDSHIP",
+        "PLAN_REQUEST",
+        "REQUEST_INFO",
+        "REDIRECT",
+        "ESCALATION_REQUEST",
+        "QUERY_QUESTION",
+        "COOPERATIVE",
+        "LEGAL_RESPONSE",
+        "OUT_OF_OFFICE",
+        "EMAIL_BOUNCE",
+        "GENERIC_ACKNOWLEDGEMENT",
+        "UNCLEAR",
+    }
+)
+
+ALLOWED_PLACEHOLDERS = frozenset(
+    {
+        "{INVOICE_TABLE}",
+        "[SENDER_NAME]",
+        "[SENDER_TITLE]",
+        "[SENDER_COMPANY]",
+    }
+)
+
+CANONICAL_TONES = frozenset(
+    {
+        "friendly_reminder",
+        "friendly_escalating",
+        "professional",
+        "professional_escalating",
+        "firm",
+        "firm_escalating",
+        "final_notice",
+        "legal_pre_action",
+        "acknowledgement",
+        "concerned_inquiry",
+    }
+)
+
+CANONICAL_OBJECTIVES = frozenset({"follow_up", "promise_reminder", "escalation", "initial_contact"})
+TONE_PREFERENCES = frozenset({"diplomatic", "professional", "direct"})
+CTA_VALUES = frozenset({"send_email", "create_case", "escalate", "close_case"})
+
+
+def _regex_from_values(values: frozenset[str]) -> str:
+    return r"^(" + "|".join(re.escape(v) for v in sorted(values)) + r")$"
+
+
+TONE_REGEX = _regex_from_values(CANONICAL_TONES)
+OBJECTIVE_REGEX = _regex_from_values(CANONICAL_OBJECTIVES)
+TONE_PREFERENCE_REGEX = _regex_from_values(TONE_PREFERENCES)
+CTA_REGEX = _regex_from_values(CTA_VALUES)
+
 # =============================================================================
 # LEVEL DESCRIPTIONS
 # =============================================================================
@@ -92,8 +164,8 @@ Key principles:
 - If something is working well (high cooperative rate, good recovery), reinforce it
 - If hostile responses are high, consider softening the approach
 - If response rate is low, consider making the style more engaging or direct
-- If promises are frequently broken after this person's touches, emphasize accountability
-- Consider the types of cases this person handles (early-stage vs escalated)
+- If elicited promises are not being kept, emphasize accountability and specificity
+- Use normalized business events (promises elicited, disputes raised) over raw message volume
 - Changes should be evolutionary, not revolutionary — small adjustments each cycle
 - formality_level must be one of: casual, conversational, professional, formal
 
@@ -122,31 +194,25 @@ Escalation Level: {level}
 ## Performance Data ({total_touches} total touches, {total_unique_parties} unique debtors)
 
 ### Response Effectiveness
+- Responded touches: {responded_touches}
 - Response rate: {response_rate}
 - Avg response time: {avg_response_days} days
-- No response (after 7+ days): {no_response_count}
 
 ### Response Breakdown
 - Cooperative: {cooperative_count} ({cooperative_pct})
 - Hostile: {hostile_count} ({hostile_pct})
-- Promise to Pay: {promise_count} ({promise_pct})
-- Dispute: {dispute_count} ({dispute_pct})
 
 ### Recovery Outcomes
-- Cases resolved (Paid in Full): {cases_resolved_pif}
-- Amount collected (within 30d of touch): {amount_collected_after}
+- Cases currently resolved (Paid in Full): {cases_resolved_pif}
+- Amount collected (within 60d of touch): {amount_collected_after}
 - Avg days to payment: {avg_days_to_payment}
 
-### Promise Handling
+### Promise & Dispute Outcomes
 - Promises elicited: {promises_elicited}
-- Kept: {promises_kept}, Broken: {promises_broken}
+- Kept: {promises_kept}
 - Fulfillment rate: {promise_fulfillment_rate}
-
-### Case Context
-- Early-stage cases (ACTIVE/NEW): {early_state_pct}
-- Escalated cases (PAUSED/PLAN/LEGAL): {escalated_state_pct}
-- Tone distribution: {tone_distribution}
-- Debtor segments: {segment_distribution}
+- Disputes raised after touch: {disputes_raised_after}
+- Disputes resolved: {disputes_resolved}
 
 ### Cadence
 - Avg days between touches to same debtor: {avg_days_between_touches}

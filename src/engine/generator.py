@@ -244,7 +244,7 @@ class DraftGenerator:
             broken_promises_count=lane_broken_promises_count,
             active_dispute=lane_active_dispute,
             hardship_indicated=request.context.hardship_indicated,
-            segment=behavior.behaviour_segment or behavior.segment if behavior else "standard",
+            segment=behavior.behaviour_segment if behavior else "standard",
             on_time_rate=f"{behavior.on_time_rate:.0%}"
             if behavior and behavior.on_time_rate
             else "Unknown",
@@ -354,7 +354,22 @@ class DraftGenerator:
                 escalation_level=getattr(request, "escalation_level", None),
                 sender_company=request.sender_company,
                 sender_name=request.sender_name,
-                sender_mailbox_name=request.sender_persona.name if request.sender_persona else None,
+                sender_mailbox_name=request.sender_name if request.sender_persona else None,
+                sender_email=request.sender_email,
+                cc_emails=request.cc_emails or [],
+                reply_anchor_email=(
+                    request.context.communication_tracking.reply_anchor_email
+                    if request.context.communication_tracking
+                    else None
+                ),
+                recipient_name=(
+                    request.context.debtor_contact.get("name")
+                    if request.context.debtor_contact
+                    else None
+                ),
+                mail_mode=request.context.lane_mail_mode,
+                lane_context=request.context.lane,
+                authorized_policies=request.context.authorized_policies or {},
             )
             timing.guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
 
@@ -441,6 +456,7 @@ class DraftGenerator:
             guardrails_passed=passed_checks,
             blocking_failures=guardrail_result.blocking_guardrails,
             warnings=warnings,
+            review_findings=guardrail_result.review_findings,
             factual_accuracy=factual_accuracy,
             results=[r.to_dict() for r in guardrail_result.results],
         )
