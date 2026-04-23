@@ -44,20 +44,12 @@ class LaneScopeGuardrail(BaseGuardrail):
         blocked_ids = {
             str(value) for value in (getattr(context, "blocked_obligation_ids", None) or [])
         }
-        if getattr(context, "schema_version", 1) == 2:
-            invoice_to_internal_id = {
-                (getattr(obligation, "invoice_number", "") or "").upper(): str(
-                    getattr(obligation, "id", "") or ""
-                )
-                for obligation in getattr(context, "obligations", None) or []
-            }
-        else:
-            invoice_to_internal_id = {
-                (getattr(obligation, "invoice_number", "") or "").upper(): str(
-                    getattr(obligation, "sage_id", "") or ""
-                )
-                for obligation in getattr(context, "obligations", None) or []
-            }
+        invoice_to_internal_id = {
+            (getattr(obligation, "invoice_number", "") or "").upper(): str(
+                getattr(obligation, "id", "") or ""
+            )
+            for obligation in getattr(context, "obligations", None) or []
+        }
         lane_total = _q(lane.get("outstanding_amount") or 0)
 
         for pattern in INVOICE_PATTERNS:

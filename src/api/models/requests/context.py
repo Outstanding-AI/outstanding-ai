@@ -73,7 +73,6 @@ class ObligationInfo(BaseModel):
     """Single invoice/obligation."""
 
     id: Optional[str] = Field(None, max_length=100)
-    sage_id: Optional[str] = Field(None, max_length=100)
     external_id: Optional[str] = Field(None, max_length=100)
     provider_type: Optional[str] = Field(None, max_length=64)
     provider_ref: Optional[str] = Field(None, max_length=100)
@@ -200,7 +199,7 @@ class IndustryInfo(BaseModel):
 class CaseContext(BaseModel):
     """Full case context for AI operations."""
 
-    schema_version: Literal[1, 2]
+    schema_version: Literal[2]
     party: "PartyInfo"  # Forward ref resolved at module level
     behavior: Optional["BehaviorInfo"] = None  # Forward ref resolved at module level
     obligations: List[ObligationInfo] = []
@@ -341,22 +340,19 @@ class CaseContext(BaseModel):
 
     @model_validator(mode="after")
     def validate_schema_version_fields(self) -> "CaseContext":
-        """Require canonical identity fields when the v2 schema is selected."""
-        if self.schema_version != 2:
-            return self
-
+        """Require canonical identity fields for all case-context payloads."""
         if not getattr(self.party, "external_id", None):
-            raise ValueError("party.external_id is required when schema_version=2")
+            raise ValueError("party.external_id is required")
         if not getattr(self.party, "provider_type", None):
-            raise ValueError("party.provider_type is required when schema_version=2")
+            raise ValueError("party.provider_type is required")
 
         for obligation in self.obligations:
             if not obligation.id:
-                raise ValueError("obligations[].id is required when schema_version=2")
+                raise ValueError("obligations[].id is required")
             if not obligation.external_id:
-                raise ValueError("obligations[].external_id is required when schema_version=2")
+                raise ValueError("obligations[].external_id is required")
             if not obligation.provider_type:
-                raise ValueError("obligations[].provider_type is required when schema_version=2")
+                raise ValueError("obligations[].provider_type is required")
 
         return self
 

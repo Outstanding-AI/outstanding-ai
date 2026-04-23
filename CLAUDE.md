@@ -180,10 +180,10 @@ Full contract: backend `docs/CONTRACTS.md` section 5 (Tone Contract) + section 8
 
 Every `CaseContext` in every request (`/classify`, `/generate-draft`) now REQUIRES `schema_version: Literal[1, 2]` — no default. Two versions coexist:
 
-- **`schema_version=1`** — legacy Sage-keyed. Obligations identified by `obligation.sage_id`; parties optional provider fields.
+- **`schema_version=1`** — legacy Sage-keyed. Obligations identified by `obligation.external_id`; parties optional provider fields.
 - **`schema_version=2`** — canonical provider-agnostic. Requires on every obligation: `id` (UUID), `external_id`, `provider_type`. Requires on every party: `external_id`, `provider_type`. Enforced by `validate_schema_version_fields()` in `src/api/models/requests/context.py:341`.
 
-**Lane-scope guardrail** (`src/guardrails/lane_scope.py:44-65`) looks up blocked obligation IDs by `obligation.id` when `schema_version=2`, by `obligation.sage_id` when `schema_version=1`. Internal var renamed `blocked_sage_ids` → `blocked_ids`.
+**Lane-scope guardrail** (`src/guardrails/lane_scope.py:44-65`) looks up blocked obligation IDs by `obligation.id` when `schema_version=2`, by `obligation.external_id` when `schema_version=1`. Internal var renamed `blocked_ids` → `blocked_ids`.
 
 **Backend dispatch**: `TenantConfig.ai_context_schema_version` (smallint on Django) decides per-tenant. During rollout a tenant gets flipped from 1 → 2 once ETL has populated `external_id` / `provider_type` on its Silver rows.
 
