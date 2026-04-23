@@ -78,7 +78,14 @@ class ObligationInfo(BaseModel):
     provider_ref: Optional[str] = Field(None, max_length=100)
     invoice_number: str = Field(..., max_length=100)
     original_amount: float
+    original_amount_base: Optional[float] = None
+    allocated_amount: Optional[float] = None
+    allocated_amount_base: Optional[float] = None
     amount_due: float
+    amount_due_base: Optional[float] = None
+    currency: Optional[str] = Field(None, max_length=10)
+    base_currency: Optional[str] = Field(None, max_length=10)
+    document_to_base_rate: Optional[float] = None
     due_date: Optional[str] = Field(None, max_length=30)
     days_past_due: int = 0
     state: str = Field("open", max_length=30)
@@ -210,6 +217,8 @@ class CaseContext(BaseModel):
 
     # Case state
     case_state: Optional[str] = None
+    base_currency: str = "GBP"
+    total_outstanding_base: Optional[float] = None
     days_in_state: Optional[int] = None
     broken_promises_count: int = 0
     active_dispute: bool = False

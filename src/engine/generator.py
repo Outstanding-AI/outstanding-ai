@@ -134,7 +134,14 @@ class DraftGenerator:
         # Derived values computed from context obligations.
         # total_outstanding: authoritative sum used by guardrails for math
         # verification (NumericalConsistencyGuardrail).
-        total_outstanding = sum(o.amount_due for o in request.context.obligations)
+        total_outstanding = (
+            request.context.total_outstanding_base
+            if request.context.total_outstanding_base is not None
+            else sum(
+                o.amount_due_base if o.amount_due_base is not None else o.amount_due
+                for o in request.context.obligations
+            )
+        )
         max_days_overdue = max((o.days_past_due for o in request.context.obligations), default=0)
         obligation_count = len(request.context.obligations)
 
@@ -158,7 +165,8 @@ class DraftGenerator:
                 "\n".join(
                     [
                         f"- {o.invoice_number or '(no invoice number)'}: "
-                        f"{request.context.party.currency} {o.amount_due:,.2f} "
+                        f"{o.currency or request.context.party.currency or request.context.base_currency} "
+                        f"{o.amount_due:,.2f} "
                         f"({o.days_past_due} days overdue)"
                         for o in sorted_obligations
                     ]
@@ -227,7 +235,7 @@ class DraftGenerator:
             party_name=request.context.party.name,
             contact_name=contact_name or "(not available)",
             customer_code=request.context.party.customer_code,
-            currency=request.context.party.currency,
+            currency=request.context.base_currency,
             total_outstanding=total_outstanding,
             relationship_tier=request.context.relationship_tier,
             is_verified=request.context.party.is_verified,

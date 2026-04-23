@@ -106,11 +106,11 @@ def format_invoice_table(context) -> str:
     if not context.obligations:
         return "No outstanding invoices on record."
 
-    currency = context.party.currency or "GBP"
     lines = []
     for o in context.obligations:
         inv_num = o.invoice_number or "—"
         due = o.due_date or "—"
+        currency = o.currency or context.party.currency or context.base_currency or "GBP"
         lines.append(
             f"- {inv_num}: {currency} {o.amount_due:,.2f} due {due} "
             f"({o.days_past_due} days overdue)"
@@ -132,6 +132,7 @@ def format_invoice_table(context) -> str:
                 status = status_map.get(str(o.id), "open") if hasattr(o, "id") else "open"
                 inv_num = o.invoice_number or "—"
                 due = o.due_date or "—"
+                currency = o.currency or context.party.currency or context.base_currency or "GBP"
                 enhanced.append(
                     f"- {inv_num}: {currency} {o.amount_due:,.2f} due {due} "
                     f"({o.days_past_due} days overdue) [status: {status}]"

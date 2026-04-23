@@ -33,6 +33,7 @@ class PartyInfo(BaseModel):
     name: str = Field(..., min_length=1, max_length=500)
     country_code: Optional[str] = None
     currency: str = Field("GBP", max_length=10)
+    base_currency: str = Field("GBP", max_length=10)
     credit_limit: Optional[float] = None
     on_hold: bool = False
 

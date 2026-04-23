@@ -82,7 +82,14 @@ class EmailClassifier:
         """
         # Compute derived aggregates from obligations for the prompt.
         # These give the LLM a summary view alongside the per-invoice table.
-        total_outstanding = sum(o.amount_due for o in request.context.obligations)
+        total_outstanding = (
+            request.context.total_outstanding_base
+            if request.context.total_outstanding_base is not None
+            else sum(
+                o.amount_due_base if o.amount_due_base is not None else o.amount_due
+                for o in request.context.obligations
+            )
+        )
         days_overdue_max = max((o.days_past_due for o in request.context.obligations), default=0)
 
         # Industry context helps the LLM interpret domain-specific
@@ -99,7 +106,7 @@ class EmailClassifier:
         user_prompt = CLASSIFY_EMAIL_USER.format(
             party_name=request.context.party.name,
             customer_code=request.context.party.customer_code,
-            currency=request.context.party.currency,
+            currency=request.context.base_currency,
             total_outstanding=total_outstanding,
             days_overdue_max=days_overdue_max,
             broken_promises_count=request.context.broken_promises_count,
