@@ -152,8 +152,16 @@ if cors_origins:
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        # Explicit method + header allow-lists (was ["*"] — every audit flagged it).
+        # Origin list is already explicit via settings.get_cors_origins(), so this
+        # tightens the remaining wildcards without changing observed behaviour.
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Tenant-ID",
+            "X-Request-ID",
+        ],
     )
     logger.info(f"CORS enabled for origins: {cors_origins}")
 else:
