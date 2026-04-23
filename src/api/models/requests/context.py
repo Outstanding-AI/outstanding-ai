@@ -8,7 +8,7 @@ and gate evaluation.
 
 import warnings
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -72,7 +72,11 @@ def _normalize_lane_context(
 class ObligationInfo(BaseModel):
     """Single invoice/obligation."""
 
+    id: Optional[str] = Field(None, max_length=100)
     sage_id: Optional[str] = Field(None, max_length=100)
+    external_id: Optional[str] = Field(None, max_length=100)
+    provider_type: Optional[str] = Field(None, max_length=64)
+    provider_ref: Optional[str] = Field(None, max_length=100)
     invoice_number: str = Field(..., max_length=100)
     original_amount: float
     amount_due: float
@@ -196,6 +200,7 @@ class IndustryInfo(BaseModel):
 class CaseContext(BaseModel):
     """Full case context for AI operations."""
 
+    schema_version: Literal[1, 2]
     party: "PartyInfo"  # Forward ref resolved at module level
     behavior: Optional["BehaviorInfo"] = None  # Forward ref resolved at module level
     obligations: List[ObligationInfo] = []
@@ -333,6 +338,27 @@ class CaseContext(BaseModel):
             return hydrated
 
         return data
+
+    @model_validator(mode="after")
+    def validate_schema_version_fields(self) -> "CaseContext":
+        """Require canonical identity fields when the v2 schema is selected."""
+        if self.schema_version != 2:
+            return self
+
+        if not getattr(self.party, "external_id", None):
+            raise ValueError("party.external_id is required when schema_version=2")
+        if not getattr(self.party, "provider_type", None):
+            raise ValueError("party.provider_type is required when schema_version=2")
+
+        for obligation in self.obligations:
+            if not obligation.id:
+                raise ValueError("obligations[].id is required when schema_version=2")
+            if not obligation.external_id:
+                raise ValueError("obligations[].external_id is required when schema_version=2")
+            if not obligation.provider_type:
+                raise ValueError("obligations[].provider_type is required when schema_version=2")
+
+        return self
 
 
 # Import here to resolve forward references after all models are defined

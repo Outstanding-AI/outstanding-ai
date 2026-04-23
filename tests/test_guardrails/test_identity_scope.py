@@ -4,6 +4,7 @@ from src.guardrails.identity_scope import IdentityScopeGuardrail
 
 def _context() -> CaseContext:
     return CaseContext(
+        schema_version=1,
         party=PartyInfo(party_id="party-1", customer_code="CUST1", name="Acme Corp"),
         obligations=[
             ObligationInfo(

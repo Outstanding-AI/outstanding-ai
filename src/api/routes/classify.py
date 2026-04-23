@@ -57,7 +57,11 @@ async def classify_email(request: Request, classify_request: ClassifyRequest) ->
     draft discard/regeneration, verification task creation, and
     obligation collection status updates.
     """
-    logger.info(f"Classifying email for party: {classify_request.context.party.party_id}")
+    logger.info(
+        "Classifying email for party=%s schema_version=%s",
+        classify_request.context.party.party_id,
+        classify_request.context.schema_version,
+    )
     result = await classifier.classify(classify_request)
     logger.info(f"Classification: {result.classification} ({result.confidence:.2f})")
     return result

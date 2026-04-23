@@ -176,6 +176,21 @@ Fields:
 
 Full contract: backend `docs/CONTRACTS.md` section 5 (Tone Contract) + section 8 (App DB Contract).
 
+## CaseContext Schema Versioning (April 2026 Codex migration)
+
+Every `CaseContext` in every request (`/classify`, `/generate-draft`) now REQUIRES `schema_version: Literal[1, 2]` — no default. Two versions coexist:
+
+- **`schema_version=1`** — legacy Sage-keyed. Obligations identified by `obligation.sage_id`; parties optional provider fields.
+- **`schema_version=2`** — canonical provider-agnostic. Requires on every obligation: `id` (UUID), `external_id`, `provider_type`. Requires on every party: `external_id`, `provider_type`. Enforced by `validate_schema_version_fields()` in `src/api/models/requests/context.py:341`.
+
+**Lane-scope guardrail** (`src/guardrails/lane_scope.py:44-65`) looks up blocked obligation IDs by `obligation.id` when `schema_version=2`, by `obligation.sage_id` when `schema_version=1`. Internal var renamed `blocked_sage_ids` → `blocked_ids`.
+
+**Backend dispatch**: `TenantConfig.ai_context_schema_version` (smallint on Django) decides per-tenant. During rollout a tenant gets flipped from 1 → 2 once ETL has populated `external_id` / `provider_type` on its Silver rows.
+
+**Telemetry**: classify/generate routes log `schema_version` in every event (start/success/error).
+
+**Long-term home**: backend-owned `solvix-contracts` package (`Solvix/contracts/src/solvix_contracts/ai/context.v2`) will eventually export `CaseContextV2` as the canonical contract; AI Engine will import from it when version parity is wired. Do NOT bump to v3 without coordinating backend + contracts package version bumps — parity CI at `.github/workflows/contracts-version-parity.yml` enforces pins.
+
 ## LLM Runtime Invariants (April 2026)
 
 Non-obvious gotchas — violating these breaks production first-sync draft generation.

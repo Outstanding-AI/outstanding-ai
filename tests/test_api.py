@@ -89,6 +89,29 @@ class TestClassifyEndpoint:
 
         assert response.status_code == 422
 
+    def test_classify_requires_explicit_context_schema_version(self, authed_client):
+        """Test classify endpoint rejects untagged context payloads."""
+        response = authed_client.post(
+            "/classify",
+            json={
+                "email": {
+                    "subject": "Test",
+                    "body": "Test body",
+                    "from_address": "test@example.com",
+                },
+                "context": {
+                    "party": {
+                        "party_id": "party-1",
+                        "customer_code": "CUST001",
+                        "name": "Acme Corp",
+                    },
+                    "obligations": [],
+                },
+            },
+        )
+
+        assert response.status_code == 422
+
     @patch("src.api.routes.classify.classifier")
     def test_classify_success(self, mock_classifier, authed_client, sample_classify_request):
         """Test successful classification."""

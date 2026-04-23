@@ -103,6 +103,7 @@ def sample_case_context(
 ) -> CaseContext:
     """Complete case context for AI operations."""
     return CaseContext(
+        schema_version=1,
         party=sample_party_info,
         behavior=sample_behavior_info,
         obligations=sample_obligations,

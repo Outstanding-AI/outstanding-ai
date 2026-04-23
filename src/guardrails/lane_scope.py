@@ -41,15 +41,23 @@ class LaneScopeGuardrail(BaseGuardrail):
         if not cohort_invoices:
             return [self._pass("Lane has no scoped invoice refs")]
 
-        blocked_sage_ids = {
+        blocked_ids = {
             str(value) for value in (getattr(context, "blocked_obligation_ids", None) or [])
         }
-        invoice_to_sage = {
-            (getattr(obligation, "invoice_number", "") or "").upper(): str(
-                getattr(obligation, "sage_id", "") or ""
-            )
-            for obligation in getattr(context, "obligations", None) or []
-        }
+        if getattr(context, "schema_version", 1) == 2:
+            invoice_to_internal_id = {
+                (getattr(obligation, "invoice_number", "") or "").upper(): str(
+                    getattr(obligation, "id", "") or ""
+                )
+                for obligation in getattr(context, "obligations", None) or []
+            }
+        else:
+            invoice_to_internal_id = {
+                (getattr(obligation, "invoice_number", "") or "").upper(): str(
+                    getattr(obligation, "sage_id", "") or ""
+                )
+                for obligation in getattr(context, "obligations", None) or []
+            }
         lane_total = _q(lane.get("outstanding_amount") or 0)
 
         for pattern in INVOICE_PATTERNS:
@@ -59,7 +67,7 @@ class LaneScopeGuardrail(BaseGuardrail):
                     return [
                         self._fail(f"Draft references invoice {invoice_ref} outside lane cohort")
                     ]
-                if invoice_to_sage.get(invoice_ref) in blocked_sage_ids:
+                if invoice_to_internal_id.get(invoice_ref) in blocked_ids:
                     return [self._fail(f"Draft references blocked obligation {invoice_ref}")]
 
         for pattern in TOTAL_PATTERNS:

@@ -18,6 +18,7 @@ from src.guardrails.base import GuardrailPipelineResult, GuardrailResult, Guardr
 def sample_context() -> CaseContext:
     """Create a sample context for testing."""
     return CaseContext(
+        schema_version=1,
         party=PartyInfo(
             party_id="party-001",
             customer_code="CUST001",

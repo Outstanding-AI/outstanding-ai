@@ -90,6 +90,7 @@ class TestGuardrailSeverities:
 
         pipeline = GuardrailPipeline(guardrails=[AlwaysFailMedium()])
         context = CaseContext(
+            schema_version=1,
             party=PartyInfo(party_id="p1", customer_code="C1", name="Test Corp"),
             obligations=[
                 ObligationInfo(
@@ -127,6 +128,7 @@ class TestGuardrailSeverities:
 
         pipeline = GuardrailPipeline(guardrails=[AlwaysFailLow()])
         context = CaseContext(
+            schema_version=1,
             party=PartyInfo(party_id="p1", customer_code="C1", name="Test Corp"),
             obligations=[
                 ObligationInfo(

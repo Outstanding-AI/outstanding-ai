@@ -27,6 +27,8 @@ class PartyInfo(BaseModel):
 
     # Flexible validation for external IDs (come from accounting software like Sage)
     party_id: str = Field(..., min_length=1, max_length=100)
+    external_id: Optional[str] = Field(None, min_length=1, max_length=100)
+    provider_type: Optional[str] = Field(None, min_length=1, max_length=64)
     customer_code: str = Field(..., min_length=1, max_length=100)
     name: str = Field(..., min_length=1, max_length=500)
     country_code: Optional[str] = None

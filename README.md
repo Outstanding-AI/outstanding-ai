@@ -21,6 +21,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 - **Service Authentication**: Bearer token auth for service-to-service calls
 - **Rate Limiting**: Per-tenant rate limits via `X-Tenant-ID` header (falls back to IP for direct callers)
 - **Robust JSON Parsing**: Multi-strategy JSON extraction from LLM responses (handles markdown blocks, trailing commas, etc.)
+- **Versioned Context Contract**: Backend requests carry `schema_version` and the service accepts the versioned `CaseContext` contract during rollout (`v1` legacy + `v2` canonical)
 
 ## Architecture
 
@@ -40,6 +41,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 ```
 
 The AI Engine is stateless - it receives all context via HTTP requests and does not access the database directly.
+Case-context payload shapes are shared cross-repo through the backend-owned `solvix-contracts` package.
 
 > **Note:** Classification results produced by this service are stored on `thread_messages` in the data lake and are now visible to users via the Communication History API (Django `sage/api_views.py`) — displayed as color-coded badges in the frontend's CommunicationTimeline and RecentActivity components.
 
