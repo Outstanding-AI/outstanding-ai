@@ -90,10 +90,20 @@ class TestGuardrailSeverities:
 
         pipeline = GuardrailPipeline(guardrails=[AlwaysFailMedium()])
         context = CaseContext(
-            schema_version=1,
-            party=PartyInfo(party_id="p1", customer_code="C1", name="Test Corp"),
+            schema_version=2,
+            party=PartyInfo(
+                party_id="p1",
+                external_id="party-ext-1",
+                provider_type="sage_200",
+                customer_code="C1",
+                name="Test Corp",
+                source="sage_200",
+            ),
             obligations=[
                 ObligationInfo(
+                    id="obl-1",
+                    external_id="INV-1",
+                    provider_type="sage_200",
                     invoice_number="INV-1",
                     original_amount=100,
                     amount_due=100,
@@ -128,10 +138,20 @@ class TestGuardrailSeverities:
 
         pipeline = GuardrailPipeline(guardrails=[AlwaysFailLow()])
         context = CaseContext(
-            schema_version=1,
-            party=PartyInfo(party_id="p1", customer_code="C1", name="Test Corp"),
+            schema_version=2,
+            party=PartyInfo(
+                party_id="p1",
+                external_id="party-ext-1",
+                provider_type="sage_200",
+                customer_code="C1",
+                name="Test Corp",
+                source="sage_200",
+            ),
             obligations=[
                 ObligationInfo(
+                    id="obl-1",
+                    external_id="INV-1",
+                    provider_type="sage_200",
                     invoice_number="INV-1",
                     original_amount=100,
                     amount_due=100,

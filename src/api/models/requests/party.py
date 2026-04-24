@@ -27,8 +27,8 @@ class PartyInfo(BaseModel):
 
     # Flexible validation for external IDs (come from accounting software like Sage)
     party_id: str = Field(..., min_length=1, max_length=100)
-    external_id: Optional[str] = Field(None, min_length=1, max_length=100)
-    provider_type: Optional[str] = Field(None, min_length=1, max_length=64)
+    external_id: str = Field(..., min_length=1, max_length=100)
+    provider_type: str = Field(..., min_length=1, max_length=64)
     customer_code: str = Field(..., min_length=1, max_length=100)
     name: str = Field(..., min_length=1, max_length=500)
     country_code: Optional[str] = None
@@ -45,11 +45,18 @@ class PartyInfo(BaseModel):
     do_not_contact_until: Optional[str] = None  # ISO date YYYY-MM-DD
     monthly_touch_count: int = 0  # Touches this month (for monthly cap reset)
     is_verified: bool = True  # False for placeholder parties from unknown emails
-    source: str = Field("sage", max_length=50)  # sage, email_inbound, manual
+    source: str = Field(..., min_length=1, max_length=64)
 
     # Customer segmentation
     customer_type: Optional[str] = Field(None, description="individual / business / unclassified")
     size_bucket: Optional[str] = Field(None, description="large / medium / small")
+
+    @model_validator(mode="after")
+    def validate_party_identity(self) -> "PartyInfo":
+        """Keep the AI request contract aligned with canonical provider identity."""
+        if self.source != self.provider_type:
+            raise ValueError("PartyInfo.source must equal provider_type")
+        return self
 
 
 class BehaviorInfo(BaseModel):

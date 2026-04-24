@@ -11,6 +11,7 @@ def test_lane_scope_blocks_v2_obligation_ids():
             provider_type="sage_200",
             customer_code="C001",
             name="Acme Ltd",
+            source="sage_200",
         ),
         obligations=[
             ObligationInfo(

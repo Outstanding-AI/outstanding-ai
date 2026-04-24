@@ -7,9 +7,19 @@ from src.api.models.requests import CaseContext, ObligationInfo, PartyInfo
 def test_case_context_requires_explicit_schema_version():
     with pytest.raises(ValidationError, match="schema_version"):
         CaseContext(
-            party=PartyInfo(party_id="party-1", customer_code="C001", name="Acme Ltd"),
+            party=PartyInfo(
+                party_id="party-1",
+                external_id="party-ext-1",
+                provider_type="sage_200",
+                customer_code="C001",
+                name="Acme Ltd",
+                source="sage_200",
+            ),
             obligations=[
                 ObligationInfo(
+                    id="obl-uuid-1",
+                    external_id="12345",
+                    provider_type="sage_200",
                     invoice_number="INV-12345",
                     original_amount=100.0,
                     amount_due=75.0,
@@ -19,10 +29,16 @@ def test_case_context_requires_explicit_schema_version():
 
 
 def test_case_context_v2_requires_canonical_identity_fields():
-    with pytest.raises(ValueError, match="party.external_id is required"):
+    with pytest.raises(ValidationError, match="external_id"):
         CaseContext(
             schema_version=2,
-            party=PartyInfo(party_id="party-1", customer_code="C001", name="Acme Ltd"),
+            party=PartyInfo(
+                party_id="party-1",
+                provider_type="sage_200",
+                customer_code="C001",
+                name="Acme Ltd",
+                source="sage_200",
+            ),
             obligations=[],
         )
 
@@ -36,6 +52,7 @@ def test_case_context_v2_accepts_canonical_identity_fields():
             provider_type="sage_200",
             customer_code="C001",
             name="Acme Ltd",
+            source="sage_200",
         ),
         obligations=[
             ObligationInfo(

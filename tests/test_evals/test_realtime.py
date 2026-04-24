@@ -18,15 +18,21 @@ from src.guardrails.base import GuardrailPipelineResult, GuardrailResult, Guardr
 def sample_context() -> CaseContext:
     """Create a sample context for testing."""
     return CaseContext(
-        schema_version=1,
+        schema_version=2,
         party=PartyInfo(
             party_id="party-001",
+            external_id="party-ext-001",
+            provider_type="sage_200",
             customer_code="CUST001",
             name="Acme Corp",
             currency="GBP",
+            source="sage_200",
         ),
         obligations=[
             ObligationInfo(
+                id="obl-12345",
+                external_id="12345",
+                provider_type="sage_200",
                 invoice_number="INV-12345",
                 original_amount=1500.00,
                 amount_due=1500.00,

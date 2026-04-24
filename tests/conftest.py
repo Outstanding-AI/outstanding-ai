@@ -41,10 +41,13 @@ def sample_party_info() -> PartyInfo:
     """Sample party/customer info."""
     return PartyInfo(
         party_id="party-123",
+        external_id="party-ext-123",
+        provider_type="sage_200",
         customer_code="CUST001",
         name="Acme Corp",
         country_code="GB",
         currency="GBP",
+        source="sage_200",
     )
 
 
@@ -64,6 +67,9 @@ def sample_obligations() -> list[ObligationInfo]:
     """Sample outstanding invoices."""
     return [
         ObligationInfo(
+            id="obl-12345",
+            external_id="12345",
+            provider_type="sage_200",
             invoice_number="INV-12345",
             original_amount=1500.0,
             amount_due=1500.0,
@@ -72,6 +78,9 @@ def sample_obligations() -> list[ObligationInfo]:
             state="open",
         ),
         ObligationInfo(
+            id="obl-12346",
+            external_id="12346",
+            provider_type="sage_200",
             invoice_number="INV-12346",
             original_amount=2500.0,
             amount_due=2500.0,
@@ -103,7 +112,7 @@ def sample_case_context(
 ) -> CaseContext:
     """Complete case context for AI operations."""
     return CaseContext(
-        schema_version=1,
+        schema_version=2,
         party=sample_party_info,
         behavior=sample_behavior_info,
         obligations=sample_obligations,

@@ -4,10 +4,20 @@ from src.guardrails.identity_scope import IdentityScopeGuardrail
 
 def _context() -> CaseContext:
     return CaseContext(
-        schema_version=1,
-        party=PartyInfo(party_id="party-1", customer_code="CUST1", name="Acme Corp"),
+        schema_version=2,
+        party=PartyInfo(
+            party_id="party-1",
+            external_id="party-ext-1",
+            provider_type="sage_200",
+            customer_code="CUST1",
+            name="Acme Corp",
+            source="sage_200",
+        ),
         obligations=[
             ObligationInfo(
+                id="obl-100",
+                external_id="INV-100",
+                provider_type="sage_200",
                 invoice_number="INV-100",
                 original_amount=100,
                 amount_due=100,
