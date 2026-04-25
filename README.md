@@ -89,6 +89,36 @@ make dev
 # Ping: http://localhost:8001/ping
 ```
 
+### Shared Contracts Dependency
+
+`solvix-contracts` is installed from the backend repo tag `contracts-v0.2.0`. For normal local development, authenticate git once and install through uv:
+
+```bash
+gh auth setup-git
+uv sync --extra dev
+```
+
+When iterating on backend contracts locally before a release tag exists, temporarily override the installed package inside this repo's virtualenv:
+
+```bash
+uv sync --extra dev
+uv pip install --reinstall -e ../Solvix/contracts
+
+# Reset back to the pinned release tag
+uv sync --frozen --extra dev --reinstall-package solvix-contracts
+```
+
+Docker builds require a short-lived GitHub App installation token passed as a BuildKit secret:
+
+```bash
+CONTRACTS_READ_TOKEN=<installation-token> make docker-build
+```
+
+GitHub Actions uses a GitHub App, not a personal access token, to create that short-lived token. Configure the app with `contents: read` on `Outstanding-AI/outstanding-backend` and add these secrets to the AI repo or org environment:
+
+- `CONTRACTS_APP_ID`
+- `CONTRACTS_APP_PRIVATE_KEY`
+
 ### Docker
 
 ```bash

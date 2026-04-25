@@ -8,6 +8,11 @@ on:
       - 'docs/**'
       - '.vscode/**'
   workflow_call:
+    secrets:
+      CONTRACTS_APP_ID:
+        required: true
+      CONTRACTS_APP_PRIVATE_KEY:
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,7 +31,26 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
+      - name: Create contracts read token
+        id: contracts-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CONTRACTS_APP_ID }}
+          private-key: ${{ secrets.CONTRACTS_APP_PRIVATE_KEY }}
+          owner: Outstanding-AI
+          repositories: outstanding-backend
+
+      - name: Configure git auth for contracts
+        env:
+          TOKEN: ${{ steps.contracts-token.outputs.token }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/Outstanding-AI/".insteadOf \
+            "https://github.com/Outstanding-AI/"
+
       - run: uv sync --frozen --extra dev
+
+      - name: Check uv lock is current
+        run: uv lock --check
 
       - name: Run ruff check
         run: uv run ruff check src/ tests/

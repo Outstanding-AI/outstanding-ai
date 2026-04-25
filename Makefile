@@ -95,7 +95,11 @@ clean:
 # =============================================================================
 
 docker-build:
-	docker build -t outstandingai-ai:latest .
+	@if [ -z "$$CONTRACTS_READ_TOKEN" ]; then \
+		echo "Set CONTRACTS_READ_TOKEN to a short-lived GitHub App installation token before building."; \
+		exit 1; \
+	fi
+	DOCKER_BUILDKIT=1 docker build --secret id=contracts_read_token,env=CONTRACTS_READ_TOKEN -t outstandingai-ai:latest .
 
 docker-run:
 	docker run -p 8001:8001 --env-file .env outstandingai-ai:latest

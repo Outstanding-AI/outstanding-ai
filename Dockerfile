@@ -23,6 +23,7 @@ RUN useradd --create-home --shell /bin/bash appuser \
 # Install system dependencies and uv (as root, then make accessible)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/* \
     && curl -LsSf https://astral.sh/uv/install.sh | sh \
     && cp /root/.local/bin/uv /usr/local/bin/uv \
@@ -37,6 +38,11 @@ USER appuser
 # Install dependencies using uv (production only, no dev deps)
 # Cache mount avoids re-downloading packages on every rebuild
 RUN --mount=type=cache,target=/home/appuser/.cache/uv,uid=1000 \
+    --mount=type=secret,id=contracts_read_token,uid=1000,required=true \
+    token="$(cat /run/secrets/contracts_read_token)" \
+    && GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0="url.https://x-access-token:${token}@github.com/Outstanding-AI/.insteadOf" \
+    GIT_CONFIG_VALUE_0="https://github.com/Outstanding-AI/" \
     uv sync --no-dev --frozen
 
 # Copy runtime config (non-secret WIF descriptor)
