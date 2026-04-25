@@ -185,13 +185,13 @@ class OpenAIProvider(BaseLLMProvider):
                         "caller": caller,
                     },
                 )
-            return LLMResponse(
-                content=content,
-                model=self._model,
-                provider="openai",
-                usage=usage,
-                raw_response={"structured": True},
-            )
+                return LLMResponse(
+                    content=content,
+                    model=self._model,
+                    provider="openai",
+                    usage=usage,
+                    raw_response={"structured": True},
+                )
 
             # Standard invoke for non-structured output
             response = await _invoke_with_retry(client, messages)
