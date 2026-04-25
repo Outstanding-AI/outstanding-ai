@@ -93,7 +93,7 @@ class TestRealTimeEvaluator:
             guardrail_result=guardrail_result,
             latency_ms=150.0,
             provider="openai",
-            model="gpt-5-nano",
+            model="gpt-5-mini",
         )
 
         assert metrics.guardrails_passed

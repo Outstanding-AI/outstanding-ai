@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
+from solvix_contracts.ai.context.v2 import BehaviorInfoV2, PartyInfoV2
 
 
 class EmailContent(BaseModel):
@@ -22,34 +23,8 @@ class EmailContent(BaseModel):
     received_at: Optional[datetime] = None
 
 
-class PartyInfo(BaseModel):
+class PartyInfo(PartyInfoV2):
     """Party (debtor) information."""
-
-    # Flexible validation for external IDs (come from accounting software like Sage)
-    party_id: str = Field(..., min_length=1, max_length=100)
-    external_id: str = Field(..., min_length=1, max_length=100)
-    provider_type: str = Field(..., min_length=1, max_length=64)
-    customer_code: str = Field(..., min_length=1, max_length=100)
-    name: str = Field(..., min_length=1, max_length=500)
-    country_code: Optional[str] = None
-    currency: str = Field("GBP", max_length=10)
-    base_currency: str = Field("GBP", max_length=10)
-    credit_limit: Optional[float] = None
-    on_hold: bool = False
-
-    # Debtor-level override fields (NEW)
-    relationship_tier: str = Field("standard", max_length=50)  # vip, standard, high_risk
-    tone_override: Optional[str] = None  # friendly, professional, firm (overrides brand_tone)
-    grace_days_override: Optional[int] = None  # Overrides tenant grace_days
-    touch_cap_override: Optional[int] = None  # Overrides tenant touch_cap
-    do_not_contact_until: Optional[str] = None  # ISO date YYYY-MM-DD
-    monthly_touch_count: int = 0  # Touches this month (for monthly cap reset)
-    is_verified: bool = True  # False for placeholder parties from unknown emails
-    source: str = Field(..., min_length=1, max_length=64)
-
-    # Customer segmentation
-    customer_type: Optional[str] = Field(None, description="individual / business / unclassified")
-    size_bucket: Optional[str] = Field(None, description="large / medium / small")
 
     @model_validator(mode="after")
     def validate_party_identity(self) -> "PartyInfo":
@@ -59,21 +34,8 @@ class PartyInfo(BaseModel):
         return self
 
 
-class BehaviorInfo(BaseModel):
+class BehaviorInfo(BehaviorInfoV2):
     """Historical payment behavior."""
-
-    lifetime_value: Optional[float] = None
-    total_collected: Optional[float] = None
-    avg_days_to_pay: Optional[float] = None
-    on_time_rate: Optional[float] = None
-    partial_payment_rate: Optional[float] = None
-    segment: Optional[str] = Field(
-        default=None,
-        deprecated="Use behaviour_segment instead.",
-    )
-    # Enhanced behaviour context
-    behaviour_profile: Optional[dict] = None
-    behaviour_segment: Optional[str] = None
 
     @model_validator(mode="after")
     def normalize_deprecated_segment(self) -> "BehaviorInfo":

@@ -10,7 +10,12 @@ import warnings
 from datetime import datetime
 from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from solvix_contracts.ai.context.v2 import (
+    CaseContextV2,
+    CommunicationInfoV2,
+    ObligationInfoV2,
+)
 
 
 def _coalesce_lane_value(*values):
@@ -69,46 +74,12 @@ def _normalize_lane_context(
     return normalized
 
 
-class ObligationInfo(BaseModel):
-    """Single invoice/obligation."""
-
-    id: Optional[str] = Field(None, max_length=100)
-    external_id: Optional[str] = Field(None, max_length=100)
-    provider_type: Optional[str] = Field(None, max_length=64)
-    provider_ref: Optional[str] = Field(None, max_length=100)
-    invoice_number: str = Field(..., max_length=100)
-    original_amount: float
-    original_amount_base: Optional[float] = None
-    allocated_amount: Optional[float] = None
-    allocated_amount_base: Optional[float] = None
-    amount_due: float
-    amount_due_base: Optional[float] = None
-    currency: Optional[str] = Field(None, max_length=10)
-    base_currency: Optional[str] = Field(None, max_length=10)
-    document_to_base_rate: Optional[float] = None
-    due_date: Optional[str] = Field(None, max_length=30)
-    days_past_due: int = 0
-    state: str = Field("open", max_length=30)
+class ObligationInfo(ObligationInfoV2):
+    """Single invoice/obligation using the shared CaseContext v2 contract."""
 
 
-class CommunicationInfo(BaseModel):
+class CommunicationInfo(CommunicationInfoV2):
     """Communication history summary."""
-
-    touch_count: int = 0
-    last_touch_at: Optional[datetime] = None
-    last_touch_channel: Optional[str] = None
-    last_sender_level: Optional[int] = None
-    last_sender_name: Optional[str] = None
-    last_sender_title: Optional[str] = None
-    last_tone_used: Optional[str] = None
-    last_response_at: Optional[datetime] = None
-    last_response_type: Optional[str] = None
-    last_response_subject: Optional[str] = None
-    last_response_snippet: Optional[str] = Field(
-        default=None,
-        deprecated="Use CaseContext.recent_messages[0].body_snippet instead.",
-    )
-    last_outbound_subject: Optional[str] = None
 
     @model_validator(mode="after")
     def warn_deprecated_last_response_snippet(self) -> "CommunicationInfo":
@@ -203,13 +174,15 @@ class IndustryInfo(BaseModel):
     communication_notes: str = Field("", max_length=2000)  # Industry communication conventions
 
 
-class CaseContext(BaseModel):
+class CaseContext(CaseContextV2):
     """Full case context for AI operations."""
 
-    schema_version: Literal[2]
+    model_config = ConfigDict(extra="ignore")
+
+    schema_version: Literal[2] = 2
     party: "PartyInfo"  # Forward ref resolved at module level
     behavior: Optional["BehaviorInfo"] = None  # Forward ref resolved at module level
-    obligations: List[ObligationInfo] = []
+    obligations: List[ObligationInfo] = Field(default_factory=list)
     communication: Optional[CommunicationInfo] = None
     communication_tracking: Optional[CommunicationTrackingInfo] = None
     recent_touches: List[TouchHistory] = []

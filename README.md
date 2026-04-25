@@ -17,11 +17,11 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 - **Gate Evaluation**: Evaluate compliance gates (deterministic, deprecated — gates now run in Django backend)
 - **Sender Persona Management**: Generate and refine sender personas for a 4-level escalation hierarchy
 - **Guardrails Pipeline**: Validate AI outputs with 7 parallel guardrails (placeholder validation, factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence, tone clamping)
-- **Triple LLM Support**: Primary Vertex AI (`gemini-2.5-flash`), fallback OpenAI gpt-5-nano, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
+- **Triple LLM Support**: Primary Vertex AI (`gemini-2.5-flash`), fallback OpenAI `gpt-5-mini`, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
 - **Service Authentication**: Bearer token auth for service-to-service calls
 - **Rate Limiting**: Per-tenant rate limits via `X-Tenant-ID` header (falls back to IP for direct callers)
 - **Robust JSON Parsing**: Multi-strategy JSON extraction from LLM responses (handles markdown blocks, trailing commas, etc.)
-- **Versioned Context Contract**: Backend requests carry `schema_version` and the service accepts the versioned `CaseContext` contract during rollout (`v1` legacy + `v2` canonical)
+- **Versioned Context Contract**: Backend requests carry `schema_version`. The service accepts only the canonical `CaseContext` v2 contract — v1 (legacy Sage-keyed) has been retired (`schema_version: Literal[2]` only) per `solvix-contracts==0.2.0`.
 
 ## Architecture
 
@@ -29,7 +29,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 ┌─────────────────┐     ┌──────────────────┐     ┌───────────────┐
 │  Outstanding AI │────▶│  Outstanding AI   │────▶│ Vertex Gemini  │
 │  Backend        │◀────│   Engine          │◀────│   (Primary)   │
-│                 │     │   Port 8001       │     │   gpt-5-nano  │
+│                 │     │   Port 8001       │     │   gpt-5-mini  │
 └─────────────────┘     └──────────────────┘     │   (Fallback)  │
                                │                  └───────────────┘
                                │
@@ -146,8 +146,8 @@ Environment variables (in `.env`):
 | `VERTEX_MODEL` | Vertex model | `gemini-2.5-flash` |
 | `VERTEX_WIF_CONFIG_PATH` | WIF config file in the container | `/app/infra/vertex-wif-config.json` |
 | `OPENAI_API_KEY` | OpenAI API key | Fallback LLM |
-| `OPENAI_MODEL` | OpenAI model | `gpt-5-nano` |
-| `VERTEX_MAX_TOKENS` | Vertex max tokens | `8192` |
+| `OPENAI_MODEL` | OpenAI model | `gpt-5-mini` |
+| `VERTEX_MAX_TOKENS` | Vertex max tokens | `65535` |
 | `OPENAI_MAX_TOKENS` | OpenAI max tokens | `32768` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | Optional 3rd provider |
 | `ANTHROPIC_MODEL` | Anthropic model (drafts) | `claude-sonnet-4-20250514` |

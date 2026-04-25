@@ -41,7 +41,7 @@ class TestHealthEndpoint:
         mock_llm_client.provider_name = "vertex"
         mock_llm_client.model_name = "gemini-2.5-flash"
         mock_fallback = type(
-            "Fallback", (), {"provider_name": "openai", "model_name": "gpt-5-nano"}
+            "Fallback", (), {"provider_name": "openai", "model_name": "gpt-5-mini"}
         )()
         mock_llm_client.fallback = mock_fallback
         mock_llm_client.fallback_count = 0
@@ -55,7 +55,7 @@ class TestHealthEndpoint:
         assert data["provider"] == "vertex"
         assert data["model"] == "gemini-2.5-flash"
         assert data["fallback_provider"] == "openai"
-        assert data["fallback_model"] == "gpt-5-nano"
+        assert data["fallback_model"] == "gpt-5-mini"
         assert data["primary_failures_by_caller"] == {}
         assert "uptime_seconds" in data
 
@@ -89,8 +89,19 @@ class TestClassifyEndpoint:
 
         assert response.status_code == 422
 
-    def test_classify_requires_explicit_context_schema_version(self, authed_client):
-        """Test classify endpoint rejects untagged context payloads."""
+    @patch("src.api.routes.classify.classifier")
+    def test_classify_defaults_context_schema_version_to_v2(self, mock_classifier, authed_client):
+        """Test classify accepts canonical v2 context payloads that omit the default tag."""
+        from src.api.models.responses import ClassifyResponse
+
+        mock_classifier.classify = AsyncMock(
+            return_value=ClassifyResponse(
+                classification="COOPERATIVE",
+                confidence=0.88,
+                reasoning="Canonical context parsed as v2",
+            )
+        )
+
         response = authed_client.post(
             "/classify",
             json={
@@ -102,15 +113,28 @@ class TestClassifyEndpoint:
                 "context": {
                     "party": {
                         "party_id": "party-1",
+                        "external_id": "party-ext-1",
+                        "provider_type": "sage_200",
                         "customer_code": "CUST001",
                         "name": "Acme Corp",
+                        "source": "sage_200",
                     },
-                    "obligations": [],
+                    "obligations": [
+                        {
+                            "id": "obl-1",
+                            "external_id": "INV-1",
+                            "provider_type": "sage_200",
+                            "invoice_number": "INV-1",
+                            "original_amount": 100.0,
+                            "amount_due": 100.0,
+                        }
+                    ],
                 },
             },
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 200
+        assert mock_classifier.classify.await_args.args[0].context.schema_version == 2
 
     @patch("src.api.routes.classify.classifier")
     def test_classify_success(self, mock_classifier, authed_client, sample_classify_request):
