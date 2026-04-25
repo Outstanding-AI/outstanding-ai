@@ -1,6 +1,21 @@
 fail_fast: false
 
 repos:
+  - repo: local
+    hooks:
+      # Self-heal stale editable install state in .venv before any uv-based
+      # hook below runs. Catches the "uv tries to remove a dist-info that no
+      # longer exists" failure mode that surfaces as exit 2 from any wrapping
+      # `uv run` (typically after a solvix-contracts version bump or a local
+      # editable package version change). Fast no-op when venv is clean.
+      - id: heal-venv
+        name: Heal stale editable install state (no-op when clean)
+        entry: bash scripts/heal_venv.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.1
     hooks:

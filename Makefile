@@ -1,4 +1,4 @@
-.PHONY: help install run dev test test-cov test-live lint format docker-build docker-run docker-up docker-down docker-logs pre-commit-install clean
+.PHONY: help install run dev test test-cov test-live lint format docker-build docker-run docker-up docker-down docker-logs pre-commit-install heal-venv clean
 
 help:
 	@echo "Outstanding AI Engine Commands (uses uv)"
@@ -43,6 +43,14 @@ install:
 pre-commit-install:
 	uv run pre-commit install
 	@echo "Pre-commit hooks installed!"
+
+# Heal stale editable install state in .venv. Wraps scripts/heal_venv.sh —
+# the same logic that runs as a pre-commit hook. Run manually when uv reports
+# "failed to remove directory `.../<pkg>-X.Y.Z.dist-info`" outside a commit
+# context (e.g. right after `git pull` of a contracts version bump).
+heal-venv:
+	@bash scripts/heal_venv.sh
+	@echo "venv editable install state healed."
 
 # =============================================================================
 # DEVELOPMENT
