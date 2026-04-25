@@ -62,6 +62,13 @@ jobs:
       - run: uv sync --frozen --extra dev
       - run: pip install pre-commit
       - run: pre-commit run --all-files --show-diff-on-failure
+      - name: Clear contracts git auth
+        if: always() && steps.contracts-token.outputs.token != ''
+        env:
+          TOKEN: ${{ steps.contracts-token.outputs.token }}
+        run: |
+          git config --global --unset-all \
+            url."https://x-access-token:${TOKEN}@github.com/Outstanding-AI/".insteadOf || true
 
   # Smoke test — validates OIDC trust AND the write permissions that most
   # often fail on first real deploy: ecs:RegisterTaskDefinition, iam:PassRole

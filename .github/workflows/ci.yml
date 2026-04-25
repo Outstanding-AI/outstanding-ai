@@ -60,3 +60,11 @@ jobs:
 
       - name: Compile source tree
         run: uv run python -m compileall src
+
+      - name: Clear contracts git auth
+        if: always() && steps.contracts-token.outputs.token != ''
+        env:
+          TOKEN: ${{ steps.contracts-token.outputs.token }}
+        run: |
+          git config --global --unset-all \
+            url."https://x-access-token:${TOKEN}@github.com/Outstanding-AI/".insteadOf || true
