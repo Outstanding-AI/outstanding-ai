@@ -22,6 +22,7 @@ dependencies = [
     "slowapi>=0.1.9",  # Rate limiting for FastAPI
 
     # Utilities
+    "boto3>=1.34.0",
     "tenacity>=8.2.0",
     "python-dotenv>=1.0.0",
     "httpx>=0.26.0",
