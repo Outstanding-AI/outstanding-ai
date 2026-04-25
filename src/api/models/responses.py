@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -158,6 +158,30 @@ class GenerateDraftResponse(BaseModel):
     reasoning: Optional[Dict[str, Any]] = None
     primary_cta: Optional[str] = None
     follow_up_days: Optional[int] = None
+
+
+class GenerateDraftFromManifestCandidateResult(BaseModel):
+    """Draft generation result for one regional manifest candidate."""
+
+    candidate_id: str
+    party_id: str
+    lane_id: str
+    status: Literal["generated", "failed"]
+    draft: Optional[GenerateDraftResponse] = None
+    error: Optional[str] = None
+
+
+class GenerateDraftFromManifestResponse(BaseModel):
+    """Response from regional manifest-based draft generation."""
+
+    tenant_id: str
+    sync_run_id: str
+    data_lake_region: str
+    total: int
+    generated_count: int
+    failed_count: int
+    status: Literal["completed", "partial_failed", "failed"]
+    results: List[GenerateDraftFromManifestCandidateResult]
 
 
 class GateResult(BaseModel):

@@ -1,6 +1,6 @@
 """API integration tests for Outstanding AI Engine."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -190,6 +190,154 @@ class TestGenerateEndpoint:
         data = response.json()
         assert data["subject"] == "Re: Your Account"
         assert data["body"] == "Dear Customer,\n\nThank you for reaching out."
+
+    def test_generate_from_manifest_requires_auth(self, client):
+        """Test regional manifest generation rejects unauthenticated requests."""
+        response = client.post("/generate-draft-from-manifest", json={})
+        assert response.status_code == 401
+
+    def test_generate_from_manifest_success(self, authed_client, sample_case_context):
+        """Test regional manifest generation hydrates context and calls generator."""
+        from src.api.models.responses import GenerateDraftResponse
+        from src.lake import DraftCandidate
+
+        fake_clients = MagicMock()
+        fake_clients.s3.return_value = object()
+        fake_reader = object()
+        fake_hydrator = MagicMock()
+        fake_hydrator.hydrate_candidate.return_value = sample_case_context
+        candidate = DraftCandidate(
+            party_id="party-1",
+            lane_id="lane-1",
+            sync_run_id="sync-1",
+            candidate_id="candidate-1",
+        )
+        mock_response = GenerateDraftResponse(
+            subject="Re: Your Account",
+            body="Dear Customer,\n\nPlease see the attached summary.",
+            tone_used="professional",
+            invoices_referenced=["INV-123"],
+        )
+
+        with (
+            patch("src.api.routes.generate.RegionalLakeClients") as mock_clients_cls,
+            patch("src.api.routes.generate.RegionalLakeReader") as mock_reader_cls,
+            patch("src.api.routes.generate.CaseContextHydrator") as mock_hydrator_cls,
+            patch("src.api.routes.generate.load_draft_candidate_manifest") as mock_loader,
+            patch("src.api.routes.generate.generator") as mock_generator,
+        ):
+            mock_clients_cls.from_handoff.return_value = fake_clients
+            mock_reader_cls.from_handoff.return_value = fake_reader
+            mock_hydrator_cls.return_value = fake_hydrator
+            mock_loader.return_value = [candidate]
+            mock_generator.generate = AsyncMock(return_value=mock_response)
+
+            response = authed_client.post(
+                "/generate-draft-from-manifest",
+                json={
+                    "tenant_id": "tenant-1",
+                    "sync_run_id": "sync-1",
+                    "manifest_uri": "s3://bucket/manifest.json",
+                    "data_lake_region": "eu-west-2",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "completed"
+        assert data["total"] == 1
+        assert data["generated_count"] == 1
+        assert data["failed_count"] == 0
+        assert data["results"][0]["candidate_id"] == "candidate-1"
+        assert data["results"][0]["status"] == "generated"
+        assert data["results"][0]["draft"]["subject"] == "Re: Your Account"
+        mock_loader.assert_called_once_with(
+            "s3://bucket/manifest.json",
+            region_name="eu-west-2",
+            expected_sync_run_id="sync-1",
+            s3_client=fake_clients.s3.return_value,
+        )
+        mock_hydrator_cls.assert_called_once_with("tenant-1", fake_reader)
+        mock_generator.generate.assert_awaited_once()
+        assert mock_generator.generate.await_args.args[0].context == sample_case_context
+
+    def test_generate_from_manifest_returns_candidate_failure(self, authed_client):
+        """Test candidate hydration failures are returned explicitly."""
+        from src.lake import DraftCandidate
+
+        fake_clients = MagicMock()
+        fake_clients.s3.return_value = object()
+        fake_hydrator = MagicMock()
+        fake_hydrator.hydrate_candidate.side_effect = RuntimeError("lane exploded")
+
+        with (
+            patch("src.api.routes.generate.RegionalLakeClients") as mock_clients_cls,
+            patch("src.api.routes.generate.RegionalLakeReader") as mock_reader_cls,
+            patch("src.api.routes.generate.CaseContextHydrator") as mock_hydrator_cls,
+            patch("src.api.routes.generate.load_draft_candidate_manifest") as mock_loader,
+            patch("src.api.routes.generate.generator") as mock_generator,
+        ):
+            mock_clients_cls.from_handoff.return_value = fake_clients
+            mock_reader_cls.from_handoff.return_value = object()
+            mock_hydrator_cls.return_value = fake_hydrator
+            mock_loader.return_value = [
+                DraftCandidate(
+                    party_id="party-1",
+                    lane_id="lane-1",
+                    sync_run_id="sync-1",
+                    candidate_id="candidate-1",
+                )
+            ]
+
+            response = authed_client.post(
+                "/generate-draft-from-manifest",
+                json={
+                    "tenant_id": "tenant-1",
+                    "sync_run_id": "sync-1",
+                    "manifest_uri": "s3://bucket/manifest.json",
+                    "data_lake_region": "eu-west-2",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "failed"
+        assert data["generated_count"] == 0
+        assert data["failed_count"] == 1
+        assert data["results"][0]["status"] == "failed"
+        assert "RuntimeError: lane exploded" in data["results"][0]["error"]
+        mock_generator.generate.assert_not_called()
+
+    def test_generate_from_manifest_rejects_empty_manifest(self, authed_client):
+        """Test empty regional manifests fail closed instead of returning zero work."""
+        fake_clients = MagicMock()
+        fake_clients.s3.return_value = object()
+
+        with (
+            patch("src.api.routes.generate.RegionalLakeClients") as mock_clients_cls,
+            patch("src.api.routes.generate.RegionalLakeReader") as mock_reader_cls,
+            patch("src.api.routes.generate.CaseContextHydrator") as mock_hydrator_cls,
+            patch("src.api.routes.generate.load_draft_candidate_manifest") as mock_loader,
+            patch("src.api.routes.generate.generator") as mock_generator,
+        ):
+            mock_clients_cls.from_handoff.return_value = fake_clients
+            mock_loader.return_value = []
+
+            response = authed_client.post(
+                "/generate-draft-from-manifest",
+                json={
+                    "tenant_id": "tenant-1",
+                    "sync_run_id": "sync-1",
+                    "manifest_uri": "s3://bucket/manifest.json",
+                    "data_lake_region": "eu-west-2",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "contained no candidates" in response.json()["detail"]
+        mock_reader_cls.from_handoff.assert_not_called()
+        mock_hydrator_cls.assert_not_called()
+        mock_generator.generate.assert_not_called()
 
 
 class TestGatesEndpoint:
