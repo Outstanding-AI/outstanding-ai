@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.lake import DraftGenerationHandoff, RegionalLakeClients
+from src.lake.regional_reader import RegionalLakeReader
 
 
 class _FakeBoto3:
@@ -16,6 +17,49 @@ class _FakeBoto3:
     def client(self, service_name: str, *, region_name: str):
         self.calls.append((service_name, region_name))
         return {"service": service_name, "region": region_name}
+
+
+class _FakeAthena:
+    def __init__(self) -> None:
+        self.started: list[dict] = []
+        self.executions = 0
+
+    def start_query_execution(self, **kwargs):
+        self.started.append(kwargs)
+        return {"QueryExecutionId": "query-1"}
+
+    def get_query_execution(self, **kwargs):
+        self.executions += 1
+        assert kwargs["QueryExecutionId"] == "query-1"
+        return {"QueryExecution": {"Status": {"State": "SUCCEEDED"}}}
+
+    def get_query_results(self, **kwargs):
+        assert kwargs["QueryExecutionId"] == "query-1"
+        assert kwargs.get("NextToken") is None
+        return {
+            "ResultSet": {
+                "ResultSetMetadata": {
+                    "ColumnInfo": [
+                        {"Label": "id", "Type": "varchar"},
+                        {"Label": "amount_due", "Type": "double"},
+                    ]
+                },
+                "Rows": [
+                    {"Data": [{"VarCharValue": "id"}, {"VarCharValue": "amount_due"}]},
+                    {"Data": [{"VarCharValue": "obl-1"}, {"VarCharValue": "12.5"}]},
+                ],
+            }
+        }
+
+
+class _FakeClients:
+    region_name = "eu-west-2"
+
+    def __init__(self) -> None:
+        self.athena_client = _FakeAthena()
+
+    def athena(self):
+        return self.athena_client
 
 
 def test_handoff_requires_explicit_data_lake_region() -> None:
@@ -59,3 +103,18 @@ def test_regional_clients_are_pinned_to_handoff_region(monkeypatch) -> None:
         ("s3", "eu-west-2"),
     ]
     assert os.environ["AWS_REGION"] == "us-east-1"
+
+
+def test_regional_lake_reader_executes_against_region_database_and_coerces_rows() -> None:
+    clients = _FakeClients()
+    reader = RegionalLakeReader(clients=clients, poll_interval_seconds=0)
+
+    rows = reader.execute(
+        "SELECT id, amount_due FROM obligations WHERE tenant_id = %s", ["tenant-1"]
+    )
+
+    assert rows == [{"id": "obl-1", "amount_due": 12.5}]
+    started = clients.athena_client.started[0]
+    assert started["QueryExecutionContext"] == {"Database": "outstandingai_eu_west_2"}
+    assert started["WorkGroup"] == "primary"
+    assert "tenant_id = 'tenant-1'" in started["QueryString"]
