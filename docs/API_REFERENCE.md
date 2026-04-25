@@ -42,7 +42,7 @@ Classify an inbound debtor email into one of 23 categories.
 Generate a collection email draft (5 tones, persona-aware, with guardrails).
 
 **Request** (`GenerateDraftRequest`):
-- `case: CaseContext`
+- `case: CaseContext` — `schema_version: Literal[2]` only (v1 retired). `PartyInfoV2.source` is **required** (no default; must equal canonical `provider_type`) per `solvix-contracts==0.2.0`.
 - `sender: SenderContext` — persona and escalation level context
 - `tone: str` — exact backend-selected tone for this draft (for example `friendly_reminder`, `professional`, `firm`, `final_notice`)
 - `trigger_classification: Optional[str]` — follow-up context (e.g., payment_acknowledgement)
