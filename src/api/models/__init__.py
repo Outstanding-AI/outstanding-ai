@@ -5,7 +5,6 @@ from .requests import (
     CommunicationInfo,
     CommunicationTrackingInfo,
     EmailContent,
-    EvaluateGatesRequest,
     GenerateDraftRequest,
     ObligationInfo,
     PartyInfo,
@@ -14,7 +13,6 @@ from .requests import (
 )
 from .responses import (
     ClassifyResponse,
-    EvaluateGatesResponse,
     ExtractedData,
     GateResult,
     GenerateDraftResponse,
@@ -33,11 +31,9 @@ __all__ = [
     "CaseContext",
     "ClassifyRequest",
     "GenerateDraftRequest",
-    "EvaluateGatesRequest",
     "ExtractedData",
     "ClassifyResponse",
     "GenerateDraftResponse",
     "GateResult",
-    "EvaluateGatesResponse",
     "HealthResponse",
 ]

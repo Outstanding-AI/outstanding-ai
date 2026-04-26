@@ -17,7 +17,6 @@ from src.api.models.requests import (
     ClassifyRequest,
     CommunicationInfo,
     EmailContent,
-    EvaluateGatesRequest,
     GenerateDraftRequest,
     ObligationInfo,
     PartyInfo,
@@ -152,15 +151,6 @@ def sample_generate_draft_request(sample_case_context) -> GenerateDraftRequest:
         context=sample_case_context,
         tone="concerned_inquiry",
         objective="follow_up",
-    )
-
-
-@pytest.fixture
-def sample_evaluate_gates_request(sample_case_context) -> EvaluateGatesRequest:
-    """Complete gate evaluation request."""
-    return EvaluateGatesRequest(
-        context=sample_case_context,
-        proposed_action="send_email",
     )
 
 

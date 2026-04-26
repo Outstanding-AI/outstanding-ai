@@ -68,10 +68,6 @@ class GuardrailValidation(BaseModel):
         default=None,
         description="Individual guardrail check results: pass/fail, severity, expected/found, messages",
     )
-    results: Optional[List[Dict[str, Any]]] = Field(
-        default=None,
-        description="Individual guardrail check results: pass/fail, severity, expected/found, messages",
-    )
 
 
 class ClassifyResponse(BaseModel):
@@ -193,37 +189,12 @@ class GateResult(BaseModel):
     threshold: Optional[Any] = None
 
 
-class EvaluateGatesResponse(BaseModel):
-    """Response from gate evaluation."""
-
-    allowed: bool
-    gate_results: Dict[str, GateResult]
-    recommended_action: Optional[str] = None
-    tokens_used: Optional[int] = None
-    # Provider metadata
-    provider: Optional[str] = None
-    model: Optional[str] = None
-    is_fallback: bool = False
-
-
-class PartyGateResult(BaseModel):
-    """Gate result for a single party in batch evaluation."""
-
-    party_id: str
-    customer_code: str
-    allowed: bool
-    gate_results: Dict[str, GateResult]
-    recommended_action: Optional[str] = None
-    blocking_gate: Optional[str] = None
-
-
-class EvaluateGatesBatchResponse(BaseModel):
-    """Response from batch gate evaluation."""
-
-    total: int
-    allowed_count: int
-    blocked_count: int
-    results: list[PartyGateResult]
+# EvaluateGatesResponse, PartyGateResult, EvaluateGatesBatchResponse removed
+# 2026-04-26 alongside the /evaluate-gates route deletion. Gate evaluation
+# moved to backend services/gate_checker.py (CLAUDE.md note #40); the AI-side
+# response models had no remaining consumers. GateResult retained — it's a
+# generic enough shape that future endpoints may want to surface gate-style
+# outcomes.
 
 
 class HealthResponse(BaseModel):

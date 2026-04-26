@@ -9,8 +9,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.api.models.responses import EvaluateGatesResponse
-from src.engine.gate_evaluator import GateEvaluator
 from src.llm.base import LLMResponse
 
 
@@ -115,20 +113,6 @@ class TestProviderMetadata:
         assert result.model == "gpt-4o-mini"
         assert result.is_fallback is True
 
-    @pytest.mark.asyncio
-    async def test_gate_evaluation_returns_deterministic_metadata(
-        self, sample_evaluate_gates_request
-    ):
-        """Gate evaluation should return provider=deterministic, model=rule_engine."""
-        evaluator = GateEvaluator()
-
-        sample_evaluate_gates_request.context.monthly_touch_count = 0
-        sample_evaluate_gates_request.context.touch_cap = 10
-        sample_evaluate_gates_request.context.active_dispute = False
-
-        result = await evaluator.evaluate(sample_evaluate_gates_request)
-
-        assert isinstance(result, EvaluateGatesResponse)
-        assert result.provider == "deterministic"
-        assert result.model == "rule_engine"
-        assert result.is_fallback is False
+    # test_gate_evaluation_returns_deterministic_metadata removed 2026-04-26 —
+    # GateEvaluator + /evaluate-gates route deleted (gates moved to backend
+    # services/gate_checker.py, CLAUDE.md note #40).

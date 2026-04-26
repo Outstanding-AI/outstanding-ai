@@ -26,8 +26,6 @@ from .persona import (
 from .validation import (
     PROMPT_INJECTION_PATTERNS,
     ClassifyRequest,
-    EvaluateGatesBatchRequest,
-    EvaluateGatesRequest,
     GenerateDraftRequest,
 )
 
@@ -55,7 +53,5 @@ __all__ = [
     # Validation / Requests
     "ClassifyRequest",
     "GenerateDraftRequest",
-    "EvaluateGatesRequest",
-    "EvaluateGatesBatchRequest",
     "PROMPT_INJECTION_PATTERNS",
 ]

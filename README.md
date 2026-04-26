@@ -1,6 +1,6 @@
 # Outstanding AI Engine
 
-Stateless AI service for the Outstanding AI debt collection platform. Provides email classification, response draft generation, compliance gate evaluation, and sender persona management for automated collections workflows.
+Stateless AI service for the Outstanding AI debt collection platform. Provides email classification, response draft generation, and sender persona management for automated collections workflows. Compliance gate evaluation runs in the Django backend (`Solvix/services/gate_checker.py`); the AI Engine does not host a gate endpoint.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
@@ -14,7 +14,6 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 
 - **Email Classification**: Classify inbound customer emails into 23 categories with extracted data
 - **Draft Generation**: Generate contextual response drafts with `{INVOICE_TABLE}` placeholder, closure email mode, sender style injection, and classification-aware follow-ups via `trigger_classification`
-- **Gate Evaluation**: Evaluate compliance gates (deterministic, deprecated — gates now run in Django backend)
 - **Sender Persona Management**: Generate and refine sender personas for a 4-level escalation hierarchy
 - **Guardrails Pipeline**: Validate AI outputs with 7 parallel guardrails (placeholder validation, factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence, tone clamping)
 - **Triple LLM Support**: Primary Vertex AI (`gemini-2.5-flash`), fallback OpenAI `gpt-5-mini`, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
@@ -54,7 +53,6 @@ Case-context payload shapes are shared cross-repo through the backend-owned `sol
 | `/health/llm` | GET | Deep provider-aware health check with LLM verification |
 | `/classify` | POST | Classify inbound email into 23 categories |
 | `/generate-draft` | POST | Generate response draft with optional sender persona |
-| `/evaluate-gates` | POST | Evaluate compliance gates (deterministic, deprecated — gates now in Django) |
 | `/generate-persona` | POST | Generate initial personas for escalation contacts |
 | `/refine-persona` | POST | Refine persona based on performance data |
 
@@ -234,18 +232,9 @@ Environment variables (in `.env`):
 - When `final_notice` AND `touch_count >= 5`: explicitly mention legal team referral
 - No softening phrases. 3-5 sentences max, no pleasantries
 
-## Gate Types
+## Compliance Gates
 
-| Gate | Type | Description |
-|------|------|-------------|
-| `touch_cap` | Block | Maximum contacts per month |
-| `cooling_off` | Block | Minimum days between touches; enforces do_not_contact_until |
-| `dispute_active` | Block | Block if dispute pending |
-| `hardship` | Warning | Special handling required (does not block) |
-| `unsubscribe` | Block | Contact opted out |
-| `escalation_appropriate` | Block | Valid escalation path (considers industry patience) |
-
-Gate evaluation is **deterministic** (Python logic, no LLM calls) for reliability and speed.
+Gate evaluation lives in the Django backend (`Solvix/services/gate_checker.py`) — 10 gates (G1–G10) including `workflow_hold`. The AI Engine no longer evaluates gates; the historical `/evaluate-gates` endpoint and `GateEvaluator` were deleted on 2026-04-26.
 
 ## Guardrails
 
@@ -301,7 +290,6 @@ uv run pytest tests/ -v
 | `test_api.py` | API endpoint routing and response formats |
 | `test_classifier.py` | Email classification with all 23 categories |
 | `test_generator.py` | Draft generation with 5 tone types |
-| `test_gate_evaluator.py` | Gate evaluation + escalation validation |
 | `test_guardrail_severities.py` | Guardrail severity level verification |
 | `test_provider_metadata.py` | Provider/model metadata in responses |
 | `test_vertex_provider.py` | Vertex provider, WIF auth wiring, fallback behavior |
@@ -333,7 +321,6 @@ solvix-ai/
 │   │   ├── routes/          # FastAPI route handlers
 │   │   │   ├── classify.py
 │   │   │   ├── generate.py
-│   │   │   ├── gates.py
 │   │   │   ├── health.py    # /ping + /health + /health/llm
 │   │   │   └── persona.py   # /generate-persona + /refine-persona
 │   │   ├── errors.py        # Custom API exceptions
@@ -346,8 +333,6 @@ solvix-ai/
 │   │   ├── generator.py     # Draft generation orchestration
 │   │   ├── generator_prompts.py # Prompt builders for draft generation
 │   │   ├── formatters.py    # Shared formatting utilities
-│   │   ├── gate_evaluator.py # Deterministic gate evaluation (6 gates, no LLM)
-│   │   ├── escalation_validator.py # Escalation validation logic
 │   │   └── persona.py       # Persona generation and refinement
 │   ├── guardrails/          # Output validation
 │   │   ├── base.py          # Base classes and result types
@@ -383,7 +368,6 @@ solvix-ai/
 │   ├── test_api.py
 │   ├── test_classifier.py
 │   ├── test_generator.py
-│   ├── test_gate_evaluator.py
 │   ├── test_guardrail_severities.py
 │   ├── test_provider_metadata.py
 │   ├── test_vertex_provider.py
@@ -412,9 +396,6 @@ async with AIEngineClient() as client:
 
     # Generate draft (with optional persona)
     draft = await client.generate_draft(context, persona, tone)
-
-    # Check gates (deterministic, fast)
-    gates = await client.evaluate_gates(context, action, tone)
 
     # Generate personas (cold start)
     personas = await client.generate_personas(contacts)

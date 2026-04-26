@@ -4,7 +4,7 @@ Stateless AI microservice powering intelligent debt collection workflows.
 
 ## Project Identity
 
-- **Purpose**: Email classification (23 categories), draft generation (5 tones), compliance gates, persona management
+- **Purpose**: Email classification (23 categories), draft generation (5 tones), persona management. Gate evaluation lives in the Django backend (`services/gate_checker.py`); the AI Engine no longer evaluates gates.
 - **Stack**: FastAPI + Vertex AI (`google-genai`) primary / OpenAI fallback / Anthropic optional
 - **Port**: 8001
 
@@ -18,7 +18,7 @@ solvix-ai/
 │   │   ├── models/          # Pydantic request/response models
 │   │   │   ├── requests/    # Request models package (context, party, persona, validation)
 │   │   │   └── responses.py
-│   │   ├── routes/          # classify, generate, gates, persona, health
+│   │   ├── routes/          # classify, generate, persona, health
 │   │   ├── middleware.py    # RequestID + ServiceAuth
 │   │   └── errors.py       # Custom exceptions
 │   ├── config/
@@ -29,8 +29,6 @@ solvix-ai/
 │   │   ├── generator.py     # Draft generation (orchestration: _assemble_prompt → _run_llm_with_guardrails → _build_response)
 │   │   ├── generator_prompts.py # Prompt builders for draft generation
 │   │   ├── formatters.py    # Shared formatting utilities
-│   │   ├── gate_evaluator.py # Gate evaluation (DEPRECATED — gates in Django)
-│   │   ├── escalation_validator.py # Escalation validation logic
 │   │   └── persona.py       # Persona generation/refinement
 │   ├── guardrails/          # 7 parallel validators (includes ToneClampingGuardrail)
 │   ├── llm/                 # Provider factory + implementations
@@ -51,7 +49,6 @@ Domain knowledge loads automatically via `.claude/rules/` when working on matchi
 | `guardrails.md` | src/guardrails/** | 7 validators (includes ToneClampingGuardrail), severity, follow-up exception |
 | `classification.md` | src/engine/classifier.py | 23 categories, extraction, multi-intent |
 | `generation.md` | src/engine/generator.py, src/engine/generator_prompts.py, src/engine/formatters.py | Tones, greeting, conciseness, voice rules |
-| `gates.md` | src/engine/gate_evaluator.py, src/engine/escalation_validator.py | DEPRECATED — gates in Django |
 | `api-routes.md` | src/api/** | Endpoints, schemas, middleware |
 | `docs-reference.md` | docs/** | Index to API reference and cross-repo contracts |
 

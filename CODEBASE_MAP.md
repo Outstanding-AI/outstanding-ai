@@ -10,9 +10,9 @@ Concept → file navigation index.
 | Draft generation (orchestration) | `src/engine/generator.py` | `DraftGenerator.generate()` orchestrates `_assemble_prompt`, `_run_llm_with_guardrails`, `_build_response`; internal dataclasses: `_TokenTotals`, `_TimingInfo`, `_PromptContext` |
 | Draft prompt builders | `src/engine/generator_prompts.py` |
 | Shared formatters | `src/engine/formatters.py` |
-| Gate evaluation (DEPRECATED) | `src/engine/gate_evaluator.py` |
-| Escalation validation | `src/engine/escalation_validator.py` |
 | Persona management | `src/engine/persona.py` |
+
+> Gate evaluation is **backend-only** — see `Solvix/services/gate_checker.py`. The AI Engine no longer hosts a gate evaluator.
 
 ## Prompts
 
@@ -20,8 +20,7 @@ Concept → file navigation index.
 |---------|------|
 | Classification prompt | `src/prompts/classification.py` |
 | Draft generation prompt | `src/prompts/draft_generation.py` |
-| Gate evaluation prompt | `src/prompts/gate_evaluation.py` |
-| Persona prompts | `src/prompts/persona.py` |
+| Prompt sanitization helpers | `src/prompts/_sanitize.py` |
 
 ## Guardrails
 
@@ -53,7 +52,6 @@ Concept → file navigation index.
 |---------|------|
 | Classification endpoint | `src/api/routes/classify.py` |
 | Generation endpoint | `src/api/routes/generate.py` |
-| Gates endpoint | `src/api/routes/gates.py` |
 | Persona endpoints | `src/api/routes/persona.py` |
 | Health checks | `src/api/routes/health.py` |
 | Request models | `src/api/models/requests/` (package: context.py, party.py, persona.py, validation.py) |

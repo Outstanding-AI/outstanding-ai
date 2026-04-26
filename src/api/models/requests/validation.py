@@ -14,7 +14,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.config.constants import CTA_REGEX, OBJECTIVE_REGEX, TONE_PREFERENCE_REGEX, TONE_REGEX
+from src.config.constants import OBJECTIVE_REGEX, TONE_PREFERENCE_REGEX, TONE_REGEX
 
 from .context import CaseContext
 from .party import EmailContent
@@ -125,34 +125,7 @@ class GenerateDraftRequest(BaseModel):
         return self
 
 
-class EvaluateGatesRequest(BaseModel):
-    """Request to evaluate gates before taking action."""
-
-    context: CaseContext
-    proposed_action: str = Field(
-        ...,
-        pattern=CTA_REGEX,
-    )
-    proposed_tone: Optional[str] = Field(
-        default=None,
-        pattern=TONE_REGEX,
-    )
-
-
-class EvaluateGatesBatchRequest(BaseModel):
-    """Batch request to evaluate gates for multiple parties at once.
-
-    Used to efficiently evaluate gates for many parties before parallel
-    draft generation. Since gate evaluation is deterministic (no LLM),
-    this reduces HTTP overhead significantly.
-    """
-
-    contexts: List[CaseContext] = Field(..., max_length=100)  # Max 100 parties per batch
-    proposed_action: str = Field(
-        ...,
-        pattern=CTA_REGEX,
-    )
-    proposed_tone: Optional[str] = Field(
-        default=None,
-        pattern=TONE_REGEX,
-    )
+# EvaluateGatesRequest + EvaluateGatesBatchRequest removed 2026-04-26 alongside
+# the /evaluate-gates route deletion. Gate evaluation moved to backend
+# services/gate_checker.py (CLAUDE.md note #40); the AI-side request models
+# had no remaining consumers.

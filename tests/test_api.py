@@ -367,34 +367,6 @@ class TestGenerateEndpoint:
         mock_generator.generate.assert_not_called()
 
 
-class TestGatesEndpoint:
-    """Tests for /evaluate-gates endpoint."""
-
-    def test_gates_requires_auth(self, client):
-        """Test gates endpoint rejects unauthenticated requests."""
-        response = client.post("/evaluate-gates", json={})
-        assert response.status_code == 401
-
-    def test_gates_requires_context(self, authed_client):
-        """Test gates endpoint requires context field."""
-        response = authed_client.post("/evaluate-gates", json={"proposed_action": "send_email"})
-
-        assert response.status_code == 422
-
-    @patch("src.api.routes.gates.gate_evaluator")
-    def test_gates_success(self, mock_evaluator, authed_client, sample_evaluate_gates_request):
-        """Test successful gate evaluation."""
-        from src.api.models.responses import EvaluateGatesResponse
-
-        mock_response = EvaluateGatesResponse(
-            allowed=True, gate_results={}, recommended_action=None
-        )
-        mock_evaluator.evaluate = AsyncMock(return_value=mock_response)
-
-        response = authed_client.post(
-            "/evaluate-gates", json=sample_evaluate_gates_request.model_dump(mode="json")
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["allowed"] is True
+# TestGatesEndpoint removed 2026-04-26 — /evaluate-gates route + GateEvaluator
+# deleted. Gate evaluation lives in backend services/gate_checker.py
+# (CLAUDE.md note #40); the AI-side endpoint had no production callers.

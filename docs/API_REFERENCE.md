@@ -88,9 +88,9 @@ Refine persona based on performance data (10+ touches).
 
 ---
 
-### POST /evaluate-gates (DEPRECATED)
+### Gate Evaluation (backend-only)
 
-> **DEPRECATED**: Gate evaluation moved to Django backend (`services/gate_checker.py`). This endpoint is kept for backward compatibility only and is NOT called in production.
+Gate evaluation is **not** an AI Engine endpoint. All 10 compliance gates (G1–G10, including `workflow_hold`) are evaluated in the Django backend by `Solvix/services/gate_checker.py`. The historical `/evaluate-gates` route + `GateEvaluator` were deleted on 2026-04-26.
 
 ---
 
