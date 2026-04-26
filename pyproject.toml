@@ -10,7 +10,7 @@ dependencies = [
     "uvicorn>=0.27.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "solvix-contracts==0.5.0",
+    "solvix-contracts==0.6.0",
 
     # LLM Providers
     "langchain-core>=0.3.0",
@@ -62,4 +62,4 @@ build-backend = "hatchling.build"
 packages = ["src"]
 
 [tool.uv.sources]
-solvix-contracts = { git = "https://github.com/Outstanding-AI/outstanding-backend.git", tag = "contracts-v0.5.0", subdirectory = "contracts" }
+solvix-contracts = { git = "https://github.com/Outstanding-AI/outstanding-backend.git", tag = "contracts-v0.6.0", subdirectory = "contracts" }
