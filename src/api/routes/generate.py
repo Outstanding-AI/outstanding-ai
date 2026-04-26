@@ -176,7 +176,9 @@ async def generate_draft_from_manifest(
         candidates = load_draft_candidate_manifest(
             handoff.manifest_uri,
             region_name=handoff.data_lake_region,
+            expected_tenant_id=handoff.tenant_id,
             expected_sync_run_id=handoff.sync_run_id,
+            expected_data_lake_region=handoff.data_lake_region,
             s3_client=clients.s3(),
         )
     except ManifestLoadError as exc:
@@ -207,7 +209,13 @@ async def generate_draft_from_manifest(
             detail="Regional draft candidate manifest contained no candidates",
         )
 
-    reader = RegionalLakeReader.from_handoff(handoff)
+    reader = RegionalLakeReader.from_handoff(
+        handoff,
+        workgroup=settings.athena_workgroup,
+        output_location=settings.athena_output_location,
+        poll_interval_seconds=settings.regional_lake_poll_interval_seconds,
+        timeout_seconds=settings.regional_lake_query_timeout_seconds,
+    )
     hydrator = CaseContextHydrator(handoff.tenant_id, reader)
     results: list[GenerateDraftFromManifestCandidateResult] = []
 

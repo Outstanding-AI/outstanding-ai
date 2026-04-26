@@ -10,6 +10,8 @@ from pydantic import ValidationError
 
 from .models import DraftCandidate
 
+MANIFEST_SCHEMA_VERSION = 1
+
 
 class ManifestLoadError(RuntimeError):
     """Raised when a draft-candidate manifest cannot be loaded or validated."""
@@ -52,11 +54,50 @@ def _candidate_payload(raw_payload: Any) -> list[Any]:
     )
 
 
+def _validate_manifest_envelope(
+    raw_payload: Any,
+    *,
+    expected_tenant_id: str | None,
+    expected_sync_run_id: str | None,
+    expected_data_lake_region: str | None,
+) -> None:
+    if not isinstance(raw_payload, dict):
+        if expected_tenant_id or expected_data_lake_region:
+            raise ManifestLoadError(
+                "Draft candidate manifest must be an object with tenant_id, sync_run_id, "
+                "data_lake_region, and candidates[]"
+            )
+        return
+
+    schema_version = raw_payload.get("schema_version")
+    if schema_version != MANIFEST_SCHEMA_VERSION:
+        raise ManifestLoadError(
+            f"Draft candidate manifest schema_version must be {MANIFEST_SCHEMA_VERSION}, got {schema_version!r}"
+        )
+
+    expected_fields = {
+        "tenant_id": expected_tenant_id,
+        "sync_run_id": expected_sync_run_id,
+        "data_lake_region": expected_data_lake_region,
+    }
+    for field_name, expected_value in expected_fields.items():
+        if expected_value is None:
+            continue
+        actual_value = str(raw_payload.get(field_name) or "")
+        if actual_value != str(expected_value):
+            raise ManifestLoadError(
+                f"Draft candidate manifest {field_name} mismatch: "
+                f"expected {expected_value!r}, got {actual_value!r}"
+            )
+
+
 def load_draft_candidate_manifest(
     manifest_uri: str,
     *,
     region_name: str,
+    expected_tenant_id: str | None = None,
     expected_sync_run_id: str | None = None,
+    expected_data_lake_region: str | None = None,
     s3_client: Any | None = None,
 ) -> list[DraftCandidate]:
     """Load and validate draft candidates from an S3 staging manifest."""
@@ -65,6 +106,13 @@ def load_draft_candidate_manifest(
         raw_payload = json.loads(raw_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ManifestLoadError(f"Draft candidate manifest is not valid UTF-8 JSON: {exc}") from exc
+
+    _validate_manifest_envelope(
+        raw_payload,
+        expected_tenant_id=expected_tenant_id,
+        expected_sync_run_id=expected_sync_run_id,
+        expected_data_lake_region=expected_data_lake_region,
+    )
 
     try:
         candidates = [
@@ -85,5 +133,17 @@ def load_draft_candidate_manifest(
                 "Draft candidate manifest contains candidates for a different sync_run_id: "
                 + ", ".join(mismatches[:5])
             )
+
+    seen_candidate_ids: set[str] = set()
+    duplicates: list[str] = []
+    for candidate in candidates:
+        if candidate.candidate_id in seen_candidate_ids:
+            duplicates.append(candidate.candidate_id)
+        seen_candidate_ids.add(candidate.candidate_id)
+    if duplicates:
+        raise ManifestLoadError(
+            "Draft candidate manifest contains duplicate candidate_id values: "
+            + ", ".join(duplicates[:5])
+        )
 
     return candidates

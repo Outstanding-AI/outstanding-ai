@@ -123,6 +123,14 @@ class Settings(BaseSettings):
     rate_limit_generate: str = "100/minute"
     rate_limit_gates: str = "100/minute"
 
+    # --- Regional lake reads for Phase 4.4 draft generation ---
+    # The request payload supplies the data_lake_region. These settings only
+    # control Athena execution details and must not override residency.
+    athena_workgroup: str = "primary"
+    athena_output_location: Optional[str] = None
+    regional_lake_poll_interval_seconds: float = 1.0
+    regional_lake_query_timeout_seconds: float = 60.0
+
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     def running_on_ecs(self) -> bool:

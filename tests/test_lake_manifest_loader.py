@@ -40,6 +40,10 @@ def test_parse_s3_uri_requires_bucket_and_key() -> None:
 def test_load_draft_candidate_manifest_accepts_wrapped_candidates() -> None:
     s3 = _S3Client(
         {
+            "schema_version": 1,
+            "tenant_id": "tenant-1",
+            "sync_run_id": "sync-1",
+            "data_lake_region": "eu-west-2",
             "candidates": [
                 {
                     "party_id": "party-1",
@@ -47,14 +51,16 @@ def test_load_draft_candidate_manifest_accepts_wrapped_candidates() -> None:
                     "sync_run_id": "sync-1",
                     "candidate_id": "candidate-1",
                 }
-            ]
+            ],
         }
     )
 
     candidates = load_draft_candidate_manifest(
         "s3://staging/tenant/sync/draft_candidates_manifest.json",
         region_name="eu-west-2",
+        expected_tenant_id="tenant-1",
         expected_sync_run_id="sync-1",
+        expected_data_lake_region="eu-west-2",
         s3_client=s3,
     )
 
@@ -80,6 +86,70 @@ def test_load_draft_candidate_manifest_rejects_sync_run_mismatch() -> None:
             "s3://staging/manifest.json",
             region_name="eu-west-2",
             expected_sync_run_id="sync-1",
+            s3_client=s3,
+        )
+
+
+def test_load_draft_candidate_manifest_rejects_envelope_mismatch() -> None:
+    s3 = _S3Client(
+        {
+            "schema_version": 1,
+            "tenant_id": "other-tenant",
+            "sync_run_id": "sync-1",
+            "data_lake_region": "eu-west-2",
+            "candidates": [
+                {
+                    "party_id": "party-1",
+                    "lane_id": "lane-1",
+                    "sync_run_id": "sync-1",
+                    "candidate_id": "candidate-1",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ManifestLoadError, match="tenant_id mismatch"):
+        load_draft_candidate_manifest(
+            "s3://staging/manifest.json",
+            region_name="eu-west-2",
+            expected_tenant_id="tenant-1",
+            expected_sync_run_id="sync-1",
+            expected_data_lake_region="eu-west-2",
+            s3_client=s3,
+        )
+
+
+def test_load_draft_candidate_manifest_rejects_duplicate_candidate_ids() -> None:
+    s3 = _S3Client(
+        {
+            "schema_version": 1,
+            "tenant_id": "tenant-1",
+            "sync_run_id": "sync-1",
+            "data_lake_region": "eu-west-2",
+            "candidates": [
+                {
+                    "party_id": "party-1",
+                    "lane_id": "lane-1",
+                    "sync_run_id": "sync-1",
+                    "candidate_id": "candidate-1",
+                },
+                {
+                    "party_id": "party-2",
+                    "lane_id": "lane-2",
+                    "sync_run_id": "sync-1",
+                    "candidate_id": "candidate-1",
+                },
+            ],
+        }
+    )
+
+    with pytest.raises(ManifestLoadError, match="duplicate candidate_id"):
+        load_draft_candidate_manifest(
+            "s3://staging/manifest.json",
+            region_name="eu-west-2",
+            expected_tenant_id="tenant-1",
+            expected_sync_run_id="sync-1",
+            expected_data_lake_region="eu-west-2",
             s3_client=s3,
         )
 

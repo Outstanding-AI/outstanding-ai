@@ -254,12 +254,39 @@ class TestGenerateEndpoint:
         mock_loader.assert_called_once_with(
             "s3://bucket/manifest.json",
             region_name="eu-west-2",
+            expected_tenant_id="tenant-1",
             expected_sync_run_id="sync-1",
+            expected_data_lake_region="eu-west-2",
             s3_client=fake_clients.s3.return_value,
         )
+        from src.config.settings import settings
+
+        mock_reader_cls.from_handoff.assert_called_once()
+        _, reader_kwargs = mock_reader_cls.from_handoff.call_args
+        assert reader_kwargs == {
+            "workgroup": settings.athena_workgroup,
+            "output_location": settings.athena_output_location,
+            "poll_interval_seconds": settings.regional_lake_poll_interval_seconds,
+            "timeout_seconds": settings.regional_lake_query_timeout_seconds,
+        }
         mock_hydrator_cls.assert_called_once_with("tenant-1", fake_reader)
         mock_generator.generate.assert_awaited_once()
         assert mock_generator.generate.await_args.args[0].context == sample_case_context
+
+    def test_generate_from_manifest_rejects_backend_context_payload(self, authed_client):
+        """Test the regional handoff accepts only manifest coordinates, never backend context."""
+        response = authed_client.post(
+            "/generate-draft-from-manifest",
+            json={
+                "tenant_id": "tenant-1",
+                "sync_run_id": "sync-1",
+                "manifest_uri": "s3://bucket/manifest.json",
+                "data_lake_region": "eu-west-2",
+                "context": {"party": {"party_id": "party-1"}},
+            },
+        )
+
+        assert response.status_code == 422
 
     def test_generate_from_manifest_returns_candidate_failure(self, authed_client):
         """Test candidate hydration failures are returned explicitly."""
