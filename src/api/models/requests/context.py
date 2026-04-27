@@ -14,7 +14,16 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from solvix_contracts.ai.context.v2 import (
     CaseContextV2,
     CommunicationInfoV2,
-    ObligationInfoV2,
+)
+from solvix_contracts.ai.context.v3 import (
+    CollectionMailV3,
+    DisputeEventV3,
+    EvidenceV3,
+    ObligationInfoV3,
+    PaymentPlanInfoV3,
+    StateTransitionV3,
+    ThreadMessageV3,
+    WorkflowEventV3,
 )
 
 
@@ -74,8 +83,14 @@ def _normalize_lane_context(
     return normalized
 
 
-class ObligationInfo(ObligationInfoV2):
-    """Single invoice/obligation using the shared CaseContext v2 contract."""
+class ObligationInfo(ObligationInfoV3):
+    """Single invoice/obligation.
+
+    Extends the V3 contract: V3 is a strict superset of V2 (adds
+    ``transaction_date``, ``collection_status`` + per-status sub-fields,
+    ``is_sendable``, ``block_reasons``). V2 callers that don't populate
+    those send a valid subset; V3 callers fill them in.
+    """
 
 
 class CommunicationInfo(CommunicationInfoV2):
@@ -175,11 +190,18 @@ class IndustryInfo(BaseModel):
 
 
 class CaseContext(CaseContextV2):
-    """Full case context for AI operations."""
+    """Full case context for AI operations.
+
+    Accepts both V2 (``schema_version=2``) and V3 (``schema_version=3``)
+    payloads. ``extra="ignore"`` at the top level means V3-only fields
+    that aren't typed here are silently accepted; the typed V3 fields
+    below give downstream code (guardrails, prompt builders) typed access
+    when the caller is on V3.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[2, 3] = 2
     party: "PartyInfo"  # Forward ref resolved at module level
     behavior: Optional["BehaviorInfo"] = None  # Forward ref resolved at module level
     obligations: List[ObligationInfo] = Field(default_factory=list)
@@ -187,6 +209,19 @@ class CaseContext(CaseContextV2):
     communication_tracking: Optional[CommunicationTrackingInfo] = None
     recent_touches: List[TouchHistory] = []
     promises: List[PromiseHistory] = []
+
+    # ------------------------------------------------------------------
+    # V3-only top-level fields (Optional so V2 callers omit them safely).
+    # ------------------------------------------------------------------
+    thread_messages: List[ThreadMessageV3] = Field(default_factory=list)
+    dispute_history: List[DisputeEventV3] = Field(default_factory=list)
+    payment_plans: List[PaymentPlanInfoV3] = Field(default_factory=list)
+    evidence: List[EvidenceV3] = Field(default_factory=list)
+    case_state_history: List[StateTransitionV3] = Field(default_factory=list)
+    recent_workflow_events: List[WorkflowEventV3] = Field(default_factory=list)
+    collection_mails: List[CollectionMailV3] = Field(default_factory=list)
+    case_state_changed_at: Optional[datetime] = None
+    overrides_applied: dict[str, Any] = Field(default_factory=dict)
 
     # Case state
     case_state: Optional[str] = None

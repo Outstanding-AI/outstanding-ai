@@ -3,6 +3,11 @@ Party and behavior models for AI operations.
 
 Contains PartyInfo, BehaviorInfo, and EmailContent models used
 to describe debtors and their email communications.
+
+April 2026: switched the wrapper bases to the V3 contracts. V3 is a
+strict superset of V2 for these two models (adds the remaining override
+columns to PartyInfo, no semantic changes to BehaviorInfo) — V2 callers
+keep validating cleanly because the V3-only fields are all Optional.
 """
 
 import warnings
@@ -10,7 +15,7 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
-from solvix_contracts.ai.context.v2 import BehaviorInfoV2, PartyInfoV2
+from solvix_contracts.ai.context.v3 import BehaviorInfoV3, PartyInfoV3
 
 
 class EmailContent(BaseModel):
@@ -23,7 +28,7 @@ class EmailContent(BaseModel):
     received_at: Optional[datetime] = None
 
 
-class PartyInfo(PartyInfoV2):
+class PartyInfo(PartyInfoV3):
     """Party (debtor) information."""
 
     @model_validator(mode="after")
@@ -34,7 +39,7 @@ class PartyInfo(PartyInfoV2):
         return self
 
 
-class BehaviorInfo(BehaviorInfoV2):
+class BehaviorInfo(BehaviorInfoV3):
     """Historical payment behavior."""
 
     @model_validator(mode="after")
