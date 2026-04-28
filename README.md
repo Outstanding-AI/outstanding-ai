@@ -89,7 +89,7 @@ make dev
 
 ### Shared Contracts Dependency
 
-`solvix-contracts` is installed from the backend repo tag `contracts-v0.2.0`. For normal local development, authenticate git once and install through uv:
+`solvix-contracts` is installed from the backend repo tag `contracts-v0.8.0`. For normal local development, authenticate git once and install through uv:
 
 ```bash
 gh auth setup-git
