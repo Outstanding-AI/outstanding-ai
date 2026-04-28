@@ -18,11 +18,12 @@ class LLMExtractedData(BaseModel):
     # PROMISE_TO_PAY
     promise_date: Optional[str] = None  # String from LLM, parsed to date in engine
     promise_amount: Optional[float] = None
-    # PROMISE_TO_PAY — strength of the commitment. Drives lane suppression
-    # behaviour downstream: ``firm`` gets full grace_days, ``soft`` gets
-    # half, ``aspirational`` only defers the next touch instead of
-    # suppressing the lane. Default ``firm`` preserves backwards-compat
-    # for existing callers (matches today's "any promise = full grace").
+    # PROMISE_TO_PAY — strength of the commitment. Captured for future
+    # use only (Codex P2, 2026-04-28). At the moment lane reply routing
+    # treats every PROMISE_TO_PAY identically (full ``promise_suppressed``
+    # for ``promise_date + promise_grace_days``); strength-aware
+    # suppression (e.g. ``aspirational`` → next-touch defer instead of
+    # full lane suppression) is Sprint B+ work.
     promise_strength: Optional[Literal["firm", "soft", "aspirational"]] = None
     # DISPUTE
     dispute_type: Optional[str] = None

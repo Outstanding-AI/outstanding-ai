@@ -380,4 +380,32 @@ def build_extra_sections(request, behavior) -> str:
             "Address what the debtor said directly."
         )
 
+    # Sprint A item #3 follow-up (Codex P1, 2026-04-28): for auto-replies
+    # to payment claims (``payment_not_found`` / ``partial_payment_ack``),
+    # surface the EXACT figures the debtor cited and the EXACT figures we
+    # matched against. The model must use these — never invent values.
+    follow_up = getattr(request, "follow_up_context", None)
+    if follow_up is not None:
+        facts: list[str] = []
+        if follow_up.claimed_amount is not None:
+            facts.append(f"- claimed_amount: {follow_up.claimed_amount}")
+        if follow_up.claimed_date:
+            facts.append(f"- claimed_date: {follow_up.claimed_date}")
+        if follow_up.claimed_reference:
+            facts.append(f"- claimed_reference: {follow_up.claimed_reference}")
+        if follow_up.matched_amount is not None:
+            facts.append(f"- matched_amount (found on our records): {follow_up.matched_amount}")
+        if follow_up.residual_amount is not None:
+            facts.append(f"- residual_amount (claim minus match): {follow_up.residual_amount}")
+        if facts:
+            sections.append(
+                "\n\n**VERIFICATION FACTS (use VERBATIM — do NOT invent or round):**\n"
+                + "\n".join(facts)
+                + "\n\n"
+                "Cite these values when acknowledging what the debtor told us "
+                "and what our records show. If a value is missing above, do "
+                "not fabricate it — phrase the email so the missing field is "
+                "not required."
+            )
+
     return "".join(sections)

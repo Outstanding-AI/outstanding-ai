@@ -43,6 +43,30 @@ class ClassifyRequest(BaseModel):
     context: CaseContext
 
 
+class FollowUpContext(BaseModel):
+    """Verification claim/match context for queued follow-up drafts.
+
+    Sprint A item #3 follow-up (Codex P1, 2026-04-28): supplies the AI
+    prompt with the debtor's ORIGINAL claim (amount/date/reference) and
+    what we did/didn't find on Sage when the verifier ran. Without this
+    block, ``payment_not_found`` and ``partial_payment_ack`` templates
+    can only reference generic placeholders or invent numbers.
+
+    All fields optional — the verifier may not have every field for every
+    claim (e.g. claim with no reference, partial without a precise
+    matched amount).
+    """
+
+    trigger_classification: Optional[str] = Field(None, max_length=50)
+    verification_id: Optional[str] = Field(None, max_length=64)
+    claimed_amount: Optional[float] = None
+    claimed_date: Optional[str] = Field(None, max_length=20)
+    claimed_reference: Optional[str] = Field(None, max_length=100)
+    matched_amount: Optional[float] = None
+    residual_amount: Optional[float] = None
+    obligation_ids: Optional[List[str]] = Field(default_factory=list)
+
+
 class GenerateDraftRequest(BaseModel):
     """Request to generate a collection email draft."""
 
@@ -69,6 +93,7 @@ class GenerateDraftRequest(BaseModel):
     tone_preference: Optional[str] = Field(None, pattern=TONE_PREFERENCE_REGEX)
     # SECURITY: Limited to 1000 chars with prompt injection detection
     custom_instructions: Optional[str] = Field(default=None, max_length=1000)
+    follow_up_context: Optional[FollowUpContext] = None
 
     @field_validator("custom_instructions")
     @classmethod

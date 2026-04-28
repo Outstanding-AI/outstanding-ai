@@ -1,13 +1,15 @@
 """Schema-bump regression tests for ExtractedData (Sprint A item #2).
 
-Pins the two new fields that downstream ETL handlers depend on:
+Pins the two new fields:
 
-- ``promise_strength``: drives lane suppression intensity
-  (``firm`` = full grace, ``soft`` = half, ``aspirational`` = no
-  suppression). Without this field, every PROMISE_TO_PAY was treated as
-  firm — "I'll try Friday" got the same grace as "I will pay Friday".
-- ``account_wide``: gates the scope-resolver fallback. ``True`` means the
-  debtor used explicit account-wide language ("all invoices",
+- ``promise_strength``: captured for future use only as of 2026-04-28
+  (Codex P2). The lane reply router currently treats every
+  PROMISE_TO_PAY identically; strength-aware suppression intensity
+  (``firm`` vs ``soft`` vs ``aspirational``) is Sprint B+ work. These
+  tests pin the schema so the downstream consumer has a stable shape
+  to switch on once it ships.
+- ``account_wide``: ACTIVE — gates the scope-resolver fallback. ``True``
+  means the debtor used explicit account-wide language ("all invoices",
   "everything outstanding"); ``False`` (default) means scope must come
   from ``invoice_refs`` or the message's tracked-thread lane. Without
   this field, an empty ``invoice_refs`` defaulted to ALL open
