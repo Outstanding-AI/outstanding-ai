@@ -48,13 +48,24 @@ def empty_context():
     return _Ctx()
 
 
-def _mock_llm_response(*, violation: bool, policy: str | None, reasoning: str = "test"):
+def _mock_llm_response(
+    *, violation: bool, policy: str | None, reasoning: str = "test", usage: dict | None = None
+):
     """Build a fake LLMResponse-like object whose ``.content`` parses to
     the requested verdict."""
     response = MagicMock()
     response.content = PolicyGroundingResult(
         violation=violation, policy=policy, reasoning=reasoning
     ).model_dump_json()
+    response.usage = (
+        usage
+        if usage is not None
+        else {
+            "prompt_tokens": 250,
+            "completion_tokens": 40,
+            "total_tokens": 290,
+        }
+    )
     return response
 
 
@@ -326,6 +337,111 @@ class TestStructuralInvariants:
         from src.guardrails.base import GuardrailSeverity
 
         assert guardrail.severity == GuardrailSeverity.HIGH
+
+
+class TestTokenAttribution:
+    """Per-call LLM cost lands in the parent ``generate_draft`` row of
+    ``LLMRequestLog`` only when each guardrail surfaces ``token_usage``
+    on its result. The aggregator in ``base.py::total_token_usage``
+    reads ``r.token_usage``, NOT ``r.details``. These tests pin the
+    contract so a future refactor can't silently break per-draft cost
+    attribution again."""
+
+    def test_pass_result_carries_usage(self, guardrail, empty_context):
+        with patch(
+            "src.guardrails.policy_grounding.llm_client.complete",
+            new=AsyncMock(
+                return_value=_mock_llm_response(
+                    violation=False,
+                    policy=None,
+                    usage={"prompt_tokens": 250, "completion_tokens": 40, "total_tokens": 290},
+                )
+            ),
+        ):
+            results = guardrail.validate(
+                "Please settle this account.", empty_context, authorized_policies={}
+            )
+        assert results[0].passed
+        assert results[0].token_usage == {
+            "prompt_tokens": 250,
+            "completion_tokens": 40,
+            "total_tokens": 290,
+        }
+
+    def test_fail_result_carries_usage(self, guardrail, empty_context):
+        with patch(
+            "src.guardrails.policy_grounding.llm_client.complete",
+            new=AsyncMock(
+                return_value=_mock_llm_response(
+                    violation=True,
+                    policy="settlement_allowed",
+                    usage={"prompt_tokens": 250, "completion_tokens": 40, "total_tokens": 290},
+                )
+            ),
+        ):
+            results = guardrail.validate(
+                "We can settle for 80%.", empty_context, authorized_policies={}
+            )
+        assert not results[0].passed
+        assert results[0].token_usage["total_tokens"] == 290
+
+    def test_aggregation_includes_guardrail_usage(self, guardrail, empty_context):
+        """Concrete proof that ``GuardrailPipelineResult.total_token_usage``
+        rolls up our reported usage. This is the path that flows into
+        the parent ``generate_draft`` LLMRequestLog row."""
+        from src.guardrails.base import GuardrailPipelineResult
+
+        with patch(
+            "src.guardrails.policy_grounding.llm_client.complete",
+            new=AsyncMock(
+                return_value=_mock_llm_response(
+                    violation=False,
+                    policy=None,
+                    usage={"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+                )
+            ),
+        ):
+            results = guardrail.validate(
+                "Please settle this account.", empty_context, authorized_policies={}
+            )
+
+        pipeline_result = GuardrailPipelineResult(
+            all_passed=True,
+            should_block=False,
+            results=results,
+        )
+        assert pipeline_result.total_token_usage == {
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120,
+        }
+
+    def test_short_circuit_no_usage(self, guardrail, empty_context):
+        """When all policies are authorised the LLM is not called →
+        no usage to attribute. Pin this so the short-circuit doesn't
+        accidentally start fabricating zero-token rows."""
+        with patch("src.guardrails.policy_grounding.llm_client.complete") as mock_complete:
+            results = guardrail.validate(
+                "Anything goes.",
+                empty_context,
+                authorized_policies={p: True for p in POLICY_CATEGORIES},
+            )
+        mock_complete.assert_not_called()
+        assert results[0].passed
+        assert results[0].token_usage == {}
+
+    def test_fallback_path_no_usage(self, guardrail, empty_context):
+        """When the LLM raises and we fall back to the strict regex,
+        there's no LLM usage to attribute — fallback results carry an
+        empty ``token_usage``."""
+        with patch(
+            "src.guardrails.policy_grounding.llm_client.complete",
+            new=AsyncMock(side_effect=RuntimeError("down")),
+        ):
+            results = guardrail.validate(
+                "We can settle for £500.", empty_context, authorized_policies={}
+            )
+        assert results[0].token_usage == {}
 
     def test_name_is_policy_grounding(self, guardrail):
         assert guardrail.name == "policy_grounding"

@@ -10,6 +10,11 @@ class ExtractedData(BaseModel):
     # PROMISE_TO_PAY
     promise_date: Optional[date] = None
     promise_amount: Optional[float] = None
+    # PROMISE_TO_PAY — strength of the commitment. ``firm`` (default) takes
+    # full grace_days suppression downstream; ``soft`` takes half;
+    # ``aspirational`` only defers next_touch_due_at without suppressing
+    # the lane. See LLMExtractedData docstring for the full contract.
+    promise_strength: Optional[Literal["firm", "soft", "aspirational"]] = None
     # DISPUTE
     dispute_type: Optional[str] = None
     dispute_reason: Optional[str] = None
@@ -34,6 +39,10 @@ class ExtractedData(BaseModel):
     redirect_email: Optional[str] = None
     # EMAIL_BOUNCE
     bounced_email: Optional[str] = None
+    # SCOPE — True iff debtor used explicit account-wide language
+    # ("all invoices", "full balance", "everything outstanding"). Drives
+    # the ETL scope resolver's fallback gate when invoice_refs is empty.
+    account_wide: Optional[bool] = None
 
 
 class IntentDetail(BaseModel):

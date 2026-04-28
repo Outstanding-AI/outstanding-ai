@@ -272,6 +272,21 @@ Verification Resolution Follow-Up Guidance (triggered after a staff member resol
   were not. State clearly which obligations have been written off and which remain outstanding.
   Provide the updated total balance. Avoid vague language about what was or was not accepted —
   the debtor needs clarity on exactly where things stand.
+- payment_not_found: Professional, neutral, NON-accusatory tone. Auto-triggered when the
+  debtor claimed payment of a specific amount/reference/date but no matching receipt was
+  located in our accounting records. Explicitly cite the claimed details (amount, date,
+  reference if provided) so the debtor can spot a typo or send proof. Ask for: payment
+  method (BACS / cheque / card), the bank reference as it appears on the debtor's
+  statement, and the exact transaction date. Reassure them this is a verification check,
+  not a dispute of their claim. Do NOT chase for new payment in this message — the
+  outstanding amount is already noted; we just need to reconcile the claimed payment.
+- partial_payment_ack: Warm, appreciative for the partial; clear, non-pressuring on the
+  residual. Auto-triggered when the debtor claimed a payment amount but our records show
+  a smaller matching receipt (claimed amount minus matched amount = residual). Thank them
+  for the partial payment received. State the residual outstanding balance clearly. Ask
+  whether the residual will follow shortly OR whether they intended the partial as full
+  settlement (in which case ask them to confirm so the account can be reconciled). Avoid
+  any "you still owe X" framing — the debtor showed good faith with the partial.
 
 Timing Awareness:
 - If the debtor responded very recently (same day), keep the follow-up brief and grateful

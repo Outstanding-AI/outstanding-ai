@@ -5,7 +5,7 @@ These models ensure type safety when parsing LLM outputs and provide
 clear error messages when the LLM returns malformed data.
 """
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -18,6 +18,12 @@ class LLMExtractedData(BaseModel):
     # PROMISE_TO_PAY
     promise_date: Optional[str] = None  # String from LLM, parsed to date in engine
     promise_amount: Optional[float] = None
+    # PROMISE_TO_PAY — strength of the commitment. Drives lane suppression
+    # behaviour downstream: ``firm`` gets full grace_days, ``soft`` gets
+    # half, ``aspirational`` only defers the next touch instead of
+    # suppressing the lane. Default ``firm`` preserves backwards-compat
+    # for existing callers (matches today's "any promise = full grace").
+    promise_strength: Optional[Literal["firm", "soft", "aspirational"]] = None
     # DISPUTE
     dispute_type: Optional[str] = None
     dispute_reason: Optional[str] = None
@@ -44,6 +50,14 @@ class LLMExtractedData(BaseModel):
     # thread-based lookup can't resolve it. Classifier prompt already asks the
     # model to emit this; without the field here it was silently dropped.
     bounced_email: Optional[str] = None
+    # SCOPE — set True only when the debtor uses explicit account-wide
+    # language ("all invoices", "full balance", "everything outstanding",
+    # "the whole account"). False (default) means scope must be resolved
+    # from invoice_refs OR the message's tracked-thread lane. Without this
+    # signal, downstream handlers that have no invoice_refs must NOT
+    # default to all open obligations — they should restrict to the
+    # message's lane (see ETL classification_service._resolve_promise_scope).
+    account_wide: Optional[bool] = None
 
 
 class IntentDetailLLM(BaseModel):

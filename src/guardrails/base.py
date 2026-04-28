@@ -176,14 +176,26 @@ class BaseGuardrail(ABC):
             List of GuardrailResult objects (one per validation check)
         """
 
-    def _pass(self, message: str = "", details: dict = None) -> GuardrailResult:
-        """Create a passing GuardrailResult."""
+    def _pass(
+        self,
+        message: str = "",
+        details: dict = None,
+        token_usage: dict | None = None,
+    ) -> GuardrailResult:
+        """Create a passing GuardrailResult.
+
+        ``token_usage`` is forwarded into ``GuardrailPipelineResult.total_token_usage``
+        for the parent ``generate_draft`` call's per-draft cost rollup. Pass it
+        from any guardrail that makes its own LLM call (policy_grounding,
+        semantic_coherence, etc.) so per-draft attribution stays accurate.
+        """
         return GuardrailResult(
             passed=True,
             guardrail_name=self.name,
             severity=self.severity,
             message=message or f"{self.name} validation passed",
             details=details or {},
+            token_usage=token_usage or {},
         )
 
     def _fail(
@@ -192,8 +204,12 @@ class BaseGuardrail(ABC):
         expected: Any = None,
         found: Any = None,
         details: dict = None,
+        token_usage: dict | None = None,
     ) -> GuardrailResult:
-        """Create a failing GuardrailResult and log a warning."""
+        """Create a failing GuardrailResult and log a warning.
+
+        See ``_pass`` for the ``token_usage`` contract.
+        """
         self.logger.warning(f"Guardrail {self.name} failed: {message}")
         return GuardrailResult(
             passed=False,
@@ -203,6 +219,7 @@ class BaseGuardrail(ABC):
             details=details or {},
             expected=expected,
             found=found,
+            token_usage=token_usage or {},
         )
 
     def _flag_for_review(

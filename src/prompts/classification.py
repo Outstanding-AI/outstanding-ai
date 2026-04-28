@@ -75,14 +75,21 @@ Many debtor emails contain MULTIPLE intents across different invoices. For examp
    order they appear in `intent_details`.
 5. Use `invoice_refs` to list ONLY the invoices specifically mentioned by
    the debtor for that intent — do NOT list all invoices.
+6. Set `account_wide: true` ONLY when the debtor uses explicit account-wide
+   language: phrases like "all invoices", "the full balance", "everything
+   outstanding", "the whole account", "all of it", "the entire amount".
+   Default `account_wide: false` for everything else — including vague
+   statements like "I'll pay soon" or "we'll sort this out". A vague
+   commitment with no invoice mentioned is NOT account-wide; downstream
+   resolves the scope from the message's reply thread.
 
 ## Data Extraction Rules
 
 Extract data for ALL detected intents (primary + secondary):
 
-- **PROMISE_TO_PAY**: promise_date (YYYY-MM-DD), promise_amount
-- **DISPUTE**: dispute_type (goods_not_received, quality_issue, pricing_error, wrong_customer, other), dispute_reason, invoice_refs, disputed_amount
-- **ALREADY_PAID**: claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment ref), claimed_details, invoice_refs (which invoices they claim are paid)
+- **PROMISE_TO_PAY**: promise_date (YYYY-MM-DD), promise_amount, promise_strength (one of: `firm` for definite commitments like "I will pay £500 on Friday"; `soft` for hedged commitments like "I should be able to pay by Friday"; `aspirational` for non-binding intent like "I'll try to pay soon"), invoice_refs, account_wide
+- **DISPUTE**: dispute_type (goods_not_received, quality_issue, pricing_error, wrong_customer, other), dispute_reason, invoice_refs, disputed_amount, account_wide
+- **ALREADY_PAID**: claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment ref), claimed_details, invoice_refs (which invoices they claim are paid), account_wide
 - **PAYMENT_CONFIRMATION**: claimed_amount, claimed_reference, claimed_date
 - **REMITTANCE_ADVICE**: claimed_amount, claimed_reference, invoice_refs
 - **INSOLVENCY**: insolvency_type (administration, liquidation, bankruptcy, cva, iva, receivership), insolvency_details, administrator_name, administrator_email, reference_number

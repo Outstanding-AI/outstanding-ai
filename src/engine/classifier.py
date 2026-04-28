@@ -263,6 +263,7 @@ def _build_extracted_data(raw) -> ExtractedData | None:
     return ExtractedData(
         promise_date=_parse_date(raw.promise_date, "promise_date"),
         promise_amount=raw.promise_amount,
+        promise_strength=raw.promise_strength,
         dispute_type=raw.dispute_type,
         dispute_reason=raw.dispute_reason,
         invoice_refs=raw.invoice_refs,
@@ -281,6 +282,7 @@ def _build_extracted_data(raw) -> ExtractedData | None:
         redirect_contact=raw.redirect_contact,
         redirect_email=raw.redirect_email,
         bounced_email=raw.bounced_email,
+        account_wide=raw.account_wide,
     )
 
 

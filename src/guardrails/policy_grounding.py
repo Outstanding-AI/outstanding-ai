@@ -192,7 +192,7 @@ class PolicyGroundingGuardrail(BaseGuardrail):
             return [self._pass("All policy categories authorised")]
 
         try:
-            verdict = self._llm_judge(output, authorised_set, unauthorised_set)
+            verdict, usage = self._llm_judge(output, authorised_set, unauthorised_set)
         except Exception as exc:
             logger.warning(
                 "policy_grounding LLM unavailable (%s); falling back to strict regex",
@@ -200,17 +200,25 @@ class PolicyGroundingGuardrail(BaseGuardrail):
             )
             return self._strict_regex_fallback(output, unauthorised_set, exc)
 
+        # ``token_usage=usage`` lets the generator's
+        # ``guardrail_result.total_token_usage`` aggregation roll these
+        # tokens into the parent ``generate_draft`` call's
+        # ``LLMRequestLog`` row. Without this, the internal LLM call
+        # lands in CloudWatch only and per-draft cost reporting
+        # under-counts the true spend.
         if verdict.violation and verdict.policy in unauthorised_set:
             return [
                 self._fail(
                     f"Draft commits to {verdict.policy} content without authorisation",
                     details={"reasoning": verdict.reasoning, "judge": "llm"},
+                    token_usage=usage,
                 )
             ]
         return [
             self._pass(
                 "Policy grounding validated",
                 details={"reasoning": verdict.reasoning, "judge": "llm"},
+                token_usage=usage,
             )
         ]
 
@@ -219,7 +227,7 @@ class PolicyGroundingGuardrail(BaseGuardrail):
         output: str,
         authorised_set: set[str],
         unauthorised_set: set[str],
-    ) -> PolicyGroundingResult:
+    ) -> tuple[PolicyGroundingResult, dict]:
         """Run the LLM judge synchronously.
 
         The guardrail pipeline is sync; we wrap an async LLM call in a
@@ -251,7 +259,9 @@ class PolicyGroundingGuardrail(BaseGuardrail):
             asyncio.set_event_loop(None)
             loop.close()
 
-        return PolicyGroundingResult.model_validate(json.loads(response.content))
+        verdict = PolicyGroundingResult.model_validate(json.loads(response.content))
+        usage = dict(getattr(response, "usage", {}) or {})
+        return verdict, usage
 
     def _strict_regex_fallback(
         self,

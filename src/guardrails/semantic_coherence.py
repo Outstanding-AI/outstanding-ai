@@ -90,12 +90,19 @@ class SemanticCoherenceGuardrail(BaseGuardrail):
                 self._pass("Semantic coherence unavailable; skipped", details={"error": str(exc)})
             ]
 
+        # ``token_usage`` surfaces this guardrail's token spend into the
+        # parent ``generate_draft`` call's ``LLMRequestLog`` row via the
+        # ``guardrail_result.total_token_usage`` aggregation in
+        # ``generator.py``. Without this, the call lands in CloudWatch
+        # only and per-draft cost reporting under-counts the true spend.
+        usage = dict(getattr(response, "usage", {}) or {})
         details = {"reasoning": result.get("reasoning", "")}
         if not result.get("coherent", True) or not result.get("tone_aligned", True):
             return [
                 self._fail(
                     "Draft is not semantically coherent with the lane reply context",
                     details=details,
+                    token_usage=usage,
                 )
             ]
-        return [self._pass("Semantic coherence validated", details=details)]
+        return [self._pass("Semantic coherence validated", details=details, token_usage=usage)]
