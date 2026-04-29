@@ -17,6 +17,26 @@ class LLMResponse(BaseModel):
     is_fallback: bool = False
 
 
+class LLMProviderError(RuntimeError):
+    """Base class for provider failures that callers may classify."""
+
+
+class LLMRateLimitedError(LLMProviderError):
+    """Provider rejected the request due to rate/resource limits."""
+
+
+class LLMProviderUnavailableError(LLMProviderError):
+    """Provider is temporarily unavailable."""
+
+
+class LLMStructuredOutputError(LLMProviderError):
+    """Provider returned no usable structured/text output."""
+
+
+class LLMFallbackExhaustedError(LLMProviderError):
+    """Primary and fallback providers both failed."""
+
+
 class BaseLLMProvider(ABC):
     """Abstract base class for all LLM providers."""
 
@@ -26,7 +46,6 @@ class BaseLLMProvider(ABC):
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
         *,
@@ -39,7 +58,6 @@ class BaseLLMProvider(ABC):
             system_prompt: System message for the model
             user_prompt: User message/query
             temperature: Sampling temperature (0-1)
-            max_tokens: Maximum tokens in response
             json_mode: If True, request JSON output format
             response_schema: Optional Pydantic model to enforce structured output.
                 When provided, the model is constrained to output valid JSON

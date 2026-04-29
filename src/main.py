@@ -95,12 +95,7 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     model = settings.model_for_provider()
     logger.info(f"Provider: {settings.llm_provider}, Model: {model}")
-    logger.info(
-        "Fallback provider config: provider=openai model=%s vertex_max_tokens=%s openai_max_tokens=%s",
-        settings.openai_model,
-        settings.vertex_max_tokens,
-        settings.openai_max_tokens,
-    )
+    logger.info("Fallback provider config: provider=openai model=%s", settings.openai_model)
     logger.info("Provider readiness: %s", settings.provider_status())
     logger.info(f"Port: {settings.api_port}")
     logger.info(f"Debug: {settings.debug}")

@@ -5,7 +5,12 @@ import time
 
 from src.config.settings import settings
 
-from .base import LLMResponse
+from .base import (
+    LLMFallbackExhaustedError,
+    LLMProviderUnavailableError,
+    LLMRateLimitedError,
+    LLMResponse,
+)
 from .openai_provider import OpenAIProvider
 from .vertex_provider import VertexProvider
 
@@ -28,6 +33,7 @@ class LLMProviderWithFallback:
         self._fallback = None
         self.fallback_count = 0
         self._primary_failures_by_caller: dict[str, int] = {}
+        self._cooldowns: dict[tuple[str, str], float] = {}
 
         logger.info(
             "LLM factory created with primary=%s, fallback=%s",
@@ -65,20 +71,15 @@ class LLMProviderWithFallback:
             return VertexProvider(
                 model=settings.vertex_model,
                 temperature=settings.vertex_temperature,
-                max_tokens=settings.vertex_max_tokens,
             )
         if name == "openai":
             return OpenAIProvider(
                 model=settings.openai_model,
                 temperature=settings.openai_temperature,
-                max_tokens=settings.openai_max_tokens,
             )
         if name == "anthropic":
-            from .anthropic_provider import AnthropicProvider
-
-            return AnthropicProvider(
-                model=settings.anthropic_model,
-                temperature=settings.anthropic_temperature,
+            raise ValueError(
+                "Anthropic provider is disabled until it supports no application-level max token cap"
             )
         raise ValueError(f"Unknown provider: {name}")
 
@@ -93,6 +94,7 @@ class LLMProviderWithFallback:
         start_time = time.perf_counter()
 
         try:
+            self._raise_if_cooling_down(self.primary.provider_name, caller)
             response = await self.primary.complete(
                 system_prompt,
                 user_prompt,
@@ -118,6 +120,8 @@ class LLMProviderWithFallback:
             return response
         except Exception as e:
             primary_latency_ms = (time.perf_counter() - start_time) * 1000
+            if isinstance(e, (LLMRateLimitedError, LLMProviderUnavailableError)):
+                self._record_cooldown(self.primary.provider_name, caller)
             self._primary_failures_by_caller[caller] = (
                 self._primary_failures_by_caller.get(caller, 0) + 1
             )
@@ -138,12 +142,20 @@ class LLMProviderWithFallback:
                 logger.error("No fallback provider configured, raising error")
                 raise
 
-            logger.warning("Falling back to %s", self.fallback.provider_name)
+            fallback = self.fallback
+            if fallback is None:
+                raise
+            try:
+                self._raise_if_cooling_down(fallback.provider_name, caller)
+            except LLMProviderUnavailableError as cooldown_error:
+                raise LLMFallbackExhaustedError(str(cooldown_error)) from e
+
+            logger.warning("Falling back to %s", fallback.provider_name)
             self.fallback_count += 1
             fallback_start = time.perf_counter()
 
             try:
-                response = await self.fallback.complete(
+                response = await fallback.complete(
                     system_prompt,
                     user_prompt,
                     caller=caller,
@@ -170,6 +182,11 @@ class LLMProviderWithFallback:
                 )
                 return response.model_copy(update={"is_fallback": True})
             except Exception as fallback_error:
+                if isinstance(
+                    fallback_error,
+                    (LLMRateLimitedError, LLMProviderUnavailableError),
+                ):
+                    self._record_cooldown(fallback.provider_name, caller)
                 total_latency_ms = (time.perf_counter() - start_time) * 1000
                 logger.error(
                     "Fallback provider also failed",
@@ -184,7 +201,7 @@ class LLMProviderWithFallback:
                     },
                     exc_info=True,
                 )
-                raise fallback_error
+                raise LLMFallbackExhaustedError(str(fallback_error)) from fallback_error
 
     async def health_check(self) -> dict:
         """Check health of both providers."""
@@ -201,6 +218,25 @@ class LLMProviderWithFallback:
 
     def get_failure_metrics(self) -> dict[str, dict[str, int]]:
         return {"primary_failures_by_caller": dict(self._primary_failures_by_caller)}
+
+    def _cooldown_key(self, provider: str, caller: str) -> tuple[str, str]:
+        return (provider, caller or "unknown")
+
+    def _record_cooldown(self, provider: str, caller: str) -> None:
+        until = time.monotonic() + max(0, settings.llm_fallback_cooldown_seconds)
+        self._cooldowns[self._cooldown_key(provider, caller)] = until
+
+    def _raise_if_cooling_down(self, provider: str, caller: str) -> None:
+        until = self._cooldowns.get(self._cooldown_key(provider, caller))
+        if not until:
+            return
+        remaining = until - time.monotonic()
+        if remaining <= 0:
+            self._cooldowns.pop(self._cooldown_key(provider, caller), None)
+            return
+        raise LLMProviderUnavailableError(
+            f"{provider} is cooling down for caller={caller} ({remaining:.0f}s remaining)"
+        )
 
     @property
     def provider_name(self) -> str:

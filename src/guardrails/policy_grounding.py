@@ -250,7 +250,6 @@ class PolicyGroundingGuardrail(BaseGuardrail):
                     system_prompt=SYSTEM_PROMPT,
                     user_prompt=prompt,
                     temperature=0,
-                    max_tokens=300,
                     response_schema=PolicyGroundingResult,
                     caller="policy_grounding",
                 )

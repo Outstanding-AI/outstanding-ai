@@ -117,6 +117,7 @@ async def test_vertex_complete_uses_structured_output(monkeypatch):
     config = fake_client.aio.models.generate_content.await_args.kwargs["config"]
     assert config.response_mime_type == "application/json"
     assert config.response_schema is _Schema
+    assert getattr(config, "max_output_tokens", None) is None
     fake_client.aio.aclose.assert_awaited_once()
 
 
@@ -137,6 +138,7 @@ async def test_vertex_complete_json_mode_uses_text(monkeypatch):
     assert response.content == '{"ok": true}'
     config = fake_client.aio.models.generate_content.await_args.kwargs["config"]
     assert config.response_mime_type == "application/json"
+    assert getattr(config, "max_output_tokens", None) is None
     fake_client.aio.aclose.assert_awaited_once()
 
 

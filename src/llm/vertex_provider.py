@@ -17,7 +17,13 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from src.config.settings import settings
 
 from .aws_ecs_supplier import EcsTaskRoleSupplier
-from .base import BaseLLMProvider, LLMResponse
+from .base import (
+    BaseLLMProvider,
+    LLMProviderUnavailableError,
+    LLMRateLimitedError,
+    LLMResponse,
+    LLMStructuredOutputError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +53,9 @@ class VertexProvider(BaseLLMProvider):
         self,
         model: str = None,
         temperature: float = None,
-        max_tokens: int = None,
     ):
         self._model = model or settings.vertex_model
         self._temperature = temperature if temperature is not None else settings.vertex_temperature
-        self._max_tokens = max_tokens if max_tokens is not None else settings.vertex_max_tokens
         self._project = settings.vertex_project_id
         self._location = settings.vertex_location
         self._credentials = self._build_credentials()
@@ -75,7 +79,6 @@ class VertexProvider(BaseLLMProvider):
         system_prompt: str,
         user_prompt: str,
         temperature: float = None,
-        max_tokens: int = None,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
         *,
@@ -84,7 +87,6 @@ class VertexProvider(BaseLLMProvider):
         config = types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=temperature if temperature is not None else self._temperature,
-            max_output_tokens=max_tokens if max_tokens is not None else self._max_tokens,
         )
 
         if json_mode or response_schema:
@@ -140,6 +142,48 @@ class VertexProvider(BaseLLMProvider):
                 usage=usage,
                 raw_response={"response_id": response.response_id},
             )
+        except ResourceExhausted as exc:
+            logger.error(
+                "Vertex provider rate limited",
+                extra={
+                    "caller": caller,
+                    "provider": "vertex",
+                    "model": self._model,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "structured": bool(response_schema),
+                },
+                exc_info=True,
+            )
+            raise LLMRateLimitedError(str(exc)) from exc
+        except (InternalServerError, ServiceUnavailable) as exc:
+            logger.error(
+                "Vertex provider unavailable",
+                extra={
+                    "caller": caller,
+                    "provider": "vertex",
+                    "model": self._model,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "structured": bool(response_schema),
+                },
+                exc_info=True,
+            )
+            raise LLMProviderUnavailableError(str(exc)) from exc
+        except ValueError as exc:
+            logger.error(
+                "Vertex provider returned unusable output",
+                extra={
+                    "caller": caller,
+                    "provider": "vertex",
+                    "model": self._model,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "structured": bool(response_schema),
+                },
+                exc_info=True,
+            )
+            raise LLMStructuredOutputError(str(exc)) from exc
         except Exception as exc:
             logger.error(
                 "Vertex provider error",
@@ -149,7 +193,6 @@ class VertexProvider(BaseLLMProvider):
                     "model": self._model,
                     "error": str(exc),
                     "error_type": type(exc).__name__,
-                    "max_tokens": config.max_output_tokens,
                     "structured": bool(response_schema),
                 },
                 exc_info=True,
@@ -177,7 +220,6 @@ class VertexProvider(BaseLLMProvider):
             response = await self.complete(
                 system_prompt="You are a test assistant.",
                 user_prompt="Reply with OK",
-                max_tokens=10,
                 caller="health_check",
             )
             return {

@@ -85,8 +85,6 @@ VERTEX_WIF_CONFIG_PATH=/app/infra/vertex-wif-config.json
 # Fallback
 OPENAI_API_KEY=<key>
 OPENAI_MODEL=gpt-5-mini
-OPENAI_MAX_TOKENS=32768              # gpt-5-mini is a reasoning model; 2048 triggers LengthFinishReasonError
-VERTEX_MAX_TOKENS=65535              # gemini-2.5-flash output ceiling
 
 # Optional
 ANTHROPIC_API_KEY=<key>
@@ -197,12 +195,12 @@ Non-obvious gotchas — violating these breaks production first-sync draft gener
 2. **Always `await client.aio.aclose()` in `finally`.** Per-call Clients leak an httpx connection pool each invocation without this. Close exceptions are swallowed to a WARN log so they don't mask the real call result.
 3. **Every LLM call carries `caller="..."` kwarg.** `BaseLLMProvider.complete` takes `caller` as a keyword-only parameter; `LLMProviderWithFallback.complete` propagates it to both primary + fallback; all call sites (draft_generation, classification, persona_generation, persona_refinement, entity_verification, health_check) tag their requests. Metrics, `_primary_failures_by_caller` counter, and CloudWatch error logs all carry `caller` for attribution.
 4. **`is_fallback: bool` on `LLMResponse`.** Factory sets `response.model_copy(update={"is_fallback": True})` on the fallback path; surfaces in logs as `used_fallback=true`.
-5. **Provider error logs use `exc_info=True`** plus `extra={"caller", "error_type", "max_tokens", "structured"}`. CloudWatch now shows the actual exception class + stack instead of "Vertex provider error" on its own.
+5. **Provider error logs use `exc_info=True`** plus `extra={"caller", "error_type", "structured"}`. CloudWatch now shows the actual exception class + stack instead of "Vertex provider error" on its own.
 6. **Logging formatter injects sentinels.** `src/main.py` registers `_DefaultExtrasFilter` that sets `caller/error_type/error` to `"-"` when the LogRecord lacks them — the formatter stays stable across both tagged and untagged records.
 7. **Guardrail thread pool is 6 workers for 7 guardrails.** `src/guardrails/executor.py` `_guardrail_executor = ThreadPoolExecutor(max_workers=6)`. The CRITICAL guardrail runs first serially (fail-fast), then the remaining 6 fill the pool in parallel. Old 7-worker comment was wrong and the 7-thread config amplified the cross-loop primitive contention described in #1.
 8. **Entity guardrail event-loop hygiene.** Worker runs `asyncio.new_event_loop()` + `set_event_loop(loop)`; `finally` MUST call `asyncio.set_event_loop(None)` before `loop.close()` so the next guardrail on the same worker thread doesn't pick up a dead loop via `get_event_loop()`.
 9. **Entity prompt must separate debtor from sender identity.** `ENTITY_VALIDATION_PROMPT` lists EXPECTED DEBTOR ENTITIES and ALLOWED SENDER ENTITIES separately. The generator threads `sender_company`, `sender_name`, `sender_mailbox_name` into the guardrail `kwargs`. Without this split the guardrail flags valid drafts that mention the sender company in sign-offs (e.g. "your account with ESWL") as hallucinated unrelated companies.
-10. **Guardrail max_tokens comes from `settings.openai_max_tokens`.** Never hardcode `max_tokens=2048` for LLM guardrail calls. `gpt-5-mini` is a reasoning model that consumes completion budget on internal reasoning tokens — 2048 raises `LengthFinishReasonError` every time. Default is `OPENAI_MAX_TOKENS=32768`.
+10. **No application-level output-token caps.** Do not pass `max_tokens` / `max_output_tokens` in guardrail, draft, classification, or fallback calls. Rely on provider-native limits plus retry/defer behavior; explicit app caps caused `LengthFinishReasonError` and empty Vertex payload failures during first-sync draft generation.
 11. **`solvix-contracts==0.2.0` (April 2026).** Pin is mandatory for parity with backend + ETL. `PartyInfoV2.source` is now a **required** field (default removed); semantically locked to canonical `provider_type`. All AI fixtures (`tests/conftest.py`, `test_context_versions.py`, `test_guardrails/*.py`, `test_evals/test_realtime.py`, `test_provider_metadata.py`) construct `CaseContext` with explicit `source=provider_type`. `CaseContext.schema_version` remains `Literal[2]` — v1 retired. Any hidden `or "sage_200"` / `or "microsoft_365"` fallback in runtime code is a plan violation; runtime must never synthesize provider identity.
 
 ## Skills

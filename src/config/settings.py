@@ -75,14 +75,12 @@ class Settings(BaseSettings):
     vertex_location: str = "europe-west2"
     vertex_model: str = "gemini-2.5-flash"
     vertex_temperature: float = 0.3
-    vertex_max_tokens: int = 65535
     vertex_wif_config_path: str = "/app/infra/vertex-wif-config.json"
 
     # --- OpenAI Configuration (FALLBACK) ---
     openai_api_key: Optional[str] = Field(None, repr=False)
     openai_model: str = "gpt-5-mini"
     openai_temperature: float = 0.3
-    openai_max_tokens: int = 32768
 
     # --- Anthropic Configuration (OPTIONAL third provider) ---
     # Only activated when ANTHROPIC_API_KEY is set.
@@ -107,6 +105,7 @@ class Settings(BaseSettings):
     # --- Timeouts and Retries ---
     llm_timeout_seconds: int = 60  # Per-call timeout (seconds)
     llm_max_retries: int = 3  # Tenacity retry decorator max attempts
+    llm_fallback_cooldown_seconds: int = 300
 
     # --- Logging ---
     log_level: str = "INFO"
@@ -183,6 +182,10 @@ class Settings(BaseSettings):
                     )
                 if not (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")):
                     raise ValueError("AWS_REGION or AWS_DEFAULT_REGION is required in production")
+            if self.llm_provider == "anthropic":
+                raise ValueError(
+                    "Anthropic is disabled until the provider path supports no application-level max token cap"
+                )
         return self
 
 

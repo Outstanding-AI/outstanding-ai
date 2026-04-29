@@ -75,7 +75,6 @@ class SemanticCoherenceGuardrail(BaseGuardrail):
                         system_prompt="You are a precise validation assistant.",
                         user_prompt=prompt,
                         temperature=0,
-                        max_tokens=200,
                         response_schema=SemanticCoherenceResult,
                         caller="semantic_coherence",
                     )

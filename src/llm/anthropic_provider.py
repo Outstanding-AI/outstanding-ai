@@ -58,8 +58,10 @@ class AnthropicProvider(BaseLLMProvider):
         api_key: str = None,
         model: str = None,
         temperature: float = None,
-        max_tokens: int = None,
     ):
+        raise ValueError(
+            "Anthropic provider is disabled until it supports no application-level max token cap"
+        )
         if anthropic is None:
             raise ValueError("anthropic package not installed. Install with: pip install anthropic")
 
@@ -71,7 +73,6 @@ class AnthropicProvider(BaseLLMProvider):
         self.temperature = (
             temperature if temperature is not None else settings.anthropic_temperature
         )
-        self.max_tokens = max_tokens or 4096
 
         self._client = anthropic.AsyncAnthropic(api_key=self.api_key)
         logger.info("Anthropic provider initialized with model=%s", self._model)
@@ -87,15 +88,16 @@ class AnthropicProvider(BaseLLMProvider):
         system_prompt: str,
         user_prompt: str,
         temperature: float = None,
-        max_tokens: int = None,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
         *,
         caller: str = "unknown",
     ) -> LLMResponse:
         """Generate completion using Anthropic Claude."""
+        raise ValueError(
+            "Anthropic provider is disabled until it supports no application-level max token cap"
+        )
         temp = temperature if temperature is not None else self.temperature
-        tokens = max_tokens or self.max_tokens
         start_time = time.perf_counter()
 
         messages = [{"role": "user", "content": user_prompt}]
@@ -105,7 +107,6 @@ class AnthropicProvider(BaseLLMProvider):
             schema = response_schema.model_json_schema()
             response = await self._client.messages.create(
                 model=self._model,
-                max_tokens=tokens,
                 temperature=temp,
                 system=system_prompt,
                 messages=messages,
@@ -127,7 +128,6 @@ class AnthropicProvider(BaseLLMProvider):
         else:
             response = await self._client.messages.create(
                 model=self._model,
-                max_tokens=tokens,
                 temperature=temp,
                 system=system_prompt,
                 messages=messages,
@@ -167,7 +167,6 @@ class AnthropicProvider(BaseLLMProvider):
         try:
             await self._client.messages.create(
                 model=self._model,
-                max_tokens=10,
                 messages=[{"role": "user", "content": "ping"}],
             )
             return {

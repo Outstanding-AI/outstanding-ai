@@ -16,7 +16,13 @@ from tenacity import (
 
 from src.config.settings import settings
 
-from .base import BaseLLMProvider, LLMResponse
+from .base import (
+    BaseLLMProvider,
+    LLMProviderUnavailableError,
+    LLMRateLimitedError,
+    LLMResponse,
+    LLMStructuredOutputError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +65,10 @@ class OpenAIProvider(BaseLLMProvider):
         api_key: str = None,
         model: str = None,
         temperature: float = None,
-        max_tokens: int = None,
     ):
         self.api_key = api_key or settings.openai_api_key
         self._model = model or settings.openai_model
         self._temperature = temperature if temperature is not None else settings.openai_temperature
-        self._max_tokens = max_tokens if max_tokens is not None else settings.openai_max_tokens
 
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY not provided (set via environment or .env file)")
@@ -74,7 +78,6 @@ class OpenAIProvider(BaseLLMProvider):
             model=self._model,
             openai_api_key=self.api_key,
             temperature=self._temperature,
-            max_tokens=self._max_tokens,
         )
 
         logger.info(f"Initialized OpenAI provider with model: {self._model}")
@@ -92,7 +95,6 @@ class OpenAIProvider(BaseLLMProvider):
         system_prompt: str,
         user_prompt: str,
         temperature: float = None,
-        max_tokens: int = None,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
         *,
@@ -120,7 +122,6 @@ class OpenAIProvider(BaseLLMProvider):
                 "model": self._model,
                 "openai_api_key": self.api_key,
                 "temperature": temperature if temperature is not None else self._temperature,
-                "max_tokens": max_tokens if max_tokens is not None else self._max_tokens,
             }
 
             # For JSON mode without schema, configure response_format
@@ -238,33 +239,40 @@ class OpenAIProvider(BaseLLMProvider):
         except Exception as e:
             # Check for LengthFinishReasonError (reasoning models exhaust token budget)
             if LengthFinishReasonError and isinstance(e, LengthFinishReasonError):
-                effective_max = max_tokens if max_tokens is not None else self._max_tokens
                 logger.error(
-                    "OpenAI LengthFinishReasonError: model=%s exhausted max_tokens=%d "
-                    "(reasoning tokens consumed entire budget). Increase openai_max_tokens.",
+                    "OpenAI LengthFinishReasonError: model=%s returned no complete output",
                     self._model,
-                    effective_max,
                 )
-                raise ValueError(
-                    f"OpenAI model '{self._model}' exhausted max_tokens={effective_max} on reasoning. "
-                    f"No output generated. Increase openai_max_tokens in settings (current: {effective_max})."
+                raise LLMStructuredOutputError(
+                    f"OpenAI model '{self._model}' returned no complete output."
                 ) from e
 
             # Fallback detection for LengthFinishReasonError via error message
             # (handles cases where LangChain wraps the error)
             error_str = str(e).lower()
             if "length" in error_str and ("finish_reason" in error_str or "limit" in error_str):
-                effective_max = max_tokens if max_tokens is not None else self._max_tokens
                 logger.error(
-                    "OpenAI output truncated (likely reasoning model): max_tokens=%d, model=%s, error=%s",
-                    effective_max,
+                    "OpenAI output truncated by provider-native limit: model=%s, error=%s",
                     self._model,
                     e,
                 )
-                raise ValueError(
-                    f"OpenAI output truncated: max_tokens={effective_max} insufficient for model '{self._model}'. "
-                    f"Increase openai_max_tokens in settings."
+                raise LLMStructuredOutputError(
+                    f"OpenAI output truncated by provider-native limit for model '{self._model}'."
                 ) from e
+
+            if OPENAI_RETRYABLE_ERRORS and isinstance(e, OPENAI_RETRYABLE_ERRORS):
+                logger.error(
+                    "OpenAI provider rate limited",
+                    extra={
+                        "caller": caller,
+                        "provider": "openai",
+                        "model": self._model,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                raise LLMRateLimitedError(str(e)) from e
 
             logger.error(
                 "OpenAI provider error",
@@ -277,7 +285,7 @@ class OpenAIProvider(BaseLLMProvider):
                 },
                 exc_info=True,
             )
-            raise
+            raise LLMProviderUnavailableError(str(e)) from e
 
     async def health_check(self) -> Dict[str, Any]:
         """Check OpenAI service health."""
@@ -285,7 +293,6 @@ class OpenAIProvider(BaseLLMProvider):
             response = await self.complete(
                 system_prompt="You are a test assistant.",
                 user_prompt="Reply with 'OK'",
-                max_tokens=10,
                 caller="health_check",
             )
             return {
