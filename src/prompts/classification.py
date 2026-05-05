@@ -68,6 +68,9 @@ Many debtor emails contain MULTIPLE intents across different invoices. For examp
      `invoice_refs` (the paid ones), while PROMISE_TO_PAY carries
      `promise_*` + its own `invoice_refs` (the promised ones). Do not
      mix them.
+   - For mixed replies, every material intent must have its own
+     `intent_details[*].extracted_data`; never copy invoice references from
+     one intent to another just because they appear in the same email.
 3. Also populate the top-level flat `extracted_data` with the PRIMARY
    intent's extraction — this is kept for backward compatibility with
    consumers that haven't upgraded to `intent_details` yet.
