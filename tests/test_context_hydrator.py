@@ -145,7 +145,13 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert context.lane_history[0]["detail"] == {"reason": "cadence"}
     assert context.sendable_obligation_ids == ["obl-1"]
 
-    assert reader.execute_one_calls[0][1] == ["tenant-1", "party-1"]
+    assert reader.execute_one_calls[0][1] == [
+        "tenant-1",
+        "tenant-1",
+        "tenant-1",
+        "tenant-1",
+        "party-1",
+    ]
     assert reader.execute_one_calls[1][1] == ["tenant-1", "lane-1"]
     assert reader.execute_calls[0][1] == ["tenant-1", "tenant-1", "lane-1", "open"]
     assert reader.execute_calls[1][1] == ["tenant-1", "party-1"]
@@ -156,6 +162,9 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     )
     assert "ROW_NUMBER()" not in all_sql
     assert "silver_core_parties_current" in all_sql
+    assert "party_collection_state_events_current" in all_sql
+    assert "party_comm_state_events_current" in all_sql
+    assert "party_behavior_profile_versions_current" in all_sql
     assert "silver_core_party_contacts_current" in all_sql
     assert "silver_core_obligations_current" in all_sql
     assert "silver_app_collection_lanes_current" in all_sql

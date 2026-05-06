@@ -37,6 +37,9 @@ OBLIGATIONS_CURRENT = "silver_core_obligations_current"
 COLLECTION_LANES_CURRENT = "silver_app_collection_lanes_current"
 COLLECTION_LANE_INVOICES_CURRENT = "silver_app_collection_lane_invoices_current"
 COLLECTION_LANE_HISTORY_CURRENT = "silver_app_collection_lane_history_current"
+PARTY_COLLECTION_STATE_CURRENT = "party_collection_state_events_current"
+PARTY_COMM_STATE_CURRENT = "party_comm_state_events_current"
+PARTY_BEHAVIOR_PROFILE_CURRENT = "party_behavior_profile_versions_current"
 
 
 def _current_projection(projection: str, alias: str) -> str:
@@ -86,9 +89,10 @@ class CaseContextHydrator:
         party_contacts = self._load_party_contacts(candidate.party_id)
         debtor_contact = party_contacts[0] if party_contacts else None
         decision_time = (
-            lane.get("updated_at")
-            or lane.get("valid_from")
-            or party.get("updated_at")
+            lane.get("valid_from")
+            or lane.get("observed_at")
+            or party.get("silver_valid_from")
+            or party.get("silver_observed_at")
             or datetime.now(timezone.utc)
         )
         sendable_obligation_ids = [
@@ -164,9 +168,7 @@ class CaseContextHydrator:
             application_run_id=str(
                 lane.get("application_run_id") or f"app:{candidate.sync_run_id}"
             ),
-            core_snapshot_watermark=party.get("silver_valid_from")
-            or party.get("updated_at")
-            or decision_time,
+            core_snapshot_watermark=party.get("silver_valid_from") or decision_time,
             application_snapshot_watermark=lane.get("valid_from") or decision_time,
             application_decision_cutoff=decision_time,
             input_silver_version_ids=input_silver_version_ids,
@@ -189,11 +191,77 @@ class CaseContextHydrator:
     def _load_party(self, party_id: str) -> dict[str, Any]:
         row = self.reader.execute_one(
             f"""
-            SELECT p.*
+            SELECT
+                p.id,
+                p.provider_type,
+                COALESCE(p.source_id, p.sage_customer_reference, p.customer_code, p.id) AS external_id,
+                COALESCE(p.customer_code, p.sage_customer_reference, p.source_id, p.id) AS customer_code,
+                COALESCE(p.customer_name, p.name, p.customer_code, p.id) AS name,
+                CAST(NULL AS VARCHAR) AS country_code,
+                COALESCE(p.customer_currency_code, p.currency_code, p.currency, 'GBP') AS currency,
+                COALESCE(
+                    p.base_currency,
+                    p.customer_currency_code,
+                    p.currency_code,
+                    p.currency,
+                    'GBP'
+                ) AS base_currency,
+                p.credit_limit,
+                CAST(FALSE AS BOOLEAN) AS on_hold,
+                p.silver_version_id,
+                p.silver_valid_from,
+                p.silver_observed_at,
+                cs.case_state,
+                cs.pause_reason,
+                cs.do_not_contact_until,
+                cs.active_dispute_id AS dispute_type,
+                comm.touch_count,
+                comm.last_outbound_at AS last_touch_at,
+                CASE
+                    WHEN comm.last_outbound_at IS NOT NULL THEN 'email'
+                    ELSE NULL
+                END AS last_touch_channel,
+                comm.last_inbound_at AS last_response_at,
+                CASE
+                    WHEN comm.last_inbound_at IS NOT NULL THEN 'inbound_email'
+                    ELSE NULL
+                END AS last_response_type,
+                bp.avg_days_to_pay,
+                bp.on_time_rate,
+                bp.partial_payment_rate,
+                CAST(NULL AS DOUBLE) AS lifetime_value,
+                CAST(NULL AS DOUBLE) AS total_collected,
+                CAST(NULL AS VARCHAR) AS behaviour_profile,
+                CAST(NULL AS VARCHAR) AS behaviour_segment,
+                CAST(TRUE AS BOOLEAN) AS is_verified,
+                CAST(NULL AS VARCHAR) AS relationship_tier,
+                CAST(NULL AS VARCHAR) AS tone_override,
+                CAST(NULL AS INTEGER) AS grace_days_override,
+                CAST(NULL AS INTEGER) AS touch_cap_override,
+                CAST(0 AS INTEGER) AS monthly_touch_count,
+                CAST(FALSE AS BOOLEAN) AS hardship_indicated,
+                CAST(FALSE AS BOOLEAN) AS unsubscribe_requested,
+                CAST(NULL AS VARCHAR) AS customer_type,
+                CAST(NULL AS VARCHAR) AS size_bucket
             FROM {_current_projection(PARTIES_CURRENT, "p")}
+            LEFT JOIN {_current_projection(PARTY_COLLECTION_STATE_CURRENT, "cs")}
+              ON cs.party_id = p.id
+             AND cs.tenant_id = p.tenant_id
+            LEFT JOIN {_current_projection(PARTY_COMM_STATE_CURRENT, "comm")}
+              ON comm.party_id = p.id
+             AND comm.tenant_id = p.tenant_id
+            LEFT JOIN {_current_projection(PARTY_BEHAVIOR_PROFILE_CURRENT, "bp")}
+              ON bp.party_id = p.id
+             AND bp.tenant_id = p.tenant_id
             WHERE p.id = %s
             """,
-            [self.tenant_id, party_id],
+            [
+                self.tenant_id,
+                self.tenant_id,
+                self.tenant_id,
+                self.tenant_id,
+                party_id,
+            ],
         )
         if row is None:
             raise ContextHydrationError(f"Party not found in regional Silver: {party_id}")
@@ -217,28 +285,56 @@ class CaseContextHydrator:
             f"""
             SELECT
                 o.id,
-                o.external_id,
+                COALESCE(o.source_id, o.sage_sales_transaction_id, o.id) AS external_id,
                 o.provider_type,
-                o.provider_ref,
-                o.invoice_number,
-                o.original_amount,
-                o.original_amount_base,
-                o.allocated_amount,
-                o.allocated_amount_base,
+                COALESCE(
+                    o.document_no,
+                    o.reference,
+                    o.second_reference,
+                    o.invoice_number,
+                    o.urn,
+                    o.source_id,
+                    o.id
+                ) AS provider_ref,
+                COALESCE(o.invoice_number, o.document_no, o.reference, o.source_id, o.id) AS invoice_number,
+                o.document_gross_value AS original_amount,
+                o.document_gross_value * COALESCE(o.exchange_rate, 1.0) AS original_amount_base,
+                o.document_allocated_value AS allocated_amount,
+                o.document_allocated_value * COALESCE(o.exchange_rate, 1.0) AS allocated_amount_base,
                 o.amount_due,
-                o.amount_due_base,
-                o.currency,
-                o.base_currency,
-                o.document_to_base_rate,
+                o.amount_due * COALESCE(o.exchange_rate, 1.0) AS amount_due_base,
+                o.currency_code AS currency,
+                COALESCE(o.currency_code, 'GBP') AS base_currency,
+                o.exchange_rate AS document_to_base_rate,
                 o.due_date,
-                o.days_past_due,
-                o.state,
+                CASE
+                    WHEN o.due_date IS NULL THEN 0
+                    ELSE GREATEST(date_diff('day', CAST(o.due_date AS DATE), CURRENT_DATE), 0)
+                END AS days_past_due,
+                CASE
+                    WHEN COALESCE(o.is_source_disputed, o.has_source_query_flag, FALSE) THEN 'disputed'
+                    WHEN COALESCE(o.is_open, o.amount_due > 0) THEN 'open'
+                    ELSE 'closed'
+                END AS state,
                 o.silver_version_id,
                 o.document_no,
-                o.document_currency_code,
+                o.currency_code AS document_currency_code,
                 COALESCE(li.is_outstanding, o.amount_due > 0) AS is_outstanding,
-                COALESCE(li.is_overdue, o.days_past_due > 0) AS is_overdue,
-                COALESCE(li.days_overdue, o.days_past_due, 0) AS days_overdue,
+                COALESCE(
+                    li.is_overdue,
+                    CASE
+                        WHEN o.due_date IS NULL THEN FALSE
+                        ELSE date_diff('day', CAST(o.due_date AS DATE), CURRENT_DATE) > 0
+                    END
+                ) AS is_overdue,
+                COALESCE(
+                    li.days_overdue,
+                    CASE
+                        WHEN o.due_date IS NULL THEN 0
+                        ELSE GREATEST(date_diff('day', CAST(o.due_date AS DATE), CURRENT_DATE), 0)
+                    END,
+                    0
+                ) AS days_overdue,
                 COALESCE(li.effective_grace_days, 0) AS effective_grace_days,
                 COALESCE(
                     li.is_source_disputed,
@@ -257,9 +353,9 @@ class CaseContextHydrator:
             JOIN {_current_projection(OBLIGATIONS_CURRENT, "o")}
               ON li.obligation_id = o.id
              AND li.tenant_id = o.tenant_id
-            WHERE COALESCE(li.lane_id, li.collection_lane_id) = %s
-              AND COALESCE(li.status, li.lane_invoice_status, 'open') = %s
-            ORDER BY o.days_past_due DESC NULLS LAST, o.invoice_number
+            WHERE li.lane_id = %s
+              AND COALESCE(li.lane_invoice_status, 'open') = %s
+            ORDER BY days_overdue DESC NULLS LAST, invoice_number
             """,
             [self.tenant_id, self.tenant_id, lane_id, "open"],
         )
@@ -277,10 +373,10 @@ class CaseContextHydrator:
                 h.draft_id,
                 h.touch_id,
                 h.thread_id,
-                h.detail_json,
+                h.event_payload_json AS detail_json,
                 h.created_at
             FROM {_current_projection(COLLECTION_LANE_HISTORY_CURRENT, "h")}
-            WHERE COALESCE(h.lane_id, h.collection_lane_id) = %s
+            WHERE h.lane_id = %s
             ORDER BY COALESCE(h.event_time, h.created_at, h.valid_from) DESC NULLS LAST
             LIMIT 25
             """,
@@ -307,18 +403,20 @@ class CaseContextHydrator:
             f"""
             SELECT
                 c.id,
-                c.name,
-                c.email,
-                c.is_default,
+                COALESCE(c.contact_name, c.name, c.email_normalized, c.email, c.email_address) AS name,
+                COALESCE(c.email_normalized, c.email, c.email_address) AS email,
+                COALESCE(c.is_default_email, c.is_default_contact, c.is_default, FALSE) AS is_default,
                 c.is_active,
                 c.email_valid,
-                c.source
+                COALESCE(c.source_contact_key, c.source) AS source
             FROM {_current_projection(PARTY_CONTACTS_CURRENT, "c")}
             WHERE c.party_id = %s
               AND COALESCE(c.is_active, TRUE) = TRUE
               AND COALESCE(c.email_valid, TRUE) = TRUE
-              AND c.email IS NOT NULL
-            ORDER BY COALESCE(c.is_default, FALSE) DESC, c.updated_at DESC NULLS LAST
+              AND COALESCE(c.email_normalized, c.email, c.email_address) IS NOT NULL
+            ORDER BY
+                COALESCE(c.is_default_email, c.is_default_contact, c.is_default, FALSE) DESC,
+                c.silver_observed_at DESC NULLS LAST
             LIMIT 10
             """,
             [self.tenant_id, party_id],
