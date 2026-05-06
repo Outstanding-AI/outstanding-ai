@@ -153,10 +153,10 @@ class GenerateDraftRequest(BaseModel):
     def validate_current_datalake_context(self) -> "GenerateDraftRequest":
         """Fail closed for current Silver Application draft contexts.
 
-        V2/V3 payloads remain accepted during the transition. Once a caller
-        sends schema_version=4, draft generation must have the audit lineage,
-        recipient, and at least one eligible obligation that upstream already
-        marked sendable.
+        V2/V3 payloads remain accepted only when explicitly supplied by
+        compatibility callers. The default is V4/current datalake context;
+        draft generation with V4 must have the audit lineage, recipient, and
+        at least one eligible obligation that upstream already marked sendable.
         """
         if self.context.schema_version != 4:
             return self

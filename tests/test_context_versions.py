@@ -32,13 +32,13 @@ def _obligation(**overrides) -> ObligationInfo:
     return ObligationInfo(**data)
 
 
-def test_case_context_defaults_schema_version_to_shared_v2():
+def test_case_context_defaults_schema_version_to_current_v4():
     context = CaseContext(
         party=_party(),
         obligations=[_obligation()],
     )
 
-    assert context.schema_version == 2
+    assert context.schema_version == 4
 
 
 def test_case_context_v2_requires_canonical_identity_fields():
@@ -96,12 +96,9 @@ def test_party_source_must_equal_provider_type():
         _party(source="sage")
 
 
-def test_local_context_models_track_shared_contract_core():
-    assert (
-        CaseContext.model_fields["schema_version"].default
-        == CaseContextV2.model_fields["schema_version"].default
-        == 2
-    )
+def test_local_context_models_default_to_current_schema_and_keep_explicit_v2_compatibility():
+    assert CaseContext.model_fields["schema_version"].default == 4
+    assert CaseContextV2.model_fields["schema_version"].default == 2
     assert set(CaseContext.model_fields["schema_version"].annotation.__args__) == {2, 3, 4}
     assert set(CaseContextV2.model_fields["schema_version"].annotation.__args__) <= set(
         CaseContext.model_fields["schema_version"].annotation.__args__

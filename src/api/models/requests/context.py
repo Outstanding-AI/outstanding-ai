@@ -225,14 +225,15 @@ class IndustryInfo(BaseModel):
 class CaseContext(CaseContextV2):
     """Full case context for AI operations.
 
-    Parses legacy classification contexts plus V4/current datalake payloads.
-    Draft-generation routes require V4 and reject older payloads before a
-    model call can be made.
+    Defaults to the V4/current datalake payload. Legacy classification-only
+    compatibility remains available when callers explicitly send
+    ``schema_version`` 2 or 3. Draft-generation routes require V4 and reject
+    older payloads before a model call can be made.
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    schema_version: Literal[2, 3, 4] = 2
+    schema_version: Literal[2, 3, 4] = 4
     party: "PartyInfo"  # Forward ref resolved at module level
     behavior: Optional["BehaviorInfo"] = None  # Forward ref resolved at module level
     obligations: List[ObligationInfo] = Field(default_factory=list)

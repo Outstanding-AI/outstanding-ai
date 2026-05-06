@@ -113,15 +113,15 @@ class TestClassifyEndpoint:
         assert response.status_code == 422
 
     @patch("src.api.routes.classify.classifier")
-    def test_classify_defaults_context_schema_version_to_v2(self, mock_classifier, authed_client):
-        """Test classify accepts canonical v2 context payloads that omit the default tag."""
+    def test_classify_defaults_context_schema_version_to_v4(self, mock_classifier, authed_client):
+        """Test classify defaults sparse contexts to the current datalake schema."""
         from src.api.models.responses import ClassifyResponse
 
         mock_classifier.classify = AsyncMock(
             return_value=ClassifyResponse(
                 classification="COOPERATIVE",
                 confidence=0.88,
-                reasoning="Canonical context parsed as v2",
+                reasoning="Canonical context parsed as v4",
             )
         )
 
@@ -157,7 +157,7 @@ class TestClassifyEndpoint:
         )
 
         assert response.status_code == 200
-        assert mock_classifier.classify.await_args.args[0].context.schema_version == 2
+        assert mock_classifier.classify.await_args.args[0].context.schema_version == 4
 
     @patch("src.api.routes.classify.classifier")
     def test_classify_success(self, mock_classifier, authed_client, sample_classify_request):
