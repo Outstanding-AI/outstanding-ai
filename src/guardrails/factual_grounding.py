@@ -26,10 +26,24 @@ AMOUNT_PATTERNS = [
     r"(?:GBP|USD|EUR)\s*([\d,]+(?:\.\d{2})?)",  # GBP 1500
 ]
 
+CHASE_LANGUAGE_RE = re.compile(
+    r"\b(pay|payment|settle|settlement|overdue|outstanding|owed|remit)\b|"
+    r"\b(?:amount|balance|past)\s+due\b",
+    re.IGNORECASE,
+)
+
 
 def _numeric_ref(value: str) -> str:
     match = re.search(r"\d+", str(value or ""))
     return match.group() if match else ""
+
+
+def _segments(text: str) -> list[str]:
+    return [
+        segment
+        for segment in re.split(r"(?:<br\s*/?>|</p>|[.!?\n;])", text, flags=re.IGNORECASE)
+        if segment
+    ]
 
 
 class FactualGroundingGuardrail(BaseGuardrail):
@@ -277,16 +291,7 @@ class FactualGroundingGuardrail(BaseGuardrail):
         if not source_disputed:
             return self._pass("No source-disputed obligations in context")
 
-        output_upper = output.upper()
-        chase_language = bool(
-            re.search(
-                r"\b(pay|payment|settle|settlement|overdue|outstanding|owed|remit)\b|"
-                r"\b(?:amount|balance|past)\s+due\b",
-                output,
-                re.IGNORECASE,
-            )
-        )
-        if not chase_language:
+        if not CHASE_LANGUAGE_RE.search(output):
             return self._pass("No payment-chase language for source-disputed obligations")
 
         chased = []
@@ -296,10 +301,7 @@ class FactualGroundingGuardrail(BaseGuardrail):
             )
             if not invoice_ref:
                 continue
-            numeric_ref = _numeric_ref(invoice_ref)
-            if str(invoice_ref).upper() in output_upper or (
-                numeric_ref and numeric_ref in output_upper
-            ):
+            if self._chases_invoice_ref(output, str(invoice_ref)):
                 chased.append(str(invoice_ref))
 
         if chased:
@@ -311,6 +313,20 @@ class FactualGroundingGuardrail(BaseGuardrail):
             )
 
         return self._pass("Source-disputed obligations were not chased")
+
+    @staticmethod
+    def _chases_invoice_ref(output: str, invoice_ref: str) -> bool:
+        """Return True only when chase words occur in the same sentence as the ref."""
+        invoice_upper = str(invoice_ref or "").upper()
+        numeric_ref = _numeric_ref(invoice_ref)
+        for segment in _segments(output):
+            segment_upper = segment.upper()
+            mentions_ref = invoice_upper in segment_upper or (
+                bool(numeric_ref) and numeric_ref in segment_upper
+            )
+            if mentions_ref and CHASE_LANGUAGE_RE.search(segment):
+                return True
+        return False
 
     def _validate_procurement_grounding(self, output: str, context: CaseContext) -> GuardrailResult:
         """Allow PO/POD claims only when verified procurement evidence exists."""

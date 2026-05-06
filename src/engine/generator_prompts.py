@@ -8,7 +8,15 @@ on the generate/retry loop.
 
 import logging
 
+from src.prompts._sanitize import sanitize_delimiter_tags
+
 logger = logging.getLogger(__name__)
+
+
+def _safe_prompt_value(value, *, max_length: int = 240) -> str:
+    text = sanitize_delimiter_tags(str(value or ""))
+    text = " ".join(text.split())
+    return text[:max_length]
 
 
 def format_sender_persona(request) -> str:
@@ -139,14 +147,32 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         )
 
     excluded_lines = []
+    excluded_seen = set()
     for obligation in getattr(request.context, "obligations", None) or []:
         source_query = str(getattr(obligation, "source_query_raw", None) or "").strip()
         if getattr(obligation, "is_source_disputed", False) or source_query:
             inv = obligation.invoice_number or obligation.document_no or obligation.id
+            excluded_seen.add(str(inv))
             excluded_lines.append(
                 f"- {inv}: excluded, invoice dispute/source Sage query flag"
-                + (f" ({source_query})" if source_query else "")
+                + (f" ({_safe_prompt_value(source_query)})" if source_query else "")
             )
+    for obligation in getattr(request.context, "excluded_source_disputed_obligations", None) or []:
+        if not isinstance(obligation, dict):
+            continue
+        inv = (
+            obligation.get("invoice_number")
+            or obligation.get("document_no")
+            or obligation.get("id")
+        )
+        if not inv or str(inv) in excluded_seen:
+            continue
+        excluded_seen.add(str(inv))
+        source_query = str(obligation.get("source_query_raw") or "").strip()
+        excluded_lines.append(
+            f"- {inv}: excluded, invoice dispute/source Sage query flag"
+            + (f" ({_safe_prompt_value(source_query)})" if source_query else "")
+        )
     if excluded_lines:
         sections.append(
             "\n\n**Excluded Source-Disputed Obligations:**\n"

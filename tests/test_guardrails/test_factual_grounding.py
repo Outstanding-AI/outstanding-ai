@@ -170,6 +170,18 @@ class TestFactualGroundingGuardrail:
 
         assert results[2].passed
 
+    def test_source_disputed_exclusion_can_coexist_with_other_invoice_chase(self, sample_context):
+        """A correct exclusion note should not block chasing a different invoice."""
+        sample_context.obligations[0].is_source_disputed = True
+        sample_context.obligations[0].source_query_raw = "Queried in Sage"
+
+        results = FactualGroundingGuardrail().validate(
+            "Invoice INV-12345 is excluded due to an invoice query. Please pay invoice INV-12346.",
+            sample_context,
+        )
+
+        assert results[2].passed
+
     def test_unverified_procurement_claim_fails(self, sample_context):
         """PO/POD claims require verified procurement flags."""
         results = FactualGroundingGuardrail().validate(

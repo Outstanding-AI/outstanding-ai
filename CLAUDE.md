@@ -171,21 +171,22 @@ Fields:
 
 Full contract: backend `docs/CONTRACTS.md` section 5 (Tone Contract) + section 8 (App DB Contract).
 
-## CaseContext Schema Versioning (April 2026 — v1 retired)
+## CaseContext Schema Versioning (May 2026 — Silver Application transition)
 
-Every `CaseContext` in every request (`/classify`, `/generate-draft`) REQUIRES `schema_version: Literal[2]` — v1 (legacy Sage-keyed) has been **retired** in the April 2026 Codex cleanup. A request with any other value is rejected by Pydantic.
+Every `CaseContext` in every request (`/classify`, `/generate-draft`) accepts `schema_version: Literal[2, 3, 4]`. v1 (legacy Sage-keyed) has been **retired**.
 
-- **`schema_version=2`** (only accepted value) — canonical provider-agnostic. Requires on every obligation: `id` (UUID) + `external_id` + `provider_type`. Requires on every party: `external_id` + `provider_type`. Enforced unconditionally by `validate_schema_version_fields()` in `src/api/models/requests/context.py` (the old "skip if schema_version != 2" branch was deleted; validation always runs).
+- **`schema_version=2` / `3`** — canonical provider-agnostic contexts. Requires on every obligation: `id` (UUID) + `external_id` + `provider_type`. Requires on every party: `external_id` + `provider_type`.
+- **`schema_version=4`** — Silver Application current-context transition payload. Requires draft lineage, a valid recipient email, and at least one sendable/chase-eligible obligation for normal draft generation.
 
 `ObligationInfo.sage_id` field was **removed** from the Pydantic model.
 
 **Lane-scope guardrail** (`src/guardrails/lane_scope.py:44-65`) unconditionally looks up blocked obligation IDs by `obligation.id` (canonical UUID). The schema_version=1 branch (`obligation.sage_id` lookup) has been deleted.
 
-**Backend dispatch**: `TenantConfig.ai_context_schema_version` (smallint on Django) is kept as an audit-trail selector (still `IntegerChoices(V1=1, V2=2)`), but the backend emits v2-shaped payloads regardless now that ETL has populated the canonical columns.
+**Silver Application prompt boundary**: `CaseContext.uses_current_datalake_contract()` is strict to `schema_version == 4`; opportunistic lineage fields on v2/v3 payloads must not trigger v4 prompt sections.
 
-**Telemetry**: classify/generate routes log `schema_version=2` in every event (start/success/error).
+**Telemetry**: classify/generate routes log the actual `schema_version` in every event (start/success/error).
 
-**Long-term home**: backend-owned `solvix-contracts` package (`Solvix/contracts/src/solvix_contracts/ai/context.v2`) will eventually export `CaseContextV2` as the canonical contract; AI Engine will import from it when version parity is wired. Do NOT bump to v3 without coordinating backend + contracts package version bumps — parity CI at `.github/workflows/contracts-version-parity.yml` enforces pins.
+**Long-term home**: backend-owned `solvix-contracts` package (`Solvix/contracts/src/solvix_contracts/ai/context.v2`) exports the shared v2 core while AI carries additive v3/v4 transition fields locally. Further version bumps require coordinated backend + contracts package version bumps — parity CI at `.github/workflows/contracts-version-parity.yml` enforces pins.
 
 ## LLM Runtime Invariants (April 2026)
 
@@ -201,7 +202,7 @@ Non-obvious gotchas — violating these breaks production first-sync draft gener
 8. **Entity guardrail event-loop hygiene.** Worker runs `asyncio.new_event_loop()` + `set_event_loop(loop)`; `finally` MUST call `asyncio.set_event_loop(None)` before `loop.close()` so the next guardrail on the same worker thread doesn't pick up a dead loop via `get_event_loop()`.
 9. **Entity prompt must separate debtor from sender identity.** `ENTITY_VALIDATION_PROMPT` lists EXPECTED DEBTOR ENTITIES and ALLOWED SENDER ENTITIES separately. The generator threads `sender_company`, `sender_name`, `sender_mailbox_name` into the guardrail `kwargs`. Without this split the guardrail flags valid drafts that mention the sender company in sign-offs (e.g. "your account with ESWL") as hallucinated unrelated companies.
 10. **No application-level output-token caps.** Do not pass `max_tokens` / `max_output_tokens` in guardrail, draft, classification, or fallback calls. Rely on provider-native limits plus retry/defer behavior; explicit app caps caused `LengthFinishReasonError` and empty Vertex payload failures during first-sync draft generation.
-11. **`solvix-contracts==0.2.0` (April 2026).** Pin is mandatory for parity with backend + ETL. `PartyInfoV2.source` is now a **required** field (default removed); semantically locked to canonical `provider_type`. All AI fixtures (`tests/conftest.py`, `test_context_versions.py`, `test_guardrails/*.py`, `test_evals/test_realtime.py`, `test_provider_metadata.py`) construct `CaseContext` with explicit `source=provider_type`. `CaseContext.schema_version` remains `Literal[2]` — v1 retired. Any hidden `or "sage_200"` / `or "microsoft_365"` fallback in runtime code is a plan violation; runtime must never synthesize provider identity.
+11. **`solvix-contracts` pin parity.** Pin is mandatory for parity with backend + ETL. `PartyInfoV2.source` is a **required** field; semantically locked to canonical `provider_type`. All AI fixtures construct `CaseContext` with explicit `source=provider_type`. Runtime must never synthesize provider identity with hidden `or "sage_200"` / `or "microsoft_365"` fallbacks.
 
 ## Skills
 

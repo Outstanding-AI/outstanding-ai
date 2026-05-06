@@ -102,8 +102,9 @@ def test_local_context_models_track_shared_contract_core():
         == CaseContextV2.model_fields["schema_version"].default
         == 2
     )
-    assert set(CaseContext.model_fields["schema_version"].annotation.__args__) >= set(
-        CaseContextV2.model_fields["schema_version"].annotation.__args__
+    assert set(CaseContext.model_fields["schema_version"].annotation.__args__) == {2, 3, 4}
+    assert set(CaseContextV2.model_fields["schema_version"].annotation.__args__) <= set(
+        CaseContext.model_fields["schema_version"].annotation.__args__
     )
     assert PartyInfo.model_config["extra"] == PartyInfoV2.model_config["extra"] == "forbid"
     assert (
@@ -140,6 +141,19 @@ def test_current_datalake_context_accepts_additive_obligation_fields():
     assert context.collection_basis == "overdue"
     assert context.obligations[0].silver_version_id == "silver-core-obligation-v1"
     assert context.obligations[0].procurement_context_status == "verified"
+
+
+def test_current_datalake_detection_requires_schema_v4():
+    context = CaseContext(
+        schema_version=3,
+        party=_party(),
+        obligations=[_obligation()],
+        source_sync_run_id="sync-1",
+        application_run_id="app-1",
+        policy_snapshot_id="policy-1",
+    )
+
+    assert context.uses_current_datalake_contract() is False
 
 
 def test_current_datalake_generate_request_requires_lineage_and_recipient():

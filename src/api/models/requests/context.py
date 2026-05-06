@@ -368,6 +368,7 @@ class CaseContext(CaseContextV2):
     sender_selection_events_current: Optional[list[dict[str, Any]]] = None
     recipient_selection_events_current: Optional[list[dict[str, Any]]] = None
     sender_performance_current: Optional[dict[str, Any]] = None
+    excluded_source_disputed_obligations: Optional[list[dict[str, Any]]] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -450,15 +451,7 @@ class CaseContext(CaseContextV2):
 
     def uses_current_datalake_contract(self) -> bool:
         """Return True when the payload is using the current lake context."""
-        return self.schema_version == 4 or any(
-            (
-                self.source_sync_run_id,
-                self.application_run_id,
-                self.application_decision_cutoff,
-                self.draft_candidate_id,
-                self.policy_snapshot_id,
-            )
-        )
+        return self.schema_version == 4
 
 
 # Import here to resolve forward references after all models are defined
