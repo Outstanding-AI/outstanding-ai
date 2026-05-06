@@ -85,6 +85,10 @@ Many debtor emails contain MULTIPLE intents across different invoices. For examp
    statements like "I'll pay soon" or "we'll sort this out". A vague
    commitment with no invoice mentioned is NOT account-wide; downstream
    resolves the scope from the message's reply thread.
+7. Your output is evidence only. Do not say that workflow side effects have
+   already been applied, and do not widen ambiguous scope just because the
+   message sounds confident. The workflow resolver decides exact obligation,
+   lane, account-wide, or unresolved scope.
 
 ## Data Extraction Rules
 

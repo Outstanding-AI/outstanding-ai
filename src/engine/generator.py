@@ -23,8 +23,10 @@ and ``closure_mode`` flags respectively.
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -39,10 +41,19 @@ from src.llm.schemas import DraftGenerationLLMResponse
 from src.prompts import GENERATE_DRAFT_SYSTEM, GENERATE_DRAFT_USER
 from src.prompts._sanitize import sanitize_delimiter_tags
 
+from .audit import build_ai_audit
 from .formatters import format_industry_context
 from .generator_prompts import build_extra_sections, format_sender_persona
 
 logger = logging.getLogger(__name__)
+
+DRAFT_PROMPT_TEMPLATE_ID = "draft_generation"
+DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v1"
+GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
+
+
+def _normalize_invoice_ref(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
 
 @dataclass
@@ -71,6 +82,10 @@ class _PromptContext:
     total_outstanding: float = 0.0
     max_days_overdue: int = 0
     obligation_count: int = 0
+    candidate_obligation_ids: list[str] = field(default_factory=list)
+    candidate_invoice_refs: list[str] = field(default_factory=list)
+    prompt_input: dict[str, Any] = field(default_factory=dict)
+    last_user_prompt: str = ""
 
 
 class DraftGenerator:
@@ -112,7 +127,7 @@ class DraftGenerator:
             tokens,
             timing,
             last_response,
-        ) = await self._run_llm_with_guardrails(request, prompt_ctx.user_prompt)
+        ) = await self._run_llm_with_guardrails(request, prompt_ctx)
         return self._build_response(
             request, result, guardrail_result, tokens, timing, prompt_ctx, last_response
         )
@@ -131,25 +146,42 @@ class DraftGenerator:
         Returns:
             _PromptContext with the assembled prompt and derived values.
         """
-        # Derived values computed from context obligations.
+        candidate_obligations = self._select_candidate_obligations(request)
+        if (
+            request.context.schema_version == 4
+            and not candidate_obligations
+            and not request.skip_invoice_table
+            and not request.closure_mode
+        ):
+            raise ValueError("No eligible/sendable obligations available for draft generation")
+
+        # Derived values computed from draft-candidate obligations.
         # total_outstanding: authoritative sum used by guardrails for math
         # verification (NumericalConsistencyGuardrail).
-        total_outstanding = (
-            request.context.total_outstanding_base
-            if request.context.total_outstanding_base is not None
-            else sum(
-                o.amount_due_base if o.amount_due_base is not None else o.amount_due
-                for o in request.context.obligations
-            )
+        total_outstanding = sum(
+            (o.amount_due_base if o.amount_due_base is not None else o.amount_due) or 0
+            for o in candidate_obligations
         )
-        max_days_overdue = max((o.days_past_due for o in request.context.obligations), default=0)
-        obligation_count = len(request.context.obligations)
+        max_days_overdue = max(
+            (
+                getattr(o, "days_overdue", None)
+                if getattr(o, "days_overdue", None) is not None
+                else o.days_past_due
+                for o in candidate_obligations
+            ),
+            default=0,
+        )
+        obligation_count = len(candidate_obligations)
 
         # Sort obligations by severity (most overdue first) and cap at 10
         # to keep the prompt within token limits.
         sorted_obligations = sorted(
-            request.context.obligations,
-            key=lambda o: o.days_past_due,
+            candidate_obligations,
+            key=lambda o: (
+                getattr(o, "days_overdue", None)
+                if getattr(o, "days_overdue", None) is not None
+                else o.days_past_due
+            ),
             reverse=True,
         )[:10]
 
@@ -167,7 +199,8 @@ class DraftGenerator:
                         f"- {o.invoice_number or '(no invoice number)'}: "
                         f"{o.currency or request.context.party.currency or request.context.base_currency} "
                         f"{o.amount_due:,.2f} "
-                        f"({o.days_past_due} days overdue)"
+                        f"({self._days_overdue(o)} days overdue)"
+                        f"{self._format_verified_procurement_suffix(o)}"
                         for o in sorted_obligations
                     ]
                 )
@@ -192,7 +225,7 @@ class DraftGenerator:
         industry_context = format_industry_context(request.context.industry)
         sender_persona_context = format_sender_persona(request)
         config_section = self._build_config_section(request, comm)
-        extra_sections = build_extra_sections(request, behavior)
+        extra_sections = build_extra_sections(request, behavior, candidate_obligations)
 
         # Determine if this is a follow-up
         recent_messages = request.context.lane_recent_messages or request.context.recent_messages
@@ -282,10 +315,26 @@ class DraftGenerator:
             total_outstanding=total_outstanding,
             max_days_overdue=max_days_overdue,
             obligation_count=obligation_count,
+            candidate_obligation_ids=[str(o.id) for o in candidate_obligations if o.id],
+            candidate_invoice_refs=[
+                str(o.invoice_number) for o in candidate_obligations if o.invoice_number
+            ],
+            prompt_input={
+                "context": request.context.model_dump(mode="json", exclude_none=True),
+                "tone": request.tone,
+                "objective": request.objective,
+                "candidate_obligation_ids": [str(o.id) for o in candidate_obligations if o.id],
+                "candidate_invoice_refs": [
+                    str(o.invoice_number) for o in candidate_obligations if o.invoice_number
+                ],
+                "closure_mode": request.closure_mode,
+                "skip_invoice_table": request.skip_invoice_table,
+                "trigger_classification": request.trigger_classification,
+            },
         )
 
     async def _run_llm_with_guardrails(
-        self, request: GenerateDraftRequest, base_user_prompt: str
+        self, request: GenerateDraftRequest, prompt_ctx: _PromptContext
     ) -> tuple[
         DraftGenerationLLMResponse, GuardrailPipelineResult, _TokenTotals, _TimingInfo, object
     ]:
@@ -298,7 +347,8 @@ class DraftGenerator:
 
         Args:
             request: Generation request with context and parameters.
-            base_user_prompt: Fully assembled prompt from _assemble_prompt.
+            prompt_ctx: Fully assembled prompt and candidate scope from
+                _assemble_prompt.
 
         Returns:
             Tuple of (LLM result, guardrail result, token totals, timing info,
@@ -313,12 +363,13 @@ class DraftGenerator:
 
         for attempt in range(settings.max_guardrail_retries + 1):
             # Build prompt with any guardrail feedback from previous attempt
-            user_prompt = base_user_prompt
+            user_prompt = prompt_ctx.user_prompt
             if guardrail_feedback:
                 user_prompt += guardrail_feedback
                 logger.info(
                     f"Retrying draft generation (attempt {attempt + 1}) with guardrail feedback"
                 )
+            prompt_ctx.last_user_prompt = user_prompt
 
             # Call LLM with higher temperature for creative generation
             # Use response_schema for guaranteed valid JSON (no markdown wrapping)
@@ -377,6 +428,8 @@ class DraftGenerator:
                 ),
                 mail_mode=request.context.lane_mail_mode,
                 lane_context=request.context.lane,
+                candidate_obligation_ids=prompt_ctx.candidate_obligation_ids,
+                candidate_invoice_refs=prompt_ctx.candidate_invoice_refs,
                 authorized_policies=request.context.authorized_policies or {},
             )
             timing.guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
@@ -411,6 +464,63 @@ class DraftGenerator:
 
         return result, guardrail_result, tokens, timing, response
 
+    def _select_candidate_obligations(self, request: GenerateDraftRequest) -> list:
+        """Return the upstream-sendable obligations the AI may draft against."""
+        context = request.context
+        sendable_ids = {str(value) for value in (context.sendable_obligation_ids or [])}
+        blocked_ids = {str(value) for value in (context.blocked_obligation_ids or [])}
+        basis = context.chase_basis or context.collection_basis or "overdue"
+        current_contract = context.uses_current_datalake_contract()
+        selected = []
+
+        for obligation in context.obligations:
+            obligation_id = str(getattr(obligation, "id", "") or "")
+            if sendable_ids and obligation_id not in sendable_ids:
+                continue
+            if obligation_id in blocked_ids:
+                continue
+            if self._has_source_dispute(obligation):
+                continue
+            if getattr(obligation, "is_sendable", None) is False:
+                continue
+            if getattr(obligation, "is_chase_eligible", None) is False:
+                continue
+            if current_contract and basis == "overdue" and not self._is_overdue(obligation):
+                continue
+            selected.append(obligation)
+
+        return selected
+
+    @staticmethod
+    def _has_source_dispute(obligation) -> bool:
+        source_query_raw = str(getattr(obligation, "source_query_raw", None) or "").strip()
+        return bool(getattr(obligation, "is_source_disputed", False) or source_query_raw)
+
+    @staticmethod
+    def _is_overdue(obligation) -> bool:
+        is_overdue = getattr(obligation, "is_overdue", None)
+        if is_overdue is not None:
+            return bool(is_overdue)
+        return DraftGenerator._days_overdue(obligation) > 0
+
+    @staticmethod
+    def _days_overdue(obligation) -> int:
+        days = getattr(obligation, "days_overdue", None)
+        if days is None:
+            days = getattr(obligation, "days_past_due", 0)
+        return int(days or 0)
+
+    @staticmethod
+    def _format_verified_procurement_suffix(obligation) -> str:
+        bits = []
+        if getattr(obligation, "has_verified_purchase_order", False):
+            ref = getattr(obligation, "purchase_order_reference", None)
+            bits.append(f"verified PO {ref}" if ref else "verified PO")
+        if getattr(obligation, "has_verified_pod", False):
+            ref = getattr(obligation, "pod_reference", None)
+            bits.append(f"verified POD {ref}" if ref else "verified POD")
+        return f" [{'; '.join(bits)}]" if bits else ""
+
     def _build_response(
         self,
         request: GenerateDraftRequest,
@@ -440,10 +550,13 @@ class DraftGenerator:
             The complete GenerateDraftResponse.
         """
         # Extract referenced invoices from generated body
+        candidate_refs = {_normalize_invoice_ref(ref) for ref in prompt_ctx.candidate_invoice_refs}
         invoices_referenced = [
             o.invoice_number
             for o in request.context.obligations
-            if o.invoice_number and o.invoice_number in result.body
+            if o.invoice_number
+            and o.invoice_number in result.body
+            and _normalize_invoice_ref(o.invoice_number) in candidate_refs
         ]
 
         # Calculate factual accuracy
@@ -501,14 +614,17 @@ class DraftGenerator:
         if result.reasoning:
             reasoning_dict = result.reasoning.model_dump()
 
-        # Use LLM-provided invoices_referenced if available, fall back to body scan,
-        # then fall back to all context obligations (since {INVOICE_TABLE} includes them all)
-        llm_refs = [r for r in (result.invoices_referenced or []) if r]
+        # Use LLM-provided invoices_referenced only when they remain inside
+        # the upstream candidate scope; then fall back to body scan and the
+        # candidate invoice refs represented by {INVOICE_TABLE}.
+        llm_refs = [
+            r
+            for r in (result.invoices_referenced or [])
+            if r and _normalize_invoice_ref(r) in candidate_refs
+        ]
         final_invoices = llm_refs or invoices_referenced
         if not final_invoices:
-            final_invoices = [
-                o.invoice_number for o in request.context.obligations if o.invoice_number
-            ]
+            final_invoices = prompt_ctx.candidate_invoice_refs
 
         return GenerateDraftResponse(
             subject=result.subject,
@@ -525,6 +641,20 @@ class DraftGenerator:
             reasoning=reasoning_dict,
             primary_cta=result.primary_cta,
             follow_up_days=result.follow_up_days,
+            ai_audit=build_ai_audit(
+                response=last_response,
+                context=request.context,
+                prompt_template_id=DRAFT_PROMPT_TEMPLATE_ID,
+                prompt_template_version=DRAFT_PROMPT_TEMPLATE_VERSION,
+                system_prompt=GENERATE_DRAFT_SYSTEM,
+                user_prompt=prompt_ctx.last_user_prompt or prompt_ctx.user_prompt,
+                prompt_input=prompt_ctx.prompt_input,
+                guardrail_pipeline_version=GUARDRAIL_PIPELINE_VERSION,
+                token_count=tokens.total,
+                prompt_tokens=tokens.prompt,
+                completion_tokens=tokens.completion,
+                latency_ms=round(total_latency_ms, 2),
+            ),
         )
 
     def _build_config_section(self, request: GenerateDraftRequest, comm) -> str:

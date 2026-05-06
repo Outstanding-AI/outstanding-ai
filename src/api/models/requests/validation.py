@@ -10,7 +10,7 @@ Security:
 """
 
 import warnings
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -148,6 +148,101 @@ class GenerateDraftRequest(BaseModel):
                 self.sender_title = persona_title
 
         return self
+
+    @model_validator(mode="after")
+    def validate_current_datalake_context(self) -> "GenerateDraftRequest":
+        """Fail closed for current Silver Application draft contexts.
+
+        V2/V3 payloads remain accepted during the transition. Once a caller
+        sends schema_version=4, draft generation must have the audit lineage,
+        recipient, and at least one eligible obligation that upstream already
+        marked sendable.
+        """
+        if self.context.schema_version != 4:
+            return self
+
+        missing = [
+            field_name
+            for field_name in (
+                "source_sync_run_id",
+                "application_run_id",
+                "core_snapshot_watermark",
+                "application_snapshot_watermark",
+                "application_decision_cutoff",
+                "policy_snapshot_id",
+                "draft_candidate_id",
+            )
+            if getattr(self.context, field_name, None) in (None, "", [])
+        ]
+        if missing:
+            raise ValueError(
+                "Current datalake draft context missing required lineage fields: "
+                + ", ".join(missing)
+            )
+
+        if not _has_valid_recipient(self.context):
+            raise ValueError("Current datalake draft context requires a valid recipient email")
+
+        if not self.closure_mode and not self.skip_invoice_table:
+            eligible = [
+                obligation
+                for obligation in self.context.obligations
+                if _is_sendable_candidate(obligation, self.context)
+            ]
+            if not eligible:
+                raise ValueError(
+                    "Current datalake draft context has no eligible/sendable obligations"
+                )
+
+        return self
+
+
+def _has_valid_recipient(context: CaseContext) -> bool:
+    """Return True if the request has a concrete debtor recipient email."""
+    candidates: list[dict[str, Any]] = []
+    if isinstance(context.debtor_contact, dict):
+        candidates.append(context.debtor_contact)
+    candidates.extend(c for c in context.party_contacts or [] if isinstance(c, dict))
+
+    for candidate in candidates:
+        email = (
+            candidate.get("email")
+            or candidate.get("email_address")
+            or candidate.get("address")
+            or candidate.get("primary_email")
+        )
+        if isinstance(email, str) and "@" in email:
+            return True
+    return False
+
+
+def _is_sendable_candidate(obligation, context: CaseContext) -> bool:
+    """Mirror the minimum current-context eligibility gate for validation."""
+    blocked_ids = {str(value) for value in (context.blocked_obligation_ids or [])}
+    if str(getattr(obligation, "id", "")) in blocked_ids:
+        return False
+
+    source_query_raw = str(getattr(obligation, "source_query_raw", None) or "").strip()
+    if getattr(obligation, "is_source_disputed", False) or source_query_raw:
+        return False
+    if getattr(obligation, "is_sendable", None) is False:
+        return False
+    if getattr(obligation, "is_chase_eligible", None) is False:
+        return False
+
+    basis = context.chase_basis or context.collection_basis or "overdue"
+    if basis == "overdue":
+        is_overdue = getattr(obligation, "is_overdue", None)
+        if is_overdue is False:
+            return False
+        if is_overdue is None:
+            overdue_days = getattr(obligation, "days_overdue", None)
+            if overdue_days is None:
+                overdue_days = getattr(obligation, "days_past_due", 0)
+            if (overdue_days or 0) <= 0:
+                return False
+
+    return True
 
 
 # EvaluateGatesRequest + EvaluateGatesBatchRequest removed 2026-04-26 alongside

@@ -27,6 +27,11 @@ AMOUNT_PATTERNS = [
 ]
 
 
+def _numeric_ref(value: str) -> str:
+    match = re.search(r"\d+", str(value or ""))
+    return match.group() if match else ""
+
+
 class FactualGroundingGuardrail(BaseGuardrail):
     """
     Validates that AI outputs only contain facts from the input context.
@@ -76,6 +81,8 @@ class FactualGroundingGuardrail(BaseGuardrail):
         results = []
         results.append(self._validate_invoice_numbers(output, context))
         results.append(self._validate_amounts(output, context, **kwargs))
+        results.append(self._validate_source_disputes_not_chased(output, context))
+        results.append(self._validate_procurement_grounding(output, context))
         return results
 
     def _validate_invoice_numbers(self, output: str, context: CaseContext) -> GuardrailResult:
@@ -171,8 +178,12 @@ class FactualGroundingGuardrail(BaseGuardrail):
         for o in context.obligations:
             if o.amount_due is not None:
                 valid_amounts.add(round(float(o.amount_due), 2))
+            if getattr(o, "amount_due_base", None) is not None:
+                valid_amounts.add(round(float(o.amount_due_base), 2))
             if o.original_amount is not None:
                 valid_amounts.add(round(float(o.original_amount), 2))
+            if getattr(o, "original_amount_base", None) is not None:
+                valid_amounts.add(round(float(o.original_amount_base), 2))
 
         safe_dues = [float(o.amount_due) for o in context.obligations if o.amount_due is not None]
         total_outstanding = round(sum(safe_dues), 2)
@@ -252,6 +263,98 @@ class FactualGroundingGuardrail(BaseGuardrail):
                 "total_outstanding": total_outstanding,
             },
         )
+
+    def _validate_source_disputes_not_chased(
+        self, output: str, context: CaseContext
+    ) -> GuardrailResult:
+        """Block payment asks against Sage-query/source-disputed obligations."""
+        source_disputed = []
+        for obligation in context.obligations:
+            raw_query = str(getattr(obligation, "source_query_raw", None) or "").strip()
+            if getattr(obligation, "is_source_disputed", False) or raw_query:
+                source_disputed.append(obligation)
+
+        if not source_disputed:
+            return self._pass("No source-disputed obligations in context")
+
+        output_upper = output.upper()
+        chase_language = bool(
+            re.search(
+                r"\b(pay|payment|settle|settlement|overdue|outstanding|owed|remit)\b|"
+                r"\b(?:amount|balance|past)\s+due\b",
+                output,
+                re.IGNORECASE,
+            )
+        )
+        if not chase_language:
+            return self._pass("No payment-chase language for source-disputed obligations")
+
+        chased = []
+        for obligation in source_disputed:
+            invoice_ref = getattr(obligation, "invoice_number", None) or getattr(
+                obligation, "document_no", None
+            )
+            if not invoice_ref:
+                continue
+            numeric_ref = _numeric_ref(invoice_ref)
+            if str(invoice_ref).upper() in output_upper or (
+                numeric_ref and numeric_ref in output_upper
+            ):
+                chased.append(str(invoice_ref))
+
+        if chased:
+            return self._fail(
+                message=f"Draft asks for payment on source-disputed obligations: {chased}",
+                expected="Source-disputed invoices may be labelled excluded/disputed, not chased",
+                found=chased,
+                details={"source_disputed_invoice_refs": chased},
+            )
+
+        return self._pass("Source-disputed obligations were not chased")
+
+    def _validate_procurement_grounding(self, output: str, context: CaseContext) -> GuardrailResult:
+        """Allow PO/POD claims only when verified procurement evidence exists."""
+        mentions_po = bool(
+            re.search(r"\b(purchase order|po number|po ref|po\b)\b", output, re.IGNORECASE)
+        )
+        mentions_pod = bool(
+            re.search(
+                r"\b(proof of delivery|pod\b|delivery note|goods received)\b",
+                output,
+                re.IGNORECASE,
+            )
+        )
+        if not mentions_po and not mentions_pod:
+            return self._pass("No procurement claims found")
+
+        has_verified_po = any(
+            getattr(obligation, "has_verified_purchase_order", False)
+            for obligation in context.obligations
+        )
+        has_verified_pod = any(
+            getattr(obligation, "has_verified_pod", False) for obligation in context.obligations
+        )
+
+        failures = []
+        if mentions_po and not has_verified_po:
+            failures.append("purchase_order")
+        if mentions_pod and not has_verified_pod:
+            failures.append("proof_of_delivery")
+
+        if failures:
+            return self._fail(
+                message="Draft claims unverified procurement evidence: " + ", ".join(failures),
+                expected="PO/POD wording only when verified flags are true",
+                found=failures,
+                details={
+                    "mentions_po": mentions_po,
+                    "mentions_pod": mentions_pod,
+                    "has_verified_purchase_order": has_verified_po,
+                    "has_verified_pod": has_verified_pod,
+                },
+            )
+
+        return self._pass("Procurement claims are grounded in verified context")
 
     @staticmethod
     def _extract_conversation_amounts(recent_messages: list) -> set:

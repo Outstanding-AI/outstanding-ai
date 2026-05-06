@@ -217,6 +217,9 @@ Escalation Level: {level}
 ### Cadence
 - Avg days between touches to same debtor: {avg_days_between_touches}
 
+## Sender Performance Current Source
+{sender_performance_current_section}
+
 Return a JSON object with:
 - communication_style: Updated voice description (max 200 chars)
 - formality_level: One of: casual, conversational, professional, formal

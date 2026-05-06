@@ -113,7 +113,8 @@ def format_invoice_table(context) -> str:
         currency = o.currency or context.party.currency or context.base_currency or "GBP"
         lines.append(
             f"- {inv_num}: {currency} {o.amount_due:,.2f} due {due} "
-            f"({o.days_past_due} days overdue)"
+            f"({getattr(o, 'days_overdue', None) if getattr(o, 'days_overdue', None) is not None else o.days_past_due} days overdue)"
+            f"{_format_obligation_flags(o)}"
         )
 
     # Include obligation-level collection statuses if available
@@ -135,8 +136,26 @@ def format_invoice_table(context) -> str:
                 currency = o.currency or context.party.currency or context.base_currency or "GBP"
                 enhanced.append(
                     f"- {inv_num}: {currency} {o.amount_due:,.2f} due {due} "
-                    f"({o.days_past_due} days overdue) [status: {status}]"
+                    f"({getattr(o, 'days_overdue', None) if getattr(o, 'days_overdue', None) is not None else o.days_past_due} days overdue) "
+                    f"[status: {status}]{_format_obligation_flags(o)}"
                 )
             return "\n".join(enhanced)
 
     return "\n".join(lines)
+
+
+def _format_obligation_flags(obligation) -> str:
+    flags = []
+    if (
+        getattr(obligation, "is_source_disputed", False)
+        or str(getattr(obligation, "source_query_raw", None) or "").strip()
+    ):
+        flags.append("source_disputed")
+    procurement_status = getattr(obligation, "procurement_context_status", None)
+    if procurement_status:
+        flags.append(f"procurement={procurement_status}")
+    if getattr(obligation, "has_verified_purchase_order", False):
+        flags.append("verified_po")
+    if getattr(obligation, "has_verified_pod", False):
+        flags.append("verified_pod")
+    return " [" + ", ".join(flags) + "]" if flags else ""

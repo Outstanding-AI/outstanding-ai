@@ -79,6 +79,31 @@ class GuardrailValidation(BaseModel):
     )
 
 
+class AIAuditMetadata(BaseModel):
+    """Prompt/model/lineage metadata for Silver Application audit tables."""
+
+    ai_provider: Optional[str] = None
+    ai_model: Optional[str] = None
+    ai_region: Optional[str] = None
+    prompt_template_id: Optional[str] = None
+    prompt_template_version: Optional[str] = None
+    system_prompt_hash: Optional[str] = None
+    user_prompt_hash: Optional[str] = None
+    prompt_input_hash: Optional[str] = None
+    guardrail_pipeline_version: Optional[str] = None
+    guardrail_result_ids: Optional[List[str]] = None
+    input_silver_version_ids_json: Optional[str] = None
+    policy_snapshot_id: Optional[str] = None
+    draft_candidate_id: Optional[str] = None
+    draft_generation_run_id: Optional[str] = None
+    source_sync_run_id: Optional[str] = None
+    application_run_id: Optional[str] = None
+    token_count: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    latency_ms: Optional[float] = None
+
+
 class ClassifyResponse(BaseModel):
     """Response from email classification."""
 
@@ -104,6 +129,8 @@ class ClassifyResponse(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     is_fallback: bool = False
+    classification_evidence_only: bool = True
+    ai_audit: Optional[AIAuditMetadata] = None
 
 
 class PersonaResult(BaseModel):
@@ -126,6 +153,7 @@ class GeneratePersonaResponse(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     is_fallback: bool = False
+    ai_audit: Optional[AIAuditMetadata] = None
 
 
 class RefinePersonaResponse(BaseModel):
@@ -141,6 +169,7 @@ class RefinePersonaResponse(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     is_fallback: bool = False
+    ai_audit: Optional[AIAuditMetadata] = None
 
 
 class GenerateDraftResponse(BaseModel):
@@ -163,6 +192,7 @@ class GenerateDraftResponse(BaseModel):
     reasoning: Optional[Dict[str, Any]] = None
     primary_cta: Optional[str] = None
     follow_up_days: Optional[int] = None
+    ai_audit: Optional[AIAuditMetadata] = None
 
 
 class GenerateDraftFromManifestCandidateResult(BaseModel):

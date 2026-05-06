@@ -92,6 +92,39 @@ class ObligationInfo(ObligationInfoV3):
     those send a valid subset; V3 callers fill them in.
     """
 
+    # Silver Core / Silver Application datalake context. These are additive
+    # transition fields until the shared contract package ships the next schema.
+    silver_version_id: Optional[str] = None
+    document_no: Optional[str] = None
+    sage_transaction_urn: Optional[str] = None
+    document_currency_code: Optional[str] = None
+    is_outstanding: Optional[bool] = None
+    is_overdue: Optional[bool] = None
+    days_overdue: Optional[int] = None
+    effective_grace_days: Optional[int] = None
+    is_chase_eligible: Optional[bool] = None
+    source_query_raw: Optional[str] = None
+    has_source_query_flag: Optional[bool] = None
+    is_source_disputed: Optional[bool] = None
+    source_dispute_type: Optional[str] = None
+    source_dispute_observed_from: Optional[
+        Literal["sales_posted_transactions", "sales_transaction_enquiry_views", "both"]
+    ] = None
+    has_verified_purchase_order: Optional[bool] = None
+    has_verified_pod: Optional[bool] = None
+    procurement_context_status: Optional[
+        Literal[
+            "verified",
+            "candidate_reference",
+            "missing",
+            "rejected",
+            "not_applicable",
+            "manual",
+        ]
+    ] = None
+    purchase_order_reference: Optional[str] = None
+    pod_reference: Optional[str] = None
+
 
 class CommunicationInfo(CommunicationInfoV2):
     """Communication history summary."""
@@ -192,16 +225,15 @@ class IndustryInfo(BaseModel):
 class CaseContext(CaseContextV2):
     """Full case context for AI operations.
 
-    Accepts both V2 (``schema_version=2``) and V3 (``schema_version=3``)
-    payloads. ``extra="ignore"`` at the top level means V3-only fields
-    that aren't typed here are silently accepted; the typed V3 fields
-    below give downstream code (guardrails, prompt builders) typed access
-    when the caller is on V3.
+    Accepts V2 (``schema_version=2``), V3 (``schema_version=3``), and
+    transition V4/current datalake payloads. ``extra="ignore"`` at the
+    top level keeps old and new callers compatible while typed fields
+    below give downstream code stable access to the current context.
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    schema_version: Literal[2, 3] = 2
+    schema_version: Literal[2, 3, 4] = 2
     party: "PartyInfo"  # Forward ref resolved at module level
     behavior: Optional["BehaviorInfo"] = None  # Forward ref resolved at module level
     obligations: List[ObligationInfo] = Field(default_factory=list)
@@ -297,6 +329,46 @@ class CaseContext(CaseContextV2):
         pattern=r"^(single_lane)$",
     )
 
+    # Silver Application / Gold current-context lineage. These fields are
+    # optional during transition, but schema_version=4 requests must provide
+    # them before production draft generation.
+    context_version: Optional[str] = None
+    source_sync_run_id: Optional[str] = None
+    application_run_id: Optional[str] = None
+    core_snapshot_watermark: Optional[datetime | str] = None
+    application_snapshot_watermark: Optional[datetime | str] = None
+    application_decision_cutoff: Optional[datetime] = None
+    input_silver_version_ids_json: Optional[str] = None
+    input_silver_version_ids: Optional[List[str]] = Field(default_factory=list)
+    policy_snapshot_id: Optional[str] = None
+    draft_candidate_id: Optional[str] = None
+    draft_generation_run_id: Optional[str] = None
+    collection_basis: Optional[Literal["overdue", "outstanding", "invoice_date"]] = None
+    chase_basis: Optional[Literal["overdue", "outstanding", "invoice_date"]] = None
+    total_outstanding_amount: Optional[float] = None
+    total_overdue_amount: Optional[float] = None
+    outstanding_invoice_count: Optional[int] = None
+    overdue_invoice_count: Optional[int] = None
+
+    # Current projections supplied by the backend/context builder. Kept as
+    # dict/list payloads here so the AI repo stays stateless and additive.
+    party_communication_state_current: Optional[dict[str, Any]] = None
+    party_collection_state_current: Optional[dict[str, Any]] = None
+    party_behavior_profile_current: Optional[dict[str, Any]] = None
+    party_verification_state_current: Optional[dict[str, Any]] = None
+    obligation_collection_status_current: Optional[list[dict[str, Any]]] = None
+    verification_tasks_current: Optional[list[dict[str, Any]]] = None
+    payment_verifications_current: Optional[list[dict[str, Any]]] = None
+    payment_verification_obligations_current: Optional[list[dict[str, Any]]] = None
+    promise_history_current: Optional[list[dict[str, Any]]] = None
+    promise_obligations_current: Optional[list[dict[str, Any]]] = None
+    dispute_history_current: Optional[list[dict[str, Any]]] = None
+    dispute_obligations_current: Optional[list[dict[str, Any]]] = None
+    insolvency_history_current: Optional[list[dict[str, Any]]] = None
+    sender_selection_events_current: Optional[list[dict[str, Any]]] = None
+    recipient_selection_events_current: Optional[list[dict[str, Any]]] = None
+    sender_performance_current: Optional[dict[str, Any]] = None
+
     @model_validator(mode="before")
     @classmethod
     def hydrate_sparse_lane_contexts(cls, data: Any) -> Any:
@@ -371,7 +443,22 @@ class CaseContext(CaseContextV2):
             if not obligation.provider_type:
                 raise ValueError("obligations[].provider_type is required")
 
+        if self.schema_version == 4 and not (self.collection_basis or self.chase_basis):
+            self.collection_basis = "overdue"
+
         return self
+
+    def uses_current_datalake_contract(self) -> bool:
+        """Return True when the payload is using the current lake context."""
+        return self.schema_version == 4 or any(
+            (
+                self.source_sync_run_id,
+                self.application_run_id,
+                self.application_decision_cutoff,
+                self.draft_candidate_id,
+                self.policy_snapshot_id,
+            )
+        )
 
 
 # Import here to resolve forward references after all models are defined

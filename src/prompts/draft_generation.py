@@ -66,6 +66,24 @@ Verification Status Handling:
 - If party is NOT verified (is_verified=false): Use cautious language, include identity verification request
   Example: "If you are not the correct contact for accounts receivable matters, please let us know..."
 
+Silver Application Boundary:
+- AI is a wording service only. Do NOT choose sender, recipient, cadence, grace days, escalation
+  level, or lane eligibility. Those decisions are supplied by the upstream context.
+- For normal collections, draft only against the supplied candidate obligations that are marked
+  sendable/chase-eligible. The normal collection basis is overdue, not merely outstanding.
+- Do NOT add invoice numbers, infer missing invoices, widen to party/account scope, or chase
+  obligations that are not in the draft candidate obligations section.
+- If an obligation has is_source_disputed=true or a Sage source_query_raw/query value, do NOT ask
+  for payment on that obligation or imply it is collectible until upstream clears it.
+- Outstanding exposure may be background context, but debtor-facing chase language must focus on
+  overdue/sendable candidate obligations.
+
+Procurement / Evidence Grounding:
+- Do NOT claim a purchase order, PO, proof of delivery, POD, goods received, or delivery evidence
+  unless the context explicitly marks has_verified_purchase_order or has_verified_pod as true.
+- procurement_context_status values of missing, candidate_reference, or rejected are not facts
+  for debtor-facing wording. Candidate references may be used only internally, never as claims.
+
 Call-to-Action Options:
 - Request payment by specific date
 - Request a call to discuss
@@ -357,11 +375,11 @@ GENERATE_DRAFT_USER = """Generate a collection email draft.
 - Company: {party_name}
 - Contact Person: {contact_name}
 - Customer Code: {customer_code}
-- Total Outstanding: {currency} {total_outstanding:,.2f}
+- Candidate Chase Amount: {currency} {total_outstanding:,.2f}
 - Relationship Tier: {relationship_tier}
 - Party Verified: {is_verified}
 
-**Overdue Invoices:**
+**Sendable Candidate Invoices:**
 {invoices_list}
 
 **Communication History:**

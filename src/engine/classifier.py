@@ -48,9 +48,14 @@ from src.llm.schemas import ClassificationLLMResponse
 from src.prompts import CLASSIFY_EMAIL_SYSTEM, CLASSIFY_EMAIL_USER
 from src.prompts._sanitize import sanitize_delimiter_tags
 
+from .audit import build_ai_audit
 from .formatters import format_industry_context_for_classification, format_invoice_table
 
 logger = logging.getLogger(__name__)
+
+CLASSIFICATION_PROMPT_TEMPLATE_ID = "classification"
+CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "silver_application_v1"
+CLASSIFICATION_GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 
 class EmailClassifier:
@@ -232,6 +237,23 @@ class EmailClassifier:
             provider=response.provider,
             model=response.model,
             is_fallback=(response.provider != llm_client.primary_provider_name),
+            classification_evidence_only=True,
+            ai_audit=build_ai_audit(
+                response=response,
+                context=request.context,
+                prompt_template_id=CLASSIFICATION_PROMPT_TEMPLATE_ID,
+                prompt_template_version=CLASSIFICATION_PROMPT_TEMPLATE_VERSION,
+                system_prompt=CLASSIFY_EMAIL_SYSTEM,
+                user_prompt=user_prompt,
+                prompt_input={
+                    "context": request.context.model_dump(mode="json", exclude_none=True),
+                    "email": request.email.model_dump(mode="json", exclude_none=True),
+                },
+                guardrail_pipeline_version=CLASSIFICATION_GUARDRAIL_PIPELINE_VERSION,
+                token_count=tokens_used,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            ),
         )
 
 

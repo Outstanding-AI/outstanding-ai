@@ -113,7 +113,9 @@ async def refine_persona(
         "level": refine_request.level,
     }
     current_persona = refine_request.current_persona.model_dump()
-    performance = refine_request.performance.model_dump()
+    performance = (
+        refine_request.sender_performance_current or refine_request.performance.model_dump()
+    )
 
     result = await persona_generator.refine_persona(
         contact,

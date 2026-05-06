@@ -298,6 +298,7 @@ class PersonaGenerator:
             disputes_raised_after=performance.get("disputes_raised_after", 0),
             disputes_resolved=performance.get("disputes_resolved", 0),
             avg_days_between_touches=fmt(performance.get("avg_days_between_touches"), " days"),
+            sender_performance_current_section=self._format_sender_performance_current(performance),
         )
 
         response = await llm_client.complete(
@@ -338,6 +339,28 @@ class PersonaGenerator:
             "model": response.model,
             "is_fallback": getattr(response, "is_fallback", False),
         }
+
+    @staticmethod
+    def _format_sender_performance_current(performance: dict) -> str:
+        """Surface the current projection payload when provided by Silver Application."""
+        if not performance:
+            return "Not provided."
+        interesting_keys = [
+            "sender_performance_version_id",
+            "sender_id",
+            "sender_level",
+            "policy_snapshot_id",
+            "application_run_id",
+            "touch_count",
+            "response_rate",
+            "promise_fulfillment_rate",
+            "paid_in_full_rate",
+            "amount_collected_after",
+        ]
+        lines = [f"- {key}: {performance[key]}" for key in interesting_keys if key in performance]
+        if not lines:
+            lines = ["- Payload supplied; use it as the current Silver Application source."]
+        return "\n".join(lines)
 
 
 # Singleton instance used by the /generate-persona and /refine-persona

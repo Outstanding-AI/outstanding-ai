@@ -65,6 +65,9 @@ class TestProviderMetadata:
         assert result.provider == "vertex"
         assert result.model == "gemini-2.5-flash"
         assert result.is_fallback is False
+        assert result.classification_evidence_only is True
+        assert result.ai_audit is not None
+        assert result.ai_audit.prompt_template_id == "classification"
 
     @pytest.mark.asyncio
     async def test_generate_response_includes_metadata(self, sample_generate_draft_request):
@@ -112,6 +115,8 @@ class TestProviderMetadata:
         assert result.provider == "openai"
         assert result.model == "gpt-4o-mini"
         assert result.is_fallback is True
+        assert result.ai_audit is not None
+        assert result.ai_audit.prompt_template_id == "draft_generation"
 
     # test_gate_evaluation_returns_deterministic_metadata removed 2026-04-26 —
     # GateEvaluator + /evaluate-gates route deleted (gates moved to backend

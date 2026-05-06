@@ -24,6 +24,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+GUARDRAIL_RESULT_VERSION = "silver_application_v1"
+
 
 class GuardrailSeverity(Enum):
     """Severity levels for guardrail failures.
@@ -83,6 +85,7 @@ class GuardrailResult:
         return {
             "passed": self.passed,
             "guardrail": self.guardrail_name,
+            "guardrail_version": GUARDRAIL_RESULT_VERSION,
             "severity": self.severity.value,
             "message": self.message,
             "details": self.details,

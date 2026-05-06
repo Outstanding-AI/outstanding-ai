@@ -62,14 +62,16 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
         # Check extracted promise dates
         extracted_data = kwargs.get("extracted_data")
         if extracted_data and hasattr(extracted_data, "promise_date"):
-            results.append(self._validate_promise_date_is_future(extracted_data))
+            results.append(self._validate_promise_date_is_future(extracted_data, context))
 
         # Check mentioned due dates
         results.append(self._validate_due_dates(output, context))
 
         return results
 
-    def _validate_promise_date_is_future(self, extracted_data: ExtractedData) -> GuardrailResult:
+    def _validate_promise_date_is_future(
+        self, extracted_data: ExtractedData, context: CaseContext
+    ) -> GuardrailResult:
         """Validate that the extracted promise date is in the future.
 
         Allow today as valid.  Flag dates > 90 days out as unusual
@@ -78,7 +80,7 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
         if not extracted_data.promise_date:
             return self._pass(message="No promise date to validate")
 
-        today = date.today()
+        today = self._decision_date(context)
         promise_date = extracted_data.promise_date
 
         # Allow today as a valid promise date
@@ -114,6 +116,20 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
             details={"promise_date": str(promise_date), "days_future": days_future},
         )
 
+    @staticmethod
+    def _decision_date(context: CaseContext) -> date:
+        cutoff = getattr(context, "application_decision_cutoff", None)
+        if isinstance(cutoff, datetime):
+            return cutoff.date()
+        if isinstance(cutoff, date):
+            return cutoff
+        if isinstance(cutoff, str):
+            try:
+                return datetime.fromisoformat(cutoff.replace("Z", "+00:00")).date()
+            except ValueError:
+                pass
+        return date.today()
+
     def _validate_due_dates(self, output: str, context: CaseContext) -> GuardrailResult:
         """Validate that due dates mentioned in the output match obligations.
 
@@ -132,7 +148,11 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
         valid_due_dates = set()
         for o in context.obligations:
             try:
-                if isinstance(o.due_date, str):
+                if isinstance(o.due_date, datetime):
+                    valid_due_dates.add(o.due_date.date())
+                elif isinstance(o.due_date, date):
+                    valid_due_dates.add(o.due_date)
+                elif isinstance(o.due_date, str):
                     valid_due_dates.add(date.fromisoformat(o.due_date))
             except ValueError:
                 continue

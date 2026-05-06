@@ -66,7 +66,7 @@ def format_sender_persona(request) -> str:
     return "\n".join(lines)
 
 
-def build_extra_sections(request, behavior) -> str:
+def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
     """Build extended prompt sections for new context layers.
 
     Append optional context blocks to the user prompt:
@@ -76,12 +76,13 @@ def build_extra_sections(request, behavior) -> str:
     - Conversation history (recent inbound/outbound messages)
     - Tone preference override
     - Closure mode instructions
-    - Invoice table placeholder instructions
-    - Follow-up trigger classification guidance
+        - Invoice table placeholder instructions
+        - Follow-up trigger classification guidance
 
     Args:
         request: The generation request with full case context.
         behavior: Party behaviour profile (or None).
+        candidate_obligations: Upstream-sendable obligations for this draft.
 
     Returns:
         Concatenated string of all applicable prompt sections.
@@ -92,6 +93,66 @@ def build_extra_sections(request, behavior) -> str:
         tracking.tracking_status == "tracked"
         and tracking.send_confirmation_state in (None, "confirmed")
     )
+    candidate_obligations = candidate_obligations or []
+
+    if request.context.uses_current_datalake_contract():
+        sections.append(
+            "\n\n**Silver Application Decision Context:**\n"
+            f"- Source Sync Run: {request.context.source_sync_run_id}\n"
+            f"- Application Run: {request.context.application_run_id}\n"
+            f"- Core Snapshot Watermark: {request.context.core_snapshot_watermark}\n"
+            f"- Application Snapshot Watermark: {request.context.application_snapshot_watermark}\n"
+            f"- Decision Cutoff: {request.context.application_decision_cutoff}\n"
+            f"- Policy Snapshot: {request.context.policy_snapshot_id}\n"
+            f"- Draft Candidate: {request.context.draft_candidate_id}\n"
+            f"- Collection Basis: {request.context.chase_basis or request.context.collection_basis or 'overdue'}\n"
+            "- Upstream has already selected sender, recipient, cadence, grace policy, escalation level, and candidate obligations."
+        )
+
+    if candidate_obligations:
+        candidate_lines = []
+        for obligation in candidate_obligations:
+            inv = obligation.invoice_number or obligation.document_no or obligation.id
+            status_bits = [
+                f"id={obligation.id}",
+                f"is_overdue={getattr(obligation, 'is_overdue', None)}",
+                f"is_sendable={getattr(obligation, 'is_sendable', None)}",
+                f"is_chase_eligible={getattr(obligation, 'is_chase_eligible', None)}",
+            ]
+            procurement = getattr(obligation, "procurement_context_status", None)
+            if procurement:
+                status_bits.append(f"procurement_context_status={procurement}")
+            if getattr(obligation, "has_verified_purchase_order", False):
+                status_bits.append(
+                    "verified_po="
+                    + str(getattr(obligation, "purchase_order_reference", None) or True)
+                )
+            if getattr(obligation, "has_verified_pod", False):
+                status_bits.append(
+                    "verified_pod=" + str(getattr(obligation, "pod_reference", None) or True)
+                )
+            candidate_lines.append(f"- {inv}: " + ", ".join(status_bits))
+        sections.append(
+            "\n\n**Draft Candidate Obligations:**\n"
+            + "\n".join(candidate_lines)
+            + "\nUse only these obligations for collection wording. Do not add invoices or widen the scope."
+        )
+
+    excluded_lines = []
+    for obligation in getattr(request.context, "obligations", None) or []:
+        source_query = str(getattr(obligation, "source_query_raw", None) or "").strip()
+        if getattr(obligation, "is_source_disputed", False) or source_query:
+            inv = obligation.invoice_number or obligation.document_no or obligation.id
+            excluded_lines.append(
+                f"- {inv}: excluded, invoice dispute/source Sage query flag"
+                + (f" ({source_query})" if source_query else "")
+            )
+    if excluded_lines:
+        sections.append(
+            "\n\n**Excluded Source-Disputed Obligations:**\n"
+            + "\n".join(excluded_lines)
+            + "\nDo not ask for payment on these obligations unless the upstream context explicitly marks them cleared and sendable."
+        )
 
     # Behaviour segment
     if behavior and behavior.behaviour_segment:

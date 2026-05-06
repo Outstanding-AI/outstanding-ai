@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 from solvix_contracts.ai.context.v2 import CaseContextV2, ObligationInfoV2, PartyInfoV2
 
-from src.api.models.requests import CaseContext, ObligationInfo, PartyInfo
+from src.api.models.requests import CaseContext, GenerateDraftRequest, ObligationInfo, PartyInfo
 
 
 def _party(**overrides) -> PartyInfo:
@@ -102,9 +102,8 @@ def test_local_context_models_track_shared_contract_core():
         == CaseContextV2.model_fields["schema_version"].default
         == 2
     )
-    assert (
-        CaseContext.model_fields["schema_version"].annotation
-        == CaseContextV2.model_fields["schema_version"].annotation
+    assert set(CaseContext.model_fields["schema_version"].annotation.__args__) >= set(
+        CaseContextV2.model_fields["schema_version"].annotation.__args__
     )
     assert PartyInfo.model_config["extra"] == PartyInfoV2.model_config["extra"] == "forbid"
     assert (
@@ -112,3 +111,76 @@ def test_local_context_models_track_shared_contract_core():
     )
     for field_name in ("id", "external_id", "provider_type"):
         assert ObligationInfo.model_fields[field_name].is_required()
+
+
+def test_current_datalake_context_accepts_additive_obligation_fields():
+    context = CaseContext(
+        schema_version=4,
+        party=_party(),
+        obligations=[
+            _obligation(
+                silver_version_id="silver-core-obligation-v1",
+                document_no="INV-12345",
+                sage_transaction_urn="urn:sage:txn:12345",
+                is_outstanding=True,
+                is_overdue=True,
+                days_overdue=17,
+                effective_grace_days=3,
+                is_chase_eligible=True,
+                source_query_raw=None,
+                is_source_disputed=False,
+                procurement_context_status="verified",
+                has_verified_purchase_order=True,
+                purchase_order_reference="PO-55",
+            )
+        ],
+    )
+
+    assert context.schema_version == 4
+    assert context.collection_basis == "overdue"
+    assert context.obligations[0].silver_version_id == "silver-core-obligation-v1"
+    assert context.obligations[0].procurement_context_status == "verified"
+
+
+def test_current_datalake_generate_request_requires_lineage_and_recipient():
+    context = CaseContext(
+        schema_version=4,
+        party=_party(),
+        obligations=[
+            _obligation(
+                is_overdue=True,
+                is_sendable=True,
+                is_chase_eligible=True,
+            )
+        ],
+    )
+
+    with pytest.raises(ValidationError, match="required lineage"):
+        GenerateDraftRequest(context=context)
+
+
+def test_current_datalake_generate_request_rejects_all_blocked_candidates():
+    context = CaseContext(
+        schema_version=4,
+        party=_party(),
+        obligations=[
+            _obligation(
+                is_overdue=True,
+                is_sendable=True,
+                is_chase_eligible=True,
+                is_source_disputed=True,
+                source_query_raw="Query",
+            )
+        ],
+        debtor_contact={"email": "ap@example.com"},
+        source_sync_run_id="sync-1",
+        application_run_id="app-1",
+        core_snapshot_watermark="2026-05-01T00:00:00Z",
+        application_snapshot_watermark="2026-05-01T00:10:00Z",
+        application_decision_cutoff="2026-05-01T00:15:00Z",
+        policy_snapshot_id="policy-1",
+        draft_candidate_id="cand-1",
+    )
+
+    with pytest.raises(ValidationError, match="no eligible/sendable obligations"):
+        GenerateDraftRequest(context=context)

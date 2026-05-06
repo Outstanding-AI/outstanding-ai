@@ -5,7 +5,7 @@ Contains SenderPersona, PersonaContact, GeneratePersonaRequest,
 RefinePersonaRequest, SenderPerformanceStats, and SenderContext.
 """
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -71,6 +71,7 @@ class RefinePersonaRequest(BaseModel):
     level: int = Field(..., ge=1, le=4)
     current_persona: SenderPersona
     performance: SenderPerformanceStats
+    sender_performance_current: Optional[dict[str, Any]] = None
     persona_version: int = Field(default=0, ge=0)
     style_description: Optional[str] = Field(None, max_length=2000)
     style_examples: Optional[List[str]] = Field(default_factory=list)

@@ -145,3 +145,50 @@ class TestFactualGroundingGuardrail:
             results = guardrail.validate(output, sample_context)
             amount_result = results[1]
             assert amount_result.passed, f"Failed for: {output}"
+
+    def test_source_disputed_invoice_payment_ask_fails(self, sample_context):
+        """Sage query/source-disputed obligations cannot be chased."""
+        sample_context.obligations[0].is_source_disputed = True
+        sample_context.obligations[0].source_query_raw = "Queried in Sage"
+
+        results = FactualGroundingGuardrail().validate(
+            "Please pay invoice INV-12345 today.", sample_context
+        )
+
+        source_result = results[2]
+        assert not source_result.passed
+        assert "source-disputed" in source_result.message
+
+    def test_source_disputed_invoice_can_be_labelled_excluded(self, sample_context):
+        """Mentioning a source-disputed invoice as excluded is allowed."""
+        sample_context.obligations[0].is_source_disputed = True
+        sample_context.obligations[0].source_query_raw = "Queried in Sage"
+
+        results = FactualGroundingGuardrail().validate(
+            "Invoice INV-12345 is excluded due to an invoice dispute.", sample_context
+        )
+
+        assert results[2].passed
+
+    def test_unverified_procurement_claim_fails(self, sample_context):
+        """PO/POD claims require verified procurement flags."""
+        results = FactualGroundingGuardrail().validate(
+            "This invoice is backed by PO number PO-1 and proof of delivery.",
+            sample_context,
+        )
+
+        procurement_result = results[3]
+        assert not procurement_result.passed
+        assert "unverified procurement" in procurement_result.message
+
+    def test_verified_procurement_claim_passes(self, sample_context):
+        """Verified PO/POD context allows procurement wording."""
+        sample_context.obligations[0].has_verified_purchase_order = True
+        sample_context.obligations[0].has_verified_pod = True
+
+        results = FactualGroundingGuardrail().validate(
+            "This invoice is backed by PO number PO-1 and proof of delivery.",
+            sample_context,
+        )
+
+        assert results[3].passed

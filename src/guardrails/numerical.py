@@ -62,11 +62,14 @@ class NumericalConsistencyGuardrail(BaseGuardrail):
             ]
 
         results = []
-        results.append(self._validate_total_calculation(output, context))
-        results.append(self._validate_days_overdue(output, context))
+        scoped_obligations = self._scoped_obligations(context, kwargs)
+        results.append(self._validate_total_calculation(output, context, scoped_obligations))
+        results.append(self._validate_days_overdue(output, context, scoped_obligations))
         return results
 
-    def _validate_total_calculation(self, output: str, context: CaseContext) -> GuardrailResult:
+    def _validate_total_calculation(
+        self, output: str, context: CaseContext, obligations: list
+    ) -> GuardrailResult:
         """Validate that stated totals match calculated sums.
 
         Extract total-amount phrases from the draft using regex and
@@ -82,7 +85,11 @@ class NumericalConsistencyGuardrail(BaseGuardrail):
         ]
 
         # Calculate actual total
-        actual_total = sum(o.amount_due for o in context.obligations)
+        actual_total = sum(
+            (o.amount_due_base if getattr(o, "amount_due_base", None) is not None else o.amount_due)
+            or 0
+            for o in obligations
+        )
 
         # Find stated totals
         stated_totals = []
@@ -109,8 +116,15 @@ class NumericalConsistencyGuardrail(BaseGuardrail):
                         "calculated_total": actual_total,
                         "difference": abs(stated - actual_total),
                         "obligations": [
-                            {"invoice": o.invoice_number, "amount": o.amount_due}
-                            for o in context.obligations
+                            {
+                                "invoice": o.invoice_number,
+                                "amount": (
+                                    o.amount_due_base
+                                    if getattr(o, "amount_due_base", None) is not None
+                                    else o.amount_due
+                                ),
+                            }
+                            for o in obligations
                         ],
                     },
                 )
@@ -123,7 +137,9 @@ class NumericalConsistencyGuardrail(BaseGuardrail):
             },
         )
 
-    def _validate_days_overdue(self, output: str, context: CaseContext) -> GuardrailResult:
+    def _validate_days_overdue(
+        self, output: str, context: CaseContext, obligations: list
+    ) -> GuardrailResult:
         """Validate that days-overdue statements are accurate.
 
         Extract "N days overdue/past due/late" phrases and compare
@@ -138,7 +154,12 @@ class NumericalConsistencyGuardrail(BaseGuardrail):
         ]
 
         # Get valid days overdue from context
-        valid_days = {o.days_past_due for o in context.obligations}
+        valid_days = {
+            getattr(o, "days_overdue", None)
+            if getattr(o, "days_overdue", None) is not None
+            else o.days_past_due
+            for o in obligations
+        }
 
         # Also add max days overdue (commonly referenced)
         max_days = max(valid_days) if valid_days else 0
@@ -169,3 +190,14 @@ class NumericalConsistencyGuardrail(BaseGuardrail):
             message="Days overdue calculations validated",
             details={"valid_days": sorted(valid_days)},
         )
+
+    @staticmethod
+    def _scoped_obligations(context: CaseContext, kwargs: dict) -> list:
+        candidate_ids = {str(value) for value in (kwargs.get("candidate_obligation_ids") or [])}
+        if not candidate_ids:
+            return list(context.obligations)
+        return [
+            obligation
+            for obligation in context.obligations
+            if str(getattr(obligation, "id", "") or "") in candidate_ids
+        ]
