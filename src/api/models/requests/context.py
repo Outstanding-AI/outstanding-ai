@@ -225,10 +225,9 @@ class IndustryInfo(BaseModel):
 class CaseContext(CaseContextV2):
     """Full case context for AI operations.
 
-    Accepts V2 (``schema_version=2``), V3 (``schema_version=3``), and
-    transition V4/current datalake payloads. ``extra="ignore"`` at the
-    top level keeps old and new callers compatible while typed fields
-    below give downstream code stable access to the current context.
+    Parses legacy classification contexts plus V4/current datalake payloads.
+    Draft-generation routes require V4 and reject older payloads before a
+    model call can be made.
     """
 
     model_config = ConfigDict(extra="ignore")
