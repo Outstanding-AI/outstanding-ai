@@ -151,6 +151,17 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert reader.execute_calls[1][1] == ["tenant-1", "party-1"]
     assert reader.execute_calls[2][1] == ["tenant-1", "lane-1"]
 
+    all_sql = "\n".join(
+        [sql for sql, _ in reader.execute_one_calls] + [sql for sql, _ in reader.execute_calls]
+    )
+    assert "ROW_NUMBER()" not in all_sql
+    assert "parties_current" in all_sql
+    assert "party_contacts_current" in all_sql
+    assert "obligations_current" in all_sql
+    assert "collection_lanes_current" in all_sql
+    assert "collection_lane_invoices_current" in all_sql
+    assert "collection_lane_history_current" in all_sql
+
 
 def test_hydrate_candidate_fails_closed_when_party_missing() -> None:
     reader = _FakeReader()

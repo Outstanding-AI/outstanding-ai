@@ -31,12 +31,19 @@ class LakeReader(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
-def _dedup_cte(table: str, alias: str, *, partition_by: str = "id") -> str:
-    return (
-        f"(SELECT *, ROW_NUMBER() OVER (PARTITION BY {partition_by} "
-        f"ORDER BY updated_at DESC NULLS LAST) AS _rn "
-        f"FROM {table} WHERE tenant_id = %s) {alias}"
-    )
+_CURRENT_PROJECTIONS = {
+    "parties": "parties_current",
+    "party_contacts": "party_contacts_current",
+    "obligations": "obligations_current",
+    "collection_lanes": "collection_lanes_current",
+    "collection_lane_invoices": "collection_lane_invoices_current",
+    "collection_lane_history": "collection_lane_history_current",
+}
+
+
+def _current_projection(table: str, alias: str) -> str:
+    projection = _CURRENT_PROJECTIONS[table]
+    return f"(SELECT * FROM {projection} WHERE tenant_id = %s) {alias}"
 
 
 def _json_value(value: Any, *, fallback: Any) -> Any:
@@ -180,9 +187,8 @@ class CaseContextHydrator:
         row = self.reader.execute_one(
             f"""
             SELECT p.*
-            FROM {_dedup_cte("parties", "p")}
-            WHERE p._rn = 1
-              AND p.id = %s
+            FROM {_current_projection("parties", "p")}
+            WHERE p.id = %s
             """,
             [self.tenant_id, party_id],
         )
@@ -194,9 +200,8 @@ class CaseContextHydrator:
         row = self.reader.execute_one(
             f"""
             SELECT lane.*
-            FROM {_dedup_cte("collection_lanes", "lane")}
-            WHERE lane._rn = 1
-              AND lane.id = %s
+            FROM {_current_projection("collection_lanes", "lane")}
+            WHERE COALESCE(lane.lane_id, lane.id) = %s
             """,
             [self.tenant_id, lane_id],
         )
@@ -225,14 +230,12 @@ class CaseContextHydrator:
                 o.due_date,
                 o.days_past_due,
                 o.state
-            FROM {_dedup_cte("collection_lane_invoices", "li")}
-            JOIN {_dedup_cte("obligations", "o")}
-              ON o._rn = 1
-             AND li.obligation_id = o.id
+            FROM {_current_projection("collection_lane_invoices", "li")}
+            JOIN {_current_projection("obligations", "o")}
+              ON li.obligation_id = o.id
              AND li.tenant_id = o.tenant_id
-            WHERE li._rn = 1
-              AND li.collection_lane_id = %s
-              AND li.status = %s
+            WHERE COALESCE(li.lane_id, li.collection_lane_id) = %s
+              AND COALESCE(li.status, li.lane_invoice_status, 'open') = %s
             ORDER BY o.days_past_due DESC NULLS LAST, o.invoice_number
             """,
             [self.tenant_id, self.tenant_id, lane_id, "open"],
@@ -253,10 +256,9 @@ class CaseContextHydrator:
                 h.thread_id,
                 h.detail_json,
                 h.created_at
-            FROM {_dedup_cte("collection_lane_history", "h")}
-            WHERE h._rn = 1
-              AND h.collection_lane_id = %s
-            ORDER BY h.created_at DESC NULLS LAST
+            FROM {_current_projection("collection_lane_history", "h")}
+            WHERE COALESCE(h.lane_id, h.collection_lane_id) = %s
+            ORDER BY COALESCE(h.event_time, h.created_at, h.valid_from) DESC NULLS LAST
             LIMIT 25
             """,
             [self.tenant_id, lane_id],
@@ -288,9 +290,8 @@ class CaseContextHydrator:
                 c.is_active,
                 c.email_valid,
                 c.source
-            FROM {_dedup_cte("party_contacts", "c")}
-            WHERE c._rn = 1
-              AND c.party_id = %s
+            FROM {_current_projection("party_contacts", "c")}
+            WHERE c.party_id = %s
               AND COALESCE(c.is_active, TRUE) = TRUE
               AND COALESCE(c.email_valid, TRUE) = TRUE
               AND c.email IS NOT NULL
