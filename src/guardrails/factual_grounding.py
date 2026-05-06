@@ -14,6 +14,7 @@ import re
 from src.api.models.requests import CaseContext
 
 from .base import BaseGuardrail, GuardrailResult, GuardrailSeverity
+from .lane_scope import _bare_digit_form, _normalize_invoice_ref
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,25 @@ CHASE_LANGUAGE_RE = re.compile(
 )
 
 
-def _numeric_ref(value: str) -> str:
-    match = re.search(r"\d+", str(value or ""))
-    return match.group() if match else ""
+def _loose_alnum_pattern(normalized_ref: str) -> str:
+    return r"[\W_]*".join(re.escape(ch) for ch in normalized_ref)
+
+
+def _segment_mentions_invoice_ref(segment: str, invoice_ref: str) -> bool:
+    normalized_ref = _normalize_invoice_ref(invoice_ref)
+    if not normalized_ref:
+        return False
+    if re.search(
+        rf"(?<![A-Z0-9]){_loose_alnum_pattern(normalized_ref)}(?![A-Z0-9])",
+        segment,
+        re.IGNORECASE,
+    ):
+        return True
+
+    bare_digits = _bare_digit_form(invoice_ref)
+    if bare_digits and re.search(rf"(?<!\d){re.escape(bare_digits)}(?!\d)", segment):
+        return True
+    return False
 
 
 def _segments(text: str) -> list[str]:
@@ -120,13 +137,10 @@ class FactualGroundingGuardrail(BaseGuardrail):
         # Get valid invoice numbers from context (skip empty/null invoice numbers)
         valid_invoices = {o.invoice_number.upper() for o in context.obligations if o.invoice_number}
 
-        # Also create a set of just the numeric parts for flexible matching
-        valid_invoice_numbers = set()
-        for inv in valid_invoices:
-            # Extract numeric portion
-            match = re.search(r"\d+", inv)
-            if match:
-                valid_invoice_numbers.add(match.group())
+        valid_invoice_refs = {_normalize_invoice_ref(inv) for inv in valid_invoices}
+        valid_invoice_numbers = {
+            _bare_digit_form(inv) for inv in valid_invoices if _bare_digit_form(inv)
+        }
 
         # Find all invoice references in output
         found_invoices = set()
@@ -147,11 +161,10 @@ class FactualGroundingGuardrail(BaseGuardrail):
         invalid_invoices = []
         for found_inv in found_invoices:
             found_inv_str = str(found_inv).upper()
-            # Check if it matches valid invoice or its numeric portion
-            is_valid = (
-                found_inv_str in valid_invoices
-                or any(found_inv_str in valid for valid in valid_invoices)
-                or found_inv_str in valid_invoice_numbers
+            normalized_found = _normalize_invoice_ref(found_inv_str)
+            found_digits = _bare_digit_form(found_inv_str)
+            is_valid = normalized_found in valid_invoice_refs or (
+                bool(found_digits) and found_digits in valid_invoice_numbers
             )
             if not is_valid:
                 invalid_invoices.append(found_inv_str)
@@ -317,14 +330,10 @@ class FactualGroundingGuardrail(BaseGuardrail):
     @staticmethod
     def _chases_invoice_ref(output: str, invoice_ref: str) -> bool:
         """Return True only when chase words occur in the same sentence as the ref."""
-        invoice_upper = str(invoice_ref or "").upper()
-        numeric_ref = _numeric_ref(invoice_ref)
         for segment in _segments(output):
-            segment_upper = segment.upper()
-            mentions_ref = invoice_upper in segment_upper or (
-                bool(numeric_ref) and numeric_ref in segment_upper
-            )
-            if mentions_ref and CHASE_LANGUAGE_RE.search(segment):
+            if _segment_mentions_invoice_ref(segment, invoice_ref) and CHASE_LANGUAGE_RE.search(
+                segment
+            ):
                 return True
         return False
 

@@ -71,6 +71,16 @@ class TestFactualGroundingGuardrail:
         # The guardrail extracts just the numeric part from patterns
         assert "99999" in str(invoice_result.details.get("invalid_invoices", []))
 
+    def test_invoice_digit_prefix_does_not_validate(self, sample_context):
+        """Invoice 1234 is not grounded by INV-12345."""
+        guardrail = FactualGroundingGuardrail()
+        sample_context.obligations = [sample_context.obligations[0]]
+
+        results = guardrail.validate("Please pay invoice 1234 today.", sample_context)
+
+        assert not results[0].passed
+        assert "1234" in str(results[0].details.get("invalid_invoices", []))
+
     def test_valid_amounts_pass(self, sample_context):
         """Test that valid amounts pass validation."""
         guardrail = FactualGroundingGuardrail()
@@ -177,6 +187,22 @@ class TestFactualGroundingGuardrail:
 
         results = FactualGroundingGuardrail().validate(
             "Invoice INV-12345 is excluded due to an invoice query. Please pay invoice INV-12346.",
+            sample_context,
+        )
+
+        assert results[2].passed
+
+    def test_source_disputed_invoice_digit_prefix_does_not_block_clean_invoice(
+        self, sample_context
+    ):
+        """A source-disputed INV-1234 must not match a chase for INV-12345."""
+        sample_context.obligations[0].invoice_number = "INV-1234"
+        sample_context.obligations[0].is_source_disputed = True
+        sample_context.obligations[0].source_query_raw = "Queried in Sage"
+        sample_context.obligations[1].invoice_number = "INV-12345"
+
+        results = FactualGroundingGuardrail().validate(
+            "Please pay invoice INV-12345 today.",
             sample_context,
         )
 

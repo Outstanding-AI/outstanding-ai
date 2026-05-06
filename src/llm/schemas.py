@@ -5,6 +5,7 @@ These models ensure type safety when parsing LLM outputs and provide
 clear error messages when the LLM returns malformed data.
 """
 
+import re
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -25,6 +26,10 @@ MATERIAL_SCOPE_INTENTS = frozenset(
         "RETENTION_CLAIM",
     }
 )
+
+
+def _normalize_invoice_ref(value: object) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
 
 class LLMExtractedData(BaseModel):
@@ -178,7 +183,7 @@ class ClassificationLLMResponse(BaseModel):
             if not detail.extracted_data or not detail.extracted_data.invoice_refs:
                 continue
             for raw_ref in detail.extracted_data.invoice_refs:
-                invoice_ref = str(raw_ref or "").strip().upper()
+                invoice_ref = _normalize_invoice_ref(raw_ref)
                 if not invoice_ref:
                     continue
                 previous_intent = seen_invoice_refs.get(invoice_ref)

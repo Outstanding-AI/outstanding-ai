@@ -34,3 +34,21 @@ def test_intent_details_reject_shared_invoice_refs_across_intents():
                 },
             ],
         )
+
+
+def test_intent_details_reject_shared_invoice_refs_after_normalization():
+    with pytest.raises(ValueError, match="appears in multiple intent_details"):
+        ClassificationLLMResponse(
+            classification="ALREADY_PAID",
+            confidence=0.9,
+            intent_details=[
+                {
+                    "intent": "ALREADY_PAID",
+                    "extracted_data": {"invoice_refs": ["INV-001"], "claimed_reference": "PAY-1"},
+                },
+                {
+                    "intent": "PROMISE_TO_PAY",
+                    "extracted_data": {"invoice_refs": ["INV 001"], "promise_date": "2026-05-20"},
+                },
+            ],
+        )
