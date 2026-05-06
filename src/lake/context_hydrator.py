@@ -31,18 +31,15 @@ class LakeReader(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
-_CURRENT_PROJECTIONS = {
-    "parties": "parties_current",
-    "party_contacts": "party_contacts_current",
-    "obligations": "obligations_current",
-    "collection_lanes": "collection_lanes_current",
-    "collection_lane_invoices": "collection_lane_invoices_current",
-    "collection_lane_history": "collection_lane_history_current",
-}
+PARTIES_CURRENT = "parties_current"
+PARTY_CONTACTS_CURRENT = "party_contacts_current"
+OBLIGATIONS_CURRENT = "obligations_current"
+COLLECTION_LANES_CURRENT = "collection_lanes_current"
+COLLECTION_LANE_INVOICES_CURRENT = "collection_lane_invoices_current"
+COLLECTION_LANE_HISTORY_CURRENT = "collection_lane_history_current"
 
 
-def _current_projection(table: str, alias: str) -> str:
-    projection = _CURRENT_PROJECTIONS[table]
+def _current_projection(projection: str, alias: str) -> str:
     return f"(SELECT * FROM {projection} WHERE tenant_id = %s) {alias}"
 
 
@@ -187,7 +184,7 @@ class CaseContextHydrator:
         row = self.reader.execute_one(
             f"""
             SELECT p.*
-            FROM {_current_projection("parties", "p")}
+            FROM {_current_projection(PARTIES_CURRENT, "p")}
             WHERE p.id = %s
             """,
             [self.tenant_id, party_id],
@@ -200,7 +197,7 @@ class CaseContextHydrator:
         row = self.reader.execute_one(
             f"""
             SELECT lane.*
-            FROM {_current_projection("collection_lanes", "lane")}
+            FROM {_current_projection(COLLECTION_LANES_CURRENT, "lane")}
             WHERE COALESCE(lane.lane_id, lane.id) = %s
             """,
             [self.tenant_id, lane_id],
@@ -229,9 +226,29 @@ class CaseContextHydrator:
                 o.document_to_base_rate,
                 o.due_date,
                 o.days_past_due,
-                o.state
-            FROM {_current_projection("collection_lane_invoices", "li")}
-            JOIN {_current_projection("obligations", "o")}
+                o.state,
+                o.silver_version_id,
+                o.document_no,
+                o.document_currency_code,
+                COALESCE(li.is_outstanding, o.amount_due > 0) AS is_outstanding,
+                COALESCE(li.is_overdue, o.days_past_due > 0) AS is_overdue,
+                COALESCE(li.days_overdue, o.days_past_due, 0) AS days_overdue,
+                COALESCE(li.effective_grace_days, 0) AS effective_grace_days,
+                COALESCE(
+                    li.is_source_disputed,
+                    o.is_source_disputed,
+                    o.has_source_query_flag,
+                    FALSE
+                ) AS is_source_disputed,
+                COALESCE(o.has_source_query_flag, li.is_source_disputed, FALSE) AS has_source_query_flag,
+                COALESCE(li.source_query_raw, o.source_query_raw) AS source_query_raw,
+                COALESCE(li.source_dispute_type, o.source_dispute_type) AS source_dispute_type,
+                COALESCE(
+                    li.source_dispute_observed_from,
+                    o.source_dispute_observed_from
+                ) AS source_dispute_observed_from
+            FROM {_current_projection(COLLECTION_LANE_INVOICES_CURRENT, "li")}
+            JOIN {_current_projection(OBLIGATIONS_CURRENT, "o")}
               ON li.obligation_id = o.id
              AND li.tenant_id = o.tenant_id
             WHERE COALESCE(li.lane_id, li.collection_lane_id) = %s
@@ -256,7 +273,7 @@ class CaseContextHydrator:
                 h.thread_id,
                 h.detail_json,
                 h.created_at
-            FROM {_current_projection("collection_lane_history", "h")}
+            FROM {_current_projection(COLLECTION_LANE_HISTORY_CURRENT, "h")}
             WHERE COALESCE(h.lane_id, h.collection_lane_id) = %s
             ORDER BY COALESCE(h.event_time, h.created_at, h.valid_from) DESC NULLS LAST
             LIMIT 25
@@ -290,7 +307,7 @@ class CaseContextHydrator:
                 c.is_active,
                 c.email_valid,
                 c.source
-            FROM {_current_projection("party_contacts", "c")}
+            FROM {_current_projection(PARTY_CONTACTS_CURRENT, "c")}
             WHERE c.party_id = %s
               AND COALESCE(c.is_active, TRUE) = TRUE
               AND COALESCE(c.email_valid, TRUE) = TRUE
@@ -363,6 +380,12 @@ class CaseContextHydrator:
 
     @staticmethod
     def _obligation_info(row: dict[str, Any]) -> ObligationInfo:
+        amount_due = float(row.get("amount_due") or 0)
+        days_overdue = int(row.get("days_overdue") or row.get("days_past_due") or 0)
+        is_source_disputed = bool(row.get("is_source_disputed")) or bool(row.get("source_query_raw"))
+        is_outstanding = bool(row.get("is_outstanding")) if row.get("is_outstanding") is not None else amount_due > 0
+        is_overdue = bool(row.get("is_overdue")) if row.get("is_overdue") is not None else days_overdue > 0
+        is_chase_eligible = is_outstanding and is_overdue and not is_source_disputed
         return ObligationInfo(
             id=str(row["id"]),
             external_id=str(row.get("external_id") or row["id"]),
@@ -373,23 +396,26 @@ class CaseContextHydrator:
             original_amount_base=row.get("original_amount_base"),
             allocated_amount=row.get("allocated_amount"),
             allocated_amount_base=row.get("allocated_amount_base"),
-            amount_due=float(row.get("amount_due") or 0),
+            amount_due=amount_due,
             amount_due_base=row.get("amount_due_base"),
             currency=row.get("currency"),
             base_currency=row.get("base_currency"),
             document_to_base_rate=row.get("document_to_base_rate"),
             due_date=_date_string(row.get("due_date")),
-            days_past_due=int(row.get("days_past_due") or 0),
+            days_past_due=int(row.get("days_past_due") or days_overdue),
             state=row.get("state") or "open",
             silver_version_id=row.get("silver_version_id"),
             document_no=row.get("document_no"),
             document_currency_code=row.get("document_currency_code") or row.get("currency"),
-            is_outstanding=float(row.get("amount_due") or 0) > 0,
-            is_overdue=int(row.get("days_past_due") or 0) > 0,
-            days_overdue=int(row.get("days_past_due") or 0),
-            effective_grace_days=0,
-            is_sendable=float(row.get("amount_due") or 0) > 0
-            and int(row.get("days_past_due") or 0) > 0,
-            is_chase_eligible=float(row.get("amount_due") or 0) > 0
-            and int(row.get("days_past_due") or 0) > 0,
+            is_outstanding=is_outstanding,
+            is_overdue=is_overdue,
+            days_overdue=days_overdue,
+            effective_grace_days=int(row.get("effective_grace_days") or 0),
+            is_sendable=is_chase_eligible,
+            is_chase_eligible=is_chase_eligible,
+            source_query_raw=row.get("source_query_raw"),
+            has_source_query_flag=bool(row.get("has_source_query_flag")),
+            is_source_disputed=is_source_disputed,
+            source_dispute_type=row.get("source_dispute_type"),
+            source_dispute_observed_from=row.get("source_dispute_observed_from"),
         )

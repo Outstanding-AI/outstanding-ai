@@ -161,6 +161,33 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert "collection_lanes_current" in all_sql
     assert "collection_lane_invoices_current" in all_sql
     assert "collection_lane_history_current" in all_sql
+    assert "source_query_raw" in all_sql
+    assert "is_source_disputed" in all_sql
+
+
+def test_hydrate_candidate_preserves_source_query_blocks() -> None:
+    reader = _FakeReader()
+    reader.obligations[0].update(
+        {
+            "is_source_disputed": True,
+            "has_source_query_flag": True,
+            "source_query_raw": "Queried in Sage",
+            "source_dispute_type": "invoice_query",
+            "source_dispute_observed_from": "sales_posted_transactions",
+        }
+    )
+
+    context = CaseContextHydrator("tenant-1", reader).hydrate_candidate(_candidate())
+    obligation = context.obligations[0]
+
+    assert obligation.is_source_disputed is True
+    assert obligation.has_source_query_flag is True
+    assert obligation.source_query_raw == "Queried in Sage"
+    assert obligation.source_dispute_type == "invoice_query"
+    assert obligation.source_dispute_observed_from == "sales_posted_transactions"
+    assert obligation.is_sendable is False
+    assert obligation.is_chase_eligible is False
+    assert context.sendable_obligation_ids == []
 
 
 def test_hydrate_candidate_fails_closed_when_party_missing() -> None:
