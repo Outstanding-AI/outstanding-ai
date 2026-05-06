@@ -31,12 +31,12 @@ class LakeReader(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
-PARTIES_CURRENT = "parties_current"
-PARTY_CONTACTS_CURRENT = "party_contacts_current"
-OBLIGATIONS_CURRENT = "obligations_current"
-COLLECTION_LANES_CURRENT = "collection_lanes_current"
-COLLECTION_LANE_INVOICES_CURRENT = "collection_lane_invoices_current"
-COLLECTION_LANE_HISTORY_CURRENT = "collection_lane_history_current"
+PARTIES_CURRENT = "silver_core_parties_current"
+PARTY_CONTACTS_CURRENT = "silver_core_party_contacts_current"
+OBLIGATIONS_CURRENT = "silver_core_obligations_current"
+COLLECTION_LANES_CURRENT = "silver_app_collection_lanes_current"
+COLLECTION_LANE_INVOICES_CURRENT = "silver_app_collection_lane_invoices_current"
+COLLECTION_LANE_HISTORY_CURRENT = "silver_app_collection_lane_history_current"
 
 
 def _current_projection(projection: str, alias: str) -> str:
@@ -54,6 +54,12 @@ def _json_value(value: Any, *, fallback: Any) -> Any:
         except json.JSONDecodeError:
             return fallback
     return fallback
+
+
+def _int_or_default(value: Any, default: int) -> int:
+    if value in (None, ""):
+        return default
+    return int(value)
 
 
 def _date_string(value: Any) -> str | None:
@@ -137,7 +143,7 @@ class CaseContextHydrator:
             hardship_indicated=bool(party.get("hardship_indicated")),
             brand_tone=party.get("tone_override") or "professional",
             touch_cap=int(party.get("touch_cap_override") or 10),
-            grace_days=int(party.get("grace_days_override") or 14),
+            grace_days=_int_or_default(party.get("grace_days_override"), 0),
             do_not_contact_until=_date_string(party.get("do_not_contact_until")),
             monthly_touch_count=int(party.get("monthly_touch_count") or 0),
             relationship_tier=party.get("relationship_tier") or "standard",
@@ -382,9 +388,17 @@ class CaseContextHydrator:
     def _obligation_info(row: dict[str, Any]) -> ObligationInfo:
         amount_due = float(row.get("amount_due") or 0)
         days_overdue = int(row.get("days_overdue") or row.get("days_past_due") or 0)
-        is_source_disputed = bool(row.get("is_source_disputed")) or bool(row.get("source_query_raw"))
-        is_outstanding = bool(row.get("is_outstanding")) if row.get("is_outstanding") is not None else amount_due > 0
-        is_overdue = bool(row.get("is_overdue")) if row.get("is_overdue") is not None else days_overdue > 0
+        is_source_disputed = bool(row.get("is_source_disputed")) or bool(
+            row.get("source_query_raw")
+        )
+        is_outstanding = (
+            bool(row.get("is_outstanding"))
+            if row.get("is_outstanding") is not None
+            else amount_due > 0
+        )
+        is_overdue = (
+            bool(row.get("is_overdue")) if row.get("is_overdue") is not None else days_overdue > 0
+        )
         is_chase_eligible = is_outstanding and is_overdue and not is_source_disputed
         return ObligationInfo(
             id=str(row["id"]),

@@ -271,7 +271,7 @@ class CaseContext(CaseContextV2):
     )  # Effective: party.tone_override OR tenant.brand_tone
     touch_cap: int = 10  # Effective: party.touch_cap_override OR tenant.touch_cap
     touch_interval_days: int = 3
-    grace_days: int = 14  # Effective: party.grace_days_override OR tenant.grace_days
+    grace_days: int = 0  # Effective: party.grace_days_override OR tenant.grace_days
 
     # Promise verification settings
     promise_grace_days: int = 3
@@ -357,12 +357,12 @@ class CaseContext(CaseContextV2):
     party_behavior_profile_current: Optional[dict[str, Any]] = None
     party_verification_state_current: Optional[dict[str, Any]] = None
     obligation_collection_status_current: Optional[list[dict[str, Any]]] = None
-    verification_tasks_current: Optional[list[dict[str, Any]]] = None
-    payment_verifications_current: Optional[list[dict[str, Any]]] = None
+    silver_app_verification_tasks_current: Optional[list[dict[str, Any]]] = None
+    silver_app_payment_verifications_current: Optional[list[dict[str, Any]]] = None
     payment_verification_obligations_current: Optional[list[dict[str, Any]]] = None
-    promise_history_current: Optional[list[dict[str, Any]]] = None
+    silver_app_promise_history_current: Optional[list[dict[str, Any]]] = None
     promise_obligations_current: Optional[list[dict[str, Any]]] = None
-    dispute_history_current: Optional[list[dict[str, Any]]] = None
+    silver_app_dispute_history_current: Optional[list[dict[str, Any]]] = None
     dispute_obligations_current: Optional[list[dict[str, Any]]] = None
     insolvency_history_current: Optional[list[dict[str, Any]]] = None
     sender_selection_events_current: Optional[list[dict[str, Any]]] = None

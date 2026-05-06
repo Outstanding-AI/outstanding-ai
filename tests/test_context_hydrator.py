@@ -155,12 +155,12 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
         [sql for sql, _ in reader.execute_one_calls] + [sql for sql, _ in reader.execute_calls]
     )
     assert "ROW_NUMBER()" not in all_sql
-    assert "parties_current" in all_sql
-    assert "party_contacts_current" in all_sql
-    assert "obligations_current" in all_sql
-    assert "collection_lanes_current" in all_sql
-    assert "collection_lane_invoices_current" in all_sql
-    assert "collection_lane_history_current" in all_sql
+    assert "silver_core_parties_current" in all_sql
+    assert "silver_core_party_contacts_current" in all_sql
+    assert "silver_core_obligations_current" in all_sql
+    assert "silver_app_collection_lanes_current" in all_sql
+    assert "silver_app_collection_lane_invoices_current" in all_sql
+    assert "silver_app_collection_lane_history_current" in all_sql
     assert "source_query_raw" in all_sql
     assert "is_source_disputed" in all_sql
 
