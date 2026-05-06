@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Protocol
 
 from src.api.models.requests import (
@@ -73,6 +73,31 @@ class CaseContextHydrator:
         obligations = self._load_lane_obligations(candidate.lane_id)
         lane_invoice_refs = [str(row.invoice_number) for row in obligations if row.invoice_number]
         base_currency = party.get("base_currency") or party.get("currency") or "GBP"
+        party_contacts = self._load_party_contacts(candidate.party_id)
+        debtor_contact = party_contacts[0] if party_contacts else None
+        decision_time = (
+            lane.get("updated_at")
+            or lane.get("valid_from")
+            or party.get("updated_at")
+            or datetime.now(timezone.utc)
+        )
+        sendable_obligation_ids = [
+            obligation.id for obligation in obligations if obligation.is_sendable is not False
+        ]
+        input_silver_version_ids = [
+            str(value)
+            for value in (
+                [party.get("silver_version_id"), lane.get("application_version_id")]
+                + [getattr(obligation, "silver_version_id", None) for obligation in obligations]
+            )
+            if value
+        ]
+        total_outstanding = sum(float(obligation.amount_due or 0) for obligation in obligations)
+        total_overdue = sum(
+            float(obligation.amount_due or 0)
+            for obligation in obligations
+            if getattr(obligation, "is_overdue", False)
+        )
 
         current_level = int(lane.get("current_level") or lane.get("entry_level") or 0)
         lane_context = {
@@ -94,7 +119,7 @@ class CaseContextHydrator:
         }
 
         return CaseContext(
-            schema_version=2,
+            schema_version=4,
             party=self._party_info(party),
             behavior=self._behavior_info(party),
             obligations=obligations,
@@ -117,11 +142,38 @@ class CaseContextHydrator:
             lane=lane_context,
             lane_history=self._load_lane_history(candidate.lane_id),
             lane_mail_mode="single_lane",
-            sendable_obligation_ids=[obligation.id for obligation in obligations],
+            sendable_obligation_ids=sendable_obligation_ids,
             lane_broken_promises_count=int(party.get("broken_promises_count") or 0),
             lane_last_tone_used=party.get("last_tone_used"),
             lane_contexts=[sparse_lane_context],
             mode="single_lane",
+            debtor_contact=debtor_contact,
+            party_contacts=party_contacts,
+            context_version="v4",
+            source_sync_run_id=str(candidate.sync_run_id),
+            application_run_id=str(
+                lane.get("application_run_id") or f"app:{candidate.sync_run_id}"
+            ),
+            core_snapshot_watermark=party.get("silver_valid_from")
+            or party.get("updated_at")
+            or decision_time,
+            application_snapshot_watermark=lane.get("valid_from") or decision_time,
+            application_decision_cutoff=decision_time,
+            input_silver_version_ids=input_silver_version_ids,
+            policy_snapshot_id=str(lane.get("policy_snapshot_id") or ""),
+            draft_candidate_id=str(candidate.candidate_id),
+            collection_basis=str(
+                lane.get("collection_basis") or lane.get("chase_basis") or "overdue"
+            ),
+            chase_basis=str(lane.get("chase_basis") or lane.get("collection_basis") or "overdue"),
+            total_outstanding_amount=total_outstanding,
+            total_overdue_amount=total_overdue,
+            outstanding_invoice_count=sum(
+                1 for obligation in obligations if getattr(obligation, "is_outstanding", True)
+            ),
+            overdue_invoice_count=sum(
+                1 for obligation in obligations if getattr(obligation, "is_overdue", False)
+            ),
         )
 
     def _load_party(self, party_id: str) -> dict[str, Any]:
@@ -225,6 +277,40 @@ class CaseContextHydrator:
             for row in reversed(rows)
         ]
 
+    def _load_party_contacts(self, party_id: str) -> list[dict[str, Any]]:
+        rows = self.reader.execute(
+            f"""
+            SELECT
+                c.id,
+                c.name,
+                c.email,
+                c.is_default,
+                c.is_active,
+                c.email_valid,
+                c.source
+            FROM {_dedup_cte("party_contacts", "c")}
+            WHERE c._rn = 1
+              AND c.party_id = %s
+              AND COALESCE(c.is_active, TRUE) = TRUE
+              AND COALESCE(c.email_valid, TRUE) = TRUE
+              AND c.email IS NOT NULL
+            ORDER BY COALESCE(c.is_default, FALSE) DESC, c.updated_at DESC NULLS LAST
+            LIMIT 10
+            """,
+            [self.tenant_id, party_id],
+        )
+        return [
+            {
+                "party_contact_id": str(row.get("id")) if row.get("id") else None,
+                "name": row.get("name"),
+                "email": row.get("email"),
+                "is_default": bool(row.get("is_default")),
+                "source": row.get("source"),
+            }
+            for row in rows
+            if row.get("email")
+        ]
+
     def _party_info(self, row: dict[str, Any]) -> PartyInfo:
         provider_type = str(row.get("provider_type") or row.get("source") or "").strip()
         return PartyInfo(
@@ -294,4 +380,15 @@ class CaseContextHydrator:
             due_date=_date_string(row.get("due_date")),
             days_past_due=int(row.get("days_past_due") or 0),
             state=row.get("state") or "open",
+            silver_version_id=row.get("silver_version_id"),
+            document_no=row.get("document_no"),
+            document_currency_code=row.get("document_currency_code") or row.get("currency"),
+            is_outstanding=float(row.get("amount_due") or 0) > 0,
+            is_overdue=int(row.get("days_past_due") or 0) > 0,
+            days_overdue=int(row.get("days_past_due") or 0),
+            effective_grace_days=0,
+            is_sendable=float(row.get("amount_due") or 0) > 0
+            and int(row.get("days_past_due") or 0) > 0,
+            is_chase_eligible=float(row.get("amount_due") or 0) > 0
+            and int(row.get("days_past_due") or 0) > 0,
         )

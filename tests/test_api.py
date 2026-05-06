@@ -1,11 +1,34 @@
 """API integration tests for Outstanding AI Engine."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from src.main import app
+
+
+def _mark_current_datalake_context(context):
+    watermark = datetime(2026, 5, 6, tzinfo=timezone.utc)
+    context.schema_version = 4
+    context.source_sync_run_id = "sync-1"
+    context.application_run_id = "app-run-1"
+    context.core_snapshot_watermark = watermark
+    context.application_snapshot_watermark = watermark
+    context.application_decision_cutoff = watermark
+    context.policy_snapshot_id = "policy-1"
+    context.draft_candidate_id = "candidate-1"
+    context.collection_basis = "overdue"
+    context.chase_basis = "overdue"
+    context.debtor_contact = {"email": "ap@example.com"}
+    context.sendable_obligation_ids = [str(obligation.id) for obligation in context.obligations]
+    for obligation in context.obligations:
+        obligation.is_sendable = True
+        obligation.is_chase_eligible = True
+        obligation.is_overdue = True
+        obligation.days_overdue = obligation.days_overdue or obligation.days_past_due or 1
+    return context
 
 
 @pytest.fixture
@@ -174,6 +197,7 @@ class TestGenerateEndpoint:
         """Test successful draft generation."""
         from src.api.models.responses import GenerateDraftResponse
 
+        _mark_current_datalake_context(sample_generate_draft_request.context)
         mock_response = GenerateDraftResponse(
             subject="Re: Your Account",
             body="Dear Customer,\n\nThank you for reaching out.",
@@ -191,6 +215,19 @@ class TestGenerateEndpoint:
         assert data["subject"] == "Re: Your Account"
         assert data["body"] == "Dear Customer,\n\nThank you for reaching out."
 
+    @patch("src.api.routes.generate.generator")
+    def test_generate_rejects_legacy_context(
+        self, mock_generator, authed_client, sample_generate_draft_request
+    ):
+        """Production draft generation requires current schema-version 4 context."""
+        response = authed_client.post(
+            "/generate-draft", json=sample_generate_draft_request.model_dump(mode="json")
+        )
+
+        assert response.status_code == 422
+        assert "schema_version=4" in response.json()["detail"]
+        mock_generator.generate.assert_not_called()
+
     def test_generate_from_manifest_requires_auth(self, client):
         """Test regional manifest generation rejects unauthenticated requests."""
         response = client.post("/generate-draft-from-manifest", json={})
@@ -201,6 +238,7 @@ class TestGenerateEndpoint:
         from src.api.models.responses import GenerateDraftResponse
         from src.lake import DraftCandidate
 
+        _mark_current_datalake_context(sample_case_context)
         fake_clients = MagicMock()
         fake_clients.s3.return_value = object()
         fake_reader = object()

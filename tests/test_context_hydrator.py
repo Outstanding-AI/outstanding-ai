@@ -43,6 +43,9 @@ class _FakeReader:
             "outstanding_amount": 250.0,
             "outstanding_amount_base": 250.0,
             "tone_ladder_snapshot_json": '["firm", "final_notice"]',
+            "policy_snapshot_id": "policy-1",
+            "application_run_id": "app-run-1",
+            "updated_at": datetime(2026, 4, 3, 9, 30, tzinfo=timezone.utc),
         }
         self.obligations = [
             {
@@ -76,6 +79,17 @@ class _FakeReader:
                 "created_at": datetime(2026, 4, 2, 9, 30, tzinfo=timezone.utc),
             }
         ]
+        self.contacts = [
+            {
+                "id": "contact-1",
+                "name": "AP Team",
+                "email": "ap@example.com",
+                "is_default": True,
+                "is_active": True,
+                "email_valid": True,
+                "source": "sage",
+            }
+        ]
 
     def execute_one(self, sql: str, params: list[Any]) -> dict[str, Any] | None:
         self.execute_one_calls.append((sql, params))
@@ -89,6 +103,8 @@ class _FakeReader:
         self.execute_calls.append((sql, params))
         if "collection_lane_invoices" in sql:
             return self.obligations
+        if "party_contacts" in sql:
+            return self.contacts
         if "collection_lane_history" in sql:
             return self.history
         return []
@@ -111,9 +127,17 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert context.party.external_id == "CUST-1"
     assert context.party.provider_type == "sage_200"
     assert context.party.source == "sage_200"
+    assert context.schema_version == 4
+    assert context.source_sync_run_id == "sync-1"
+    assert context.application_run_id == "app-run-1"
+    assert context.policy_snapshot_id == "policy-1"
+    assert context.draft_candidate_id == "candidate-1"
+    assert context.debtor_contact["email"] == "ap@example.com"
     assert context.behavior.behaviour_segment == "reliable_late_payer"
     assert context.obligations[0].invoice_number == "INV-1"
     assert context.obligations[0].due_date == "2026-03-01"
+    assert context.obligations[0].is_sendable is True
+    assert context.obligations[0].is_overdue is True
     assert context.collection_lane_id == "lane-1"
     assert context.lane["invoice_refs"] == ["INV-1"]
     assert context.lane["tone_ladder"] == ["firm", "final_notice"]
@@ -124,7 +148,8 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert reader.execute_one_calls[0][1] == ["tenant-1", "party-1"]
     assert reader.execute_one_calls[1][1] == ["tenant-1", "lane-1"]
     assert reader.execute_calls[0][1] == ["tenant-1", "tenant-1", "lane-1", "open"]
-    assert reader.execute_calls[1][1] == ["tenant-1", "lane-1"]
+    assert reader.execute_calls[1][1] == ["tenant-1", "party-1"]
+    assert reader.execute_calls[2][1] == ["tenant-1", "lane-1"]
 
 
 def test_hydrate_candidate_fails_closed_when_party_missing() -> None:

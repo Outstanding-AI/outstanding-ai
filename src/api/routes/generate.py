@@ -45,6 +45,16 @@ router = APIRouter()
 limiter = Limiter(key_func=tenant_rate_limit_key)
 
 
+def _require_current_datalake_context(generate_request: GenerateDraftRequest) -> None:
+    """Production draft generation is hard-cut to schema-version 4."""
+    if generate_request.context.schema_version == 4:
+        return
+    raise HTTPException(
+        status_code=422,
+        detail="Draft generation requires current datalake context schema_version=4",
+    )
+
+
 def _tone_from_context(generate_request: GenerateDraftRequest) -> str:
     """Choose a generation tone from hydrated lane context when available."""
     lane = generate_request.context.lane or {}
@@ -87,6 +97,7 @@ async def generate_draft(
     obligation_count = len(generate_request.context.obligations or [])
     provider = settings.llm_provider
     model = settings.model_for_provider(provider)
+    _require_current_datalake_context(generate_request)
 
     logger.info(
         "Generating draft request",
@@ -227,6 +238,7 @@ async def generate_draft_from_manifest(
                 context=context,
                 tone=_tone_from_context(generate_request),
             )
+            _require_current_datalake_context(generate_request)
             draft = await generator.generate(generate_request)
             results.append(
                 GenerateDraftFromManifestCandidateResult(
