@@ -31,12 +31,37 @@ def _normalize_invoice_ref(value: Any) -> str:
 
 
 def _invoice_ref_variants(value: Any) -> set[str]:
+    """Return the set of normalized variants for an invoice reference.
+
+    Always includes the alphanumeric-normalized form. The bare-digit form is
+    included only when the normalized form is itself digit-only — i.e. the
+    invoice has no alpha prefix. For prefixed invoices (e.g. "INV-12345"), the
+    bare-digit fallback is **not** put into the variant set: prefix collisions
+    (e.g. "1234" vs. "12345") would otherwise survive set membership checks
+    where another invoice's digits happened to be a prefix of this invoice's
+    digits. Bare-digit body extractions still match prefixed cohort entries
+    via the length-equal lookup in :class:`LaneScopeGuardrail`.
+    """
     normalized = _normalize_invoice_ref(value)
-    variants = {normalized} if normalized else set()
+    if not normalized:
+        return set()
+    variants = {normalized}
     digits = "".join(ch for ch in normalized if ch.isdigit())
-    if digits:
+    # Only add the bare-digit variant when the normalized form is itself
+    # digit-only. Prefixed forms route through the length-equal bare-digit
+    # bucket built by callers to avoid prefix collisions.
+    if digits and digits == normalized:
         variants.add(digits)
     return variants
+
+
+def _bare_digit_form(value: Any) -> str:
+    """Return the digit-only form of a normalized invoice reference, or ''."""
+    normalized = _normalize_invoice_ref(value)
+    if not normalized:
+        return ""
+    digits = "".join(ch for ch in normalized if ch.isdigit())
+    return digits
 
 
 class LaneScopeGuardrail(BaseGuardrail):
@@ -53,21 +78,37 @@ class LaneScopeGuardrail(BaseGuardrail):
 
         scoped_refs = candidate_refs or lane.get("invoice_refs") or []
         cohort_invoices = set()
+        # Bare-digit lookup keyed by length: digits string -> set of normalized forms.
+        # A bare-digit body extraction matches a prefixed cohort entry only when the
+        # body digit string is **exactly equal** to the cohort entry's bare digits;
+        # set/dict key equality enforces both value- and length-equality, which
+        # eliminates prefix collisions ("1234" cannot match "12345").
+        cohort_bare_digits: dict[str, set[str]] = {}
         for ref in scoped_refs:
             cohort_invoices.update(_invoice_ref_variants(ref))
-        if not cohort_invoices:
+            normalized = _normalize_invoice_ref(ref)
+            digits = _bare_digit_form(ref)
+            if digits and digits != normalized:
+                cohort_bare_digits.setdefault(digits, set()).add(normalized)
+        if not cohort_invoices and not cohort_bare_digits:
             return [self._pass("Lane has no scoped invoice refs")]
 
         blocked_ids = {
             str(value) for value in (getattr(context, "blocked_obligation_ids", None) or [])
         }
         blocked_invoice_refs = set()
+        blocked_bare_digits: set[str] = set()
         invoice_to_internal_id = {}
+        bare_digit_to_internal_id: dict[str, str] = {}
         for obligation in getattr(context, "obligations", None) or []:
             obligation_id = str(getattr(obligation, "id", "") or "")
             invoice_ref = getattr(obligation, "invoice_number", "") or ""
             for variant in _invoice_ref_variants(invoice_ref):
                 invoice_to_internal_id[variant] = obligation_id
+            normalized = _normalize_invoice_ref(invoice_ref)
+            digits = _bare_digit_form(invoice_ref)
+            if digits and digits != normalized:
+                bare_digit_to_internal_id[digits] = obligation_id
             source_query_raw = str(getattr(obligation, "source_query_raw", None) or "").strip()
             if (
                 obligation_id in blocked_ids
@@ -77,18 +118,25 @@ class LaneScopeGuardrail(BaseGuardrail):
                 or getattr(obligation, "is_chase_eligible", None) is False
             ):
                 blocked_invoice_refs.update(_invoice_ref_variants(invoice_ref))
+                if digits and digits != normalized:
+                    blocked_bare_digits.add(digits)
         lane_total = _q(lane.get("outstanding_amount") or 0)
 
         for pattern in INVOICE_PATTERNS:
             for match in pattern.findall(output):
                 invoice_ref = _normalize_invoice_ref(match)
-                if invoice_ref not in cohort_invoices:
+                in_cohort = invoice_ref in cohort_invoices or (
+                    invoice_ref.isdigit() and invoice_ref in cohort_bare_digits
+                )
+                if not in_cohort:
                     return [
                         self._fail(f"Draft references invoice {invoice_ref} outside lane cohort")
                     ]
                 if (
                     invoice_to_internal_id.get(invoice_ref) in blocked_ids
+                    or bare_digit_to_internal_id.get(invoice_ref) in blocked_ids
                     or invoice_ref in blocked_invoice_refs
+                    or (invoice_ref.isdigit() and invoice_ref in blocked_bare_digits)
                 ):
                     return [self._fail(f"Draft references blocked obligation {invoice_ref}")]
 

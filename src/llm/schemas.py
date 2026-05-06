@@ -7,9 +7,24 @@ clear error messages when the LLM returns malformed data.
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.config.constants import CLASSIFICATION_CATEGORIES
+
+MATERIAL_SCOPE_INTENTS = frozenset(
+    {
+        "ALREADY_PAID",
+        "AMOUNT_DISAGREEMENT",
+        "DISPUTE",
+        "HARDSHIP",
+        "PARTIAL_PAYMENT_NOTIFICATION",
+        "PAYMENT_CONFIRMATION",
+        "PLAN_REQUEST",
+        "PROMISE_TO_PAY",
+        "REMITTANCE_ADVICE",
+        "RETENTION_CLAIM",
+    }
+)
 
 
 class LLMExtractedData(BaseModel):
@@ -140,6 +155,40 @@ class ClassificationLLMResponse(BaseModel):
                 f"Invalid classification '{v}'. Must be one of: {', '.join(sorted(CLASSIFICATION_CATEGORIES))}"
             )
         return upper_v
+
+    @model_validator(mode="after")
+    def validate_intent_details_scope(self) -> "ClassificationLLMResponse":
+        if not self.intent_details:
+            return self
+
+        primary_intent = str(self.classification or "").upper()
+        first_intent = str(self.intent_details[0].intent or "").upper()
+        if first_intent != primary_intent:
+            raise ValueError("intent_details[0].intent must match classification")
+
+        seen_invoice_refs: dict[str, str] = {}
+        for index, detail in enumerate(self.intent_details):
+            intent = str(detail.intent or "").upper()
+            if intent not in CLASSIFICATION_CATEGORIES:
+                raise ValueError(f"Invalid intent_details[{index}].intent '{detail.intent}'")
+            if index > 0 and intent in MATERIAL_SCOPE_INTENTS and detail.extracted_data is None:
+                raise ValueError(
+                    f"intent_details[{index}].extracted_data is required for material intent {intent}"
+                )
+            if not detail.extracted_data or not detail.extracted_data.invoice_refs:
+                continue
+            for raw_ref in detail.extracted_data.invoice_refs:
+                invoice_ref = str(raw_ref or "").strip().upper()
+                if not invoice_ref:
+                    continue
+                previous_intent = seen_invoice_refs.get(invoice_ref)
+                if previous_intent and previous_intent != intent:
+                    raise ValueError(
+                        f"invoice_ref {invoice_ref} appears in multiple intent_details "
+                        f"({previous_intent}, {intent})"
+                    )
+                seen_invoice_refs[invoice_ref] = intent
+        return self
 
 
 class DraftReasoningResponse(BaseModel):

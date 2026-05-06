@@ -193,6 +193,15 @@ class TestFactualGroundingGuardrail:
         assert not procurement_result.passed
         assert "unverified procurement" in procurement_result.message
 
+    def test_po_box_address_does_not_count_as_procurement_claim(self, sample_context):
+        """Sender/footer PO Box text is not a purchase-order claim."""
+        results = FactualGroundingGuardrail().validate(
+            "Please contact us about your account.\nAccounts Team, PO Box 123, London",
+            sample_context,
+        )
+
+        assert results[3].passed
+
     def test_verified_procurement_claim_passes(self, sample_context):
         """Verified PO/POD context allows procurement wording."""
         sample_context.obligations[0].has_verified_purchase_order = True

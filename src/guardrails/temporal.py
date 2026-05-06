@@ -11,7 +11,7 @@ timezone edge cases).
 
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from src.api.models.requests import CaseContext
 from src.api.models.responses import ExtractedData
@@ -120,12 +120,17 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
     def _decision_date(context: CaseContext) -> date:
         cutoff = getattr(context, "application_decision_cutoff", None)
         if isinstance(cutoff, datetime):
-            return cutoff.date()
+            if cutoff.tzinfo is None:
+                cutoff = cutoff.replace(tzinfo=timezone.utc)
+            return cutoff.astimezone(timezone.utc).date()
         if isinstance(cutoff, date):
             return cutoff
         if isinstance(cutoff, str):
             try:
-                return datetime.fromisoformat(cutoff.replace("Z", "+00:00")).date()
+                parsed = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc).date()
             except ValueError:
                 pass
         return date.today()

@@ -218,8 +218,13 @@ def _has_valid_recipient(context: CaseContext) -> bool:
 
 def _is_sendable_candidate(obligation, context: CaseContext) -> bool:
     """Mirror the minimum current-context eligibility gate for validation."""
+    sendable_ids = {str(value) for value in (context.sendable_obligation_ids or [])}
+    obligation_id = str(getattr(obligation, "id", ""))
+    if sendable_ids and obligation_id not in sendable_ids:
+        return False
+
     blocked_ids = {str(value) for value in (context.blocked_obligation_ids or [])}
-    if str(getattr(obligation, "id", "")) in blocked_ids:
+    if obligation_id in blocked_ids:
         return False
 
     source_query_raw = str(getattr(obligation, "source_query_raw", None) or "").strip()

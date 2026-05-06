@@ -7,6 +7,8 @@ Validates:
 - Pipeline behavior with mixed severities
 """
 
+from datetime import datetime, timezone
+
 from src.api.models.requests import CaseContext, ObligationInfo, PartyInfo
 from src.guardrails.base import GuardrailResult, GuardrailSeverity
 from src.guardrails.contextual import ContextualCoherenceGuardrail
@@ -28,6 +30,18 @@ class TestGuardrailSeverities:
         """Temporal guardrail should be MEDIUM severity."""
         guardrail = TemporalConsistencyGuardrail()
         assert guardrail.severity == GuardrailSeverity.MEDIUM
+
+    def test_temporal_decision_date_normalizes_to_utc(self):
+        context = type(
+            "Context",
+            (),
+            {"application_decision_cutoff": datetime.fromisoformat("2026-05-06T23:30:00-04:00")},
+        )()
+
+        assert (
+            TemporalConsistencyGuardrail._decision_date(context)
+            == datetime(2026, 5, 7, tzinfo=timezone.utc).date()
+        )
 
     def test_contextual_severity_is_low(self):
         """Contextual guardrail should be LOW severity."""

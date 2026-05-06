@@ -331,7 +331,9 @@ class FactualGroundingGuardrail(BaseGuardrail):
     def _validate_procurement_grounding(self, output: str, context: CaseContext) -> GuardrailResult:
         """Allow PO/POD claims only when verified procurement evidence exists."""
         mentions_po = bool(
-            re.search(r"\b(purchase order|po number|po ref|po\b)\b", output, re.IGNORECASE)
+            re.search(
+                r"\b(purchase order|po\s*(?:number|ref|reference|#))\b", output, re.IGNORECASE
+            )
         )
         mentions_pod = bool(
             re.search(
