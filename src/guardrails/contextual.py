@@ -45,6 +45,11 @@ _INVOICE_REF_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+
+def _loose_alnum_pattern(normalized_ref: str) -> str:
+    return r"[\W_]*".join(re.escape(ch) for ch in normalized_ref)
+
+
 # Statuses where an obligation is no longer collectible. If the AI's
 # prose demands payment for an invoice with one of these statuses, the
 # contextual guardrail flags it.
@@ -355,7 +360,15 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
         }
         known_refs.discard("")
 
-        unknown = [ref for ref in cited_refs if self._normalise_invoice_ref(ref) not in known_refs]
+        unknown = [
+            ref
+            for ref in cited_refs
+            if not self._ref_matches_known_reference(
+                output,
+                self._normalise_invoice_ref(ref),
+                known_refs,
+            )
+        ]
         if unknown:
             return self._fail(
                 message=f"AI cited {len(unknown)} invoice reference(s) not found in context.obligations",
@@ -409,7 +422,15 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
 
         cited_normalised = {self._normalise_invoice_ref(ref) for ref in cited_refs}
         offending = {
-            ref: status for ref, status in non_collectible_by_ref.items() if ref in cited_normalised
+            ref: status
+            for ref, status in non_collectible_by_ref.items()
+            if ref in cited_normalised
+            or any(
+                cited
+                and ref.startswith(cited)
+                and self._output_mentions_normalized_ref(output, ref)
+                for cited in cited_normalised
+            )
         }
         if not offending:
             return self._pass(
@@ -487,3 +508,35 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
         elif normalised.startswith("inv"):
             normalised = normalised[len("inv") :]
         return normalised
+
+    @staticmethod
+    def _output_mentions_normalized_ref(output: str, normalized_ref: str) -> bool:
+        if not normalized_ref:
+            return False
+        return bool(
+            re.search(
+                rf"(?<![A-Z0-9]){_loose_alnum_pattern(normalized_ref)}(?![A-Z0-9])",
+                output or "",
+                re.IGNORECASE,
+            )
+        )
+
+    @classmethod
+    def _ref_matches_known_reference(
+        cls,
+        output: str,
+        normalized_ref: str,
+        known_refs: set[str],
+    ) -> bool:
+        if not normalized_ref:
+            return False
+        if normalized_ref in known_refs:
+            return True
+        # Sage invoice references can contain spaces, e.g. "May 102".
+        # The conservative prefix regex sees "invoice May" first; accept
+        # that fragment only when the full known reference is also present
+        # in the generated prose.
+        return any(
+            known.startswith(normalized_ref) and cls._output_mentions_normalized_ref(output, known)
+            for known in known_refs
+        )

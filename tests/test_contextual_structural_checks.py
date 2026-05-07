@@ -167,6 +167,29 @@ class TestInvoiceReferenceValidation:
         )
         assert result.passed is True
 
+    def test_pass_when_sage_ref_contains_space(self, guardrail):
+        obligations = [
+            ObligationInfo(
+                id="obl-1",
+                external_id="1",
+                provider_type="sage_200",
+                invoice_number="May 102",
+                original_amount=199.0,
+                amount_due=199.0,
+                due_date="2025-06-16",
+                days_past_due=325,
+                state="open",
+                collection_status="open",
+            )
+        ]
+
+        result = guardrail._validate_invoice_references(
+            "Our records show invoice May 102 for GBP 199.00 is still outstanding.",
+            obligations,
+        )
+
+        assert result.passed is True
+
     def test_fail_when_ref_not_in_context(self, guardrail, open_obligations):
         # INV-99999 doesn't exist in the context.
         result = guardrail._validate_invoice_references(
@@ -220,6 +243,29 @@ class TestPaidInvoiceChase:
             "Outstanding amount on INV-003 must be paid in full.",
             mixed_obligations,
         )
+        assert result.passed is False
+
+    def test_fail_when_demanding_payment_for_paid_spaced_sage_ref(self, guardrail):
+        obligations = [
+            ObligationInfo(
+                id="obl-1",
+                external_id="1",
+                provider_type="sage_200",
+                invoice_number="May 102",
+                original_amount=199.0,
+                amount_due=0.0,
+                due_date="2025-06-16",
+                days_past_due=0,
+                state="paid",
+                collection_status="paid",
+            )
+        ]
+
+        result = guardrail._validate_no_paid_invoice_chase(
+            "Please settle the outstanding balance on invoice May 102.",
+            obligations,
+        )
+
         assert result.passed is False
 
     def test_pass_when_demanding_payment_only_for_open_invoice(self, guardrail, mixed_obligations):

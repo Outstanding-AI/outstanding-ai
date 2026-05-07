@@ -303,8 +303,8 @@ class CaseContextHydrator:
                 o.document_allocated_value * COALESCE(o.exchange_rate, 1.0) AS allocated_amount_base,
                 o.amount_due,
                 o.amount_due * COALESCE(o.exchange_rate, 1.0) AS amount_due_base,
-                o.currency_code AS currency,
-                COALESCE(o.currency_code, 'GBP') AS base_currency,
+                COALESCE(o.currency_code, o.currency, o.document_currency_code, 'GBP') AS currency,
+                COALESCE(o.base_currency, o.currency_code, o.currency, o.document_currency_code, 'GBP') AS base_currency,
                 o.exchange_rate AS document_to_base_rate,
                 o.due_date,
                 CASE
@@ -318,7 +318,7 @@ class CaseContextHydrator:
                 END AS state,
                 o.silver_version_id,
                 o.document_no,
-                o.currency_code AS document_currency_code,
+                COALESCE(o.document_currency_code, o.currency_code, o.currency, 'GBP') AS document_currency_code,
                 COALESCE(li.is_outstanding, o.amount_due > 0) AS is_outstanding,
                 COALESCE(
                     li.is_overdue,
