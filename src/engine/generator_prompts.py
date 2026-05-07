@@ -148,16 +148,23 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
 
     excluded_lines = []
     excluded_seen = set()
-    for obligation in getattr(request.context, "obligations", None) or []:
-        source_query = str(getattr(obligation, "source_query_raw", None) or "").strip()
-        if getattr(obligation, "is_source_disputed", False) or source_query:
-            inv = obligation.invoice_number or obligation.document_no or obligation.id
-            excluded_seen.add(str(inv))
-            excluded_lines.append(
-                f"- {inv}: excluded, invoice dispute/source Sage query flag"
-                + (f" ({_safe_prompt_value(source_query)})" if source_query else "")
-            )
-    for obligation in getattr(request.context, "excluded_source_disputed_obligations", None) or []:
+    explicit_excluded = list(
+        getattr(request.context, "excluded_source_disputed_obligations", None) or []
+    )
+    derived_excluded = []
+    if not explicit_excluded:
+        for obligation in getattr(request.context, "obligations", None) or []:
+            source_query = str(getattr(obligation, "source_query_raw", None) or "").strip()
+            if getattr(obligation, "is_source_disputed", False) or source_query:
+                derived_excluded.append(
+                    {
+                        "invoice_number": obligation.invoice_number,
+                        "document_no": obligation.document_no,
+                        "id": obligation.id,
+                        "source_query_raw": source_query,
+                    }
+                )
+    for obligation in explicit_excluded or derived_excluded:
         if not isinstance(obligation, dict):
             continue
         inv = (

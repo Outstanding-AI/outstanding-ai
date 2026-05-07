@@ -26,6 +26,7 @@ Tone Definitions:
 - firm: Direct, no pleasantries beyond a greeting. Emphasizes obligation and deadlines.
 - final_notice: Last attempt before legal referral. State consequences plainly — legal team involvement, account suspension. No softening. 3-5 sentences max.
 - concerned_inquiry: For good customers with unusual behaviour. Brief, genuine concern. "This isn't like you."
+- acknowledgement: Reply-driven acknowledgement. Confirm receipt or thanks, answer the debtor's point, avoid collection pressure, deadlines, or payment demands unless upstream provides a cleared sendable obligation and an explicit CTA.
 
 Relationship Tier Adjustments:
 - vip: Extra-polite language, offer direct contact with senior staff, acknowledge long relationship

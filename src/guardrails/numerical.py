@@ -155,10 +155,14 @@ class NumericalConsistencyGuardrail(BaseGuardrail):
 
         # Get valid days overdue from context
         valid_days = {
-            getattr(o, "days_overdue", None)
-            if getattr(o, "days_overdue", None) is not None
-            else o.days_past_due
+            int(value)
             for o in obligations
+            for value in [
+                getattr(o, "days_overdue", None)
+                if getattr(o, "days_overdue", None) is not None
+                else getattr(o, "days_past_due", None)
+            ]
+            if value is not None
         }
 
         # Also add max days overdue (commonly referenced)
