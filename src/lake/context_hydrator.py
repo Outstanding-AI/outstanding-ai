@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Protocol
 
@@ -19,6 +21,23 @@ from .models import DraftCandidate
 
 class ContextHydrationError(RuntimeError):
     """Raised when a candidate cannot be hydrated from regional Silver."""
+
+
+@dataclass
+class BatchHydrationResult:
+    """Per-candidate outcome from ``CaseContextHydrator.hydrate_batch``.
+
+    Exactly one of ``context`` / ``error`` is populated. The batch
+    method returns one of these per input candidate so callers can
+    iterate without having to filter raises -- partial failure stays
+    partial: a missing party / lane in the bulk read raises
+    ``ContextHydrationError`` for that candidate only, not the whole
+    batch.
+    """
+
+    candidate: DraftCandidate
+    context: CaseContext | None = None
+    error: ContextHydrationError | None = None
 
 
 class LakeReader(Protocol):
@@ -44,6 +63,19 @@ PARTY_BEHAVIOR_PROFILE_CURRENT = "party_behavior_profile_versions_current"
 
 def _current_projection(projection: str, alias: str) -> str:
     return f"(SELECT * FROM {projection} WHERE tenant_id = %s) {alias}"
+
+
+def _current_projection_in(projection: str, alias: str, *, id_column: str) -> str:
+    """Tenant-scoped projection sub-select pre-filtered by an ``IN %s`` id list.
+
+    The ``IN %s`` literal renders to ``('id1', 'id2', ...)`` via
+    ``solvix_contracts.datalake.athena_dialect.render_params`` -- the
+    list parameter must be passed as a tuple/list to the reader.
+    Pre-filtering inside the projection sub-select keeps the bulk
+    queries pruned so the row scan doesn't fan out across the entire
+    tenant.
+    """
+    return f"(SELECT * FROM {projection} WHERE tenant_id = %s AND {id_column} IN %s) {alias}"
 
 
 def _json_value(value: Any, *, fallback: Any) -> Any:
@@ -81,12 +113,96 @@ class CaseContextHydrator:
         self.reader = reader
 
     def hydrate_candidate(self, candidate: DraftCandidate) -> CaseContext:
+        """Hydrate a single candidate via per-id reads (legacy single-shot path).
+
+        Manifest-mode draft generation should prefer ``hydrate_batch``
+        for N candidates -- it issues one bulk SELECT per shape (5
+        SELECTs total) instead of 5 SELECTs per candidate.
+        """
         party = self._load_party(candidate.party_id)
         lane = self._load_lane(candidate.lane_id)
         obligations = self._load_lane_obligations(candidate.lane_id)
+        party_contacts = self._load_party_contacts(candidate.party_id)
+        history = self._load_lane_history(candidate.lane_id)
+        return self._assemble_case_context(
+            candidate=candidate,
+            party=party,
+            lane=lane,
+            obligations=obligations,
+            party_contacts=party_contacts,
+            history=history,
+        )
+
+    def hydrate_batch(self, candidates: list[DraftCandidate]) -> list[BatchHydrationResult]:
+        """Hydrate N candidates with bulk current-projection reads.
+
+        Issues one batch SELECT per shape (parties, lanes, lane
+        obligations, party contacts, lane history) using ``IN %s``
+        literals, then assembles each candidate's ``CaseContext`` from
+        the cached maps. Missing required party / lane data surfaces
+        as a per-candidate ``ContextHydrationError`` -- the batch keeps
+        going so the caller can decide whether to fail the whole
+        manifest or partial-fail the affected candidates only.
+
+        Returns a list of ``BatchHydrationResult`` in the input order.
+        """
+        if not candidates:
+            return []
+
+        party_ids = sorted({str(c.party_id) for c in candidates})
+        lane_ids = sorted({str(c.lane_id) for c in candidates})
+
+        parties_by_id = self._load_parties_batch(party_ids)
+        lanes_by_id = self._load_lanes_batch(lane_ids)
+        obligations_by_lane = self._load_lane_obligations_batch(lane_ids)
+        contacts_by_party = self._load_party_contacts_batch(party_ids)
+        history_by_lane = self._load_lane_history_batch(lane_ids)
+
+        results: list[BatchHydrationResult] = []
+        for candidate in candidates:
+            party_id = str(candidate.party_id)
+            lane_id = str(candidate.lane_id)
+            try:
+                party = parties_by_id.get(party_id)
+                if party is None:
+                    raise ContextHydrationError(f"Party not found in regional Silver: {party_id}")
+                lane = lanes_by_id.get(lane_id)
+                if lane is None:
+                    raise ContextHydrationError(
+                        f"Collection lane not found in regional Silver: {lane_id}"
+                    )
+                ctx = self._assemble_case_context(
+                    candidate=candidate,
+                    party=party,
+                    lane=lane,
+                    obligations=obligations_by_lane.get(lane_id, []),
+                    party_contacts=contacts_by_party.get(party_id, []),
+                    history=history_by_lane.get(lane_id, []),
+                )
+            except ContextHydrationError as exc:
+                results.append(BatchHydrationResult(candidate=candidate, error=exc))
+            else:
+                results.append(BatchHydrationResult(candidate=candidate, context=ctx))
+        return results
+
+    def _assemble_case_context(
+        self,
+        *,
+        candidate: DraftCandidate,
+        party: dict[str, Any],
+        lane: dict[str, Any],
+        obligations: list[ObligationInfo],
+        party_contacts: list[dict[str, Any]],
+        history: list[dict[str, Any]],
+    ) -> CaseContext:
+        """Compose a V4 ``CaseContext`` from pre-loaded row data.
+
+        Shared by both ``hydrate_candidate`` (per-id path) and
+        ``hydrate_batch`` (bulk path) so the assembly logic stays in
+        one place.
+        """
         lane_invoice_refs = [str(row.invoice_number) for row in obligations if row.invoice_number]
         base_currency = party.get("base_currency") or party.get("currency") or "GBP"
-        party_contacts = self._load_party_contacts(candidate.party_id)
         debtor_contact = party_contacts[0] if party_contacts else None
         decision_time = (
             lane.get("valid_from")
@@ -154,7 +270,7 @@ class CaseContextHydrator:
             unsubscribe_requested=bool(party.get("unsubscribe_requested")),
             collection_lane_id=str(lane["id"]),
             lane=lane_context,
-            lane_history=self._load_lane_history(candidate.lane_id),
+            lane_history=history,
             lane_mail_mode="single_lane",
             sendable_obligation_ids=sendable_obligation_ids,
             lane_broken_promises_count=int(party.get("broken_promises_count") or 0),
@@ -188,9 +304,36 @@ class CaseContextHydrator:
             ),
         )
 
+    # ------------------------------------------------------------------
+    # Per-id loaders (legacy single-shot path, used by hydrate_candidate)
+    # ------------------------------------------------------------------
+
     def _load_party(self, party_id: str) -> dict[str, Any]:
-        row = self.reader.execute_one(
-            f"""
+        rows = self._fetch_parties([party_id])
+        if not rows:
+            raise ContextHydrationError(f"Party not found in regional Silver: {party_id}")
+        return rows[0]
+
+    # ------------------------------------------------------------------
+    # Bulk loaders (used by hydrate_batch)
+    # ------------------------------------------------------------------
+
+    def _load_parties_batch(self, party_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Return ``{party_id: party_row}`` for the requested ids.
+
+        One Athena SELECT against ``silver_core_parties_current`` plus
+        the same three left-join projections the per-id loader uses.
+        Tenant scoping is pushed into every projection sub-select so
+        the joins stay pruned.
+        """
+        if not party_ids:
+            return {}
+        rows = self._fetch_parties(party_ids)
+        return {str(row["id"]): row for row in rows if row.get("id") is not None}
+
+    def _fetch_parties(self, party_ids: list[str]) -> list[dict[str, Any]]:
+        """Shared SELECT used by both per-id and batch party loaders."""
+        sql = f"""
             SELECT
                 p.id,
                 p.provider_type,
@@ -243,7 +386,7 @@ class CaseContextHydrator:
                 CAST(FALSE AS BOOLEAN) AS unsubscribe_requested,
                 CAST(NULL AS VARCHAR) AS customer_type,
                 CAST(NULL AS VARCHAR) AS size_bucket
-            FROM {_current_projection(PARTIES_CURRENT, "p")}
+            FROM {_current_projection_in(PARTIES_CURRENT, "p", id_column="id")}
             LEFT JOIN {_current_projection(PARTY_COLLECTION_STATE_CURRENT, "cs")}
               ON cs.party_id = p.id
              AND cs.tenant_id = p.tenant_id
@@ -253,37 +396,74 @@ class CaseContextHydrator:
             LEFT JOIN {_current_projection(PARTY_BEHAVIOR_PROFILE_CURRENT, "bp")}
               ON bp.party_id = p.id
              AND bp.tenant_id = p.tenant_id
-            WHERE p.id = %s
-            """,
+            """
+        return self.reader.execute(
+            sql,
             [
                 self.tenant_id,
+                tuple(party_ids),
                 self.tenant_id,
                 self.tenant_id,
                 self.tenant_id,
-                party_id,
             ],
         )
-        if row is None:
-            raise ContextHydrationError(f"Party not found in regional Silver: {party_id}")
-        return row
 
     def _load_lane(self, lane_id: str) -> dict[str, Any]:
-        row = self.reader.execute_one(
-            f"""
+        rows = self._fetch_lanes([lane_id])
+        if not rows:
+            raise ContextHydrationError(f"Collection lane not found in regional Silver: {lane_id}")
+        return rows[0]
+
+    def _load_lanes_batch(self, lane_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Return ``{lane_id: lane_row}`` keyed by ``COALESCE(lane_id, id)``."""
+        if not lane_ids:
+            return {}
+        rows = self._fetch_lanes(lane_ids)
+        return {
+            str(row.get("lane_id") or row.get("id")): row
+            for row in rows
+            if (row.get("lane_id") or row.get("id")) is not None
+        }
+
+    def _fetch_lanes(self, lane_ids: list[str]) -> list[dict[str, Any]]:
+        """Shared SELECT used by both per-id and batch lane loaders.
+
+        Lanes can be addressed via either ``lane_id`` or ``id`` so the
+        ``IN`` filter targets ``COALESCE(lane_id, id)`` to match whichever
+        the candidate was emitted with.
+        """
+        sql = f"""
             SELECT lane.*
             FROM {_current_projection(COLLECTION_LANES_CURRENT, "lane")}
-            WHERE COALESCE(lane.lane_id, lane.id) = %s
-            """,
-            [self.tenant_id, lane_id],
-        )
-        if row is None:
-            raise ContextHydrationError(f"Collection lane not found in regional Silver: {lane_id}")
-        return row
+            WHERE COALESCE(lane.lane_id, lane.id) IN %s
+            """
+        return self.reader.execute(sql, [self.tenant_id, tuple(lane_ids)])
 
     def _load_lane_obligations(self, lane_id: str) -> list[ObligationInfo]:
-        rows = self.reader.execute(
-            f"""
+        rows = self._fetch_lane_obligations([lane_id])
+        return [self._obligation_info(row) for row in rows]
+
+    def _load_lane_obligations_batch(self, lane_ids: list[str]) -> dict[str, list[ObligationInfo]]:
+        """Return ``{lane_id: [ObligationInfo, ...]}`` for the requested lanes."""
+        if not lane_ids:
+            return {}
+        rows = self._fetch_lane_obligations(lane_ids)
+        grouped: dict[str, list[ObligationInfo]] = defaultdict(list)
+        for row in rows:
+            lane_key = str(row.get("lane_id") or "")
+            if not lane_key:
+                continue
+            grouped[lane_key].append(self._obligation_info(row))
+        # Order each lane's obligations the same way the per-id query
+        # did (days_overdue DESC, invoice_number ASC). The bulk SQL
+        # already applies that ORDER BY, but ``defaultdict`` insertion
+        # order preserves it per group on Athena's result set.
+        return dict(grouped)
+
+    def _fetch_lane_obligations(self, lane_ids: list[str]) -> list[dict[str, Any]]:
+        sql = f"""
             SELECT
+                li.lane_id,
                 o.id,
                 COALESCE(o.source_id, o.sage_sales_transaction_id, o.id) AS external_id,
                 o.provider_type,
@@ -349,22 +529,48 @@ class CaseContextHydrator:
                     li.source_dispute_observed_from,
                     o.source_dispute_observed_from
                 ) AS source_dispute_observed_from
-            FROM {_current_projection(COLLECTION_LANE_INVOICES_CURRENT, "li")}
+            FROM {_current_projection_in(COLLECTION_LANE_INVOICES_CURRENT, "li", id_column="lane_id")}
             JOIN {_current_projection(OBLIGATIONS_CURRENT, "o")}
               ON li.obligation_id = o.id
              AND li.tenant_id = o.tenant_id
-            WHERE li.lane_id = %s
-              AND COALESCE(li.lane_invoice_status, 'open') = %s
-            ORDER BY days_overdue DESC NULLS LAST, invoice_number
-            """,
-            [self.tenant_id, self.tenant_id, lane_id, "open"],
+            WHERE COALESCE(li.lane_invoice_status, 'open') = %s
+            ORDER BY li.lane_id, days_overdue DESC NULLS LAST, invoice_number
+            """
+        return self.reader.execute(
+            sql,
+            [self.tenant_id, tuple(lane_ids), self.tenant_id, "open"],
         )
-        return [self._obligation_info(row) for row in rows]
 
     def _load_lane_history(self, lane_id: str) -> list[dict[str, Any]]:
-        rows = self.reader.execute(
-            f"""
+        rows = self._fetch_lane_history([lane_id])
+        return self._format_lane_history_rows(rows)
+
+    def _load_lane_history_batch(self, lane_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """Return ``{lane_id: [history_event, ...]}`` for the requested lanes.
+
+        Per-lane LIMIT 25 ordering is preserved by sorting in Python --
+        Athena's window-based ``RANK ... PARTITION BY lane_id`` works
+        but is more expensive than a single sorted scan + Python-side
+        per-lane truncation for typical batch sizes.
+        """
+        if not lane_ids:
+            return {}
+        rows = self._fetch_lane_history(lane_ids)
+        per_lane_raw: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            lane_key = str(row.get("lane_id") or "")
+            if not lane_key:
+                continue
+            per_lane_raw[lane_key].append(row)
+        return {
+            lane_key: self._format_lane_history_rows(group[:25])
+            for lane_key, group in per_lane_raw.items()
+        }
+
+    def _fetch_lane_history(self, lane_ids: list[str]) -> list[dict[str, Any]]:
+        sql = f"""
             SELECT
+                h.lane_id,
                 h.event_type,
                 h.from_status,
                 h.to_status,
@@ -374,14 +580,21 @@ class CaseContextHydrator:
                 h.touch_id,
                 h.thread_id,
                 h.event_payload_json AS detail_json,
-                h.created_at
-            FROM {_current_projection(COLLECTION_LANE_HISTORY_CURRENT, "h")}
-            WHERE h.lane_id = %s
-            ORDER BY COALESCE(h.event_time, h.created_at, h.valid_from) DESC NULLS LAST
-            LIMIT 25
-            """,
-            [self.tenant_id, lane_id],
-        )
+                h.created_at,
+                h.event_time,
+                h.valid_from
+            FROM {_current_projection_in(COLLECTION_LANE_HISTORY_CURRENT, "h", id_column="lane_id")}
+            ORDER BY h.lane_id, COALESCE(h.event_time, h.created_at, h.valid_from) DESC NULLS LAST
+            """
+        return self.reader.execute(sql, [self.tenant_id, tuple(lane_ids)])
+
+    @staticmethod
+    def _format_lane_history_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Shape lane history rows for the case-context payload.
+
+        Reverses to chronological order (oldest first), drops the
+        ``lane_id`` join key, and parses the ``detail_json`` payload.
+        """
         return [
             {
                 "event_type": row.get("event_type"),
@@ -399,9 +612,29 @@ class CaseContextHydrator:
         ]
 
     def _load_party_contacts(self, party_id: str) -> list[dict[str, Any]]:
-        rows = self.reader.execute(
-            f"""
+        rows = self._fetch_party_contacts([party_id])
+        return self._format_party_contact_rows(rows)
+
+    def _load_party_contacts_batch(self, party_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """Return ``{party_id: [contact, ...]}`` for the requested parties."""
+        if not party_ids:
+            return {}
+        rows = self._fetch_party_contacts(party_ids)
+        per_party_raw: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            party_key = str(row.get("party_id") or "")
+            if not party_key:
+                continue
+            per_party_raw[party_key].append(row)
+        return {
+            party_key: self._format_party_contact_rows(group[:10])
+            for party_key, group in per_party_raw.items()
+        }
+
+    def _fetch_party_contacts(self, party_ids: list[str]) -> list[dict[str, Any]]:
+        sql = f"""
             SELECT
+                c.party_id,
                 c.id,
                 COALESCE(c.contact_name, c.name, c.email_normalized, c.email, c.email_address) AS name,
                 COALESCE(c.email_normalized, c.email, c.email_address) AS email,
@@ -409,18 +642,19 @@ class CaseContextHydrator:
                 c.is_active,
                 c.email_valid,
                 COALESCE(c.source_contact_key, c.source) AS source
-            FROM {_current_projection(PARTY_CONTACTS_CURRENT, "c")}
-            WHERE c.party_id = %s
-              AND COALESCE(c.is_active, TRUE) = TRUE
+            FROM {_current_projection_in(PARTY_CONTACTS_CURRENT, "c", id_column="party_id")}
+            WHERE COALESCE(c.is_active, TRUE) = TRUE
               AND COALESCE(c.email_valid, TRUE) = TRUE
               AND COALESCE(c.email_normalized, c.email, c.email_address) IS NOT NULL
             ORDER BY
+                c.party_id,
                 COALESCE(c.is_default_email, c.is_default_contact, c.is_default, FALSE) DESC,
                 c.silver_observed_at DESC NULLS LAST
-            LIMIT 10
-            """,
-            [self.tenant_id, party_id],
-        )
+            """
+        return self.reader.execute(sql, [self.tenant_id, tuple(party_ids)])
+
+    @staticmethod
+    def _format_party_contact_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [
             {
                 "party_contact_id": str(row.get("id")) if row.get("id") else None,

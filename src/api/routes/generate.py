@@ -228,11 +228,21 @@ async def generate_draft_from_manifest(
         timeout_seconds=settings.regional_lake_query_timeout_seconds,
     )
     hydrator = CaseContextHydrator(handoff.tenant_id, reader)
+    # Batch-hydrate the entire candidate set with one bulk SELECT per
+    # shape (parties / lanes / lane obligations / lane history / party
+    # contacts) instead of N x 5 per-candidate Athena calls. Per-candidate
+    # failures (missing party / lane in regional Silver) come back inside
+    # ``BatchHydrationResult.error`` so the manifest stays partial-failure
+    # tolerant.
+    hydration_results = hydrator.hydrate_batch(list(candidates))
     results: list[GenerateDraftFromManifestCandidateResult] = []
 
-    for candidate in candidates:
+    for hydration in hydration_results:
+        candidate = hydration.candidate
         try:
-            context = hydrator.hydrate_candidate(candidate)
+            if hydration.error is not None:
+                raise hydration.error
+            context = hydration.context
             generate_request = GenerateDraftRequest(context=context)
             generate_request = GenerateDraftRequest(
                 context=context,

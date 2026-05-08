@@ -236,20 +236,22 @@ class TestGenerateEndpoint:
     def test_generate_from_manifest_success(self, authed_client, sample_case_context):
         """Test regional manifest generation hydrates context and calls generator."""
         from src.api.models.responses import GenerateDraftResponse
-        from src.lake import DraftCandidate
+        from src.lake import BatchHydrationResult, DraftCandidate
 
         _mark_current_datalake_context(sample_case_context)
         fake_clients = MagicMock()
         fake_clients.s3.return_value = object()
         fake_reader = object()
-        fake_hydrator = MagicMock()
-        fake_hydrator.hydrate_candidate.return_value = sample_case_context
         candidate = DraftCandidate(
             party_id="party-1",
             lane_id="lane-1",
             sync_run_id="sync-1",
             candidate_id="candidate-1",
         )
+        fake_hydrator = MagicMock()
+        fake_hydrator.hydrate_batch.return_value = [
+            BatchHydrationResult(candidate=candidate, context=sample_case_context),
+        ]
         mock_response = GenerateDraftResponse(
             subject="Re: Your Account",
             body="Dear Customer,\n\nPlease see the attached summary.",
@@ -328,12 +330,23 @@ class TestGenerateEndpoint:
 
     def test_generate_from_manifest_returns_candidate_failure(self, authed_client):
         """Test candidate hydration failures are returned explicitly."""
-        from src.lake import DraftCandidate
+        from src.lake import BatchHydrationResult, ContextHydrationError, DraftCandidate
 
         fake_clients = MagicMock()
         fake_clients.s3.return_value = object()
+        candidate = DraftCandidate(
+            party_id="party-1",
+            lane_id="lane-1",
+            sync_run_id="sync-1",
+            candidate_id="candidate-1",
+        )
         fake_hydrator = MagicMock()
-        fake_hydrator.hydrate_candidate.side_effect = RuntimeError("lane exploded")
+        fake_hydrator.hydrate_batch.return_value = [
+            BatchHydrationResult(
+                candidate=candidate,
+                error=ContextHydrationError("lane exploded"),
+            ),
+        ]
 
         with (
             patch("src.api.routes.generate.RegionalLakeClients") as mock_clients_cls,
@@ -345,14 +358,7 @@ class TestGenerateEndpoint:
             mock_clients_cls.from_handoff.return_value = fake_clients
             mock_reader_cls.from_handoff.return_value = object()
             mock_hydrator_cls.return_value = fake_hydrator
-            mock_loader.return_value = [
-                DraftCandidate(
-                    party_id="party-1",
-                    lane_id="lane-1",
-                    sync_run_id="sync-1",
-                    candidate_id="candidate-1",
-                )
-            ]
+            mock_loader.return_value = [candidate]
 
             response = authed_client.post(
                 "/generate-draft-from-manifest",
@@ -370,7 +376,7 @@ class TestGenerateEndpoint:
         assert data["generated_count"] == 0
         assert data["failed_count"] == 1
         assert data["results"][0]["status"] == "failed"
-        assert "RuntimeError: lane exploded" in data["results"][0]["error"]
+        assert "ContextHydrationError: lane exploded" in data["results"][0]["error"]
         mock_generator.generate.assert_not_called()
 
     def test_generate_from_manifest_rejects_empty_manifest(self, authed_client):
