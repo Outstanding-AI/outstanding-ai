@@ -434,8 +434,12 @@ class CaseContextHydrator:
         """
         sql = f"""
             SELECT lane.*
-            FROM {_current_projection(COLLECTION_LANES_CURRENT, "lane")}
-            WHERE COALESCE(lane.lane_id, lane.id) IN %s
+            FROM (
+                SELECT *
+                FROM {COLLECTION_LANES_CURRENT}
+                WHERE tenant_id = %s
+                  AND COALESCE(lane_id, id) IN %s
+            ) lane
             """
         return self.reader.execute(sql, [self.tenant_id, tuple(lane_ids)])
 
@@ -543,7 +547,7 @@ class CaseContextHydrator:
 
     def _load_lane_history(self, lane_id: str) -> list[dict[str, Any]]:
         rows = self._fetch_lane_history([lane_id])
-        return self._format_lane_history_rows(rows)
+        return self._format_lane_history_rows(rows[:25])
 
     def _load_lane_history_batch(self, lane_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
         """Return ``{lane_id: [history_event, ...]}`` for the requested lanes.

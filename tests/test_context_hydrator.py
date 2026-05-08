@@ -184,10 +184,32 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert "silver_core_party_contacts_current" in all_sql
     assert "silver_core_obligations_current" in all_sql
     assert "silver_app_collection_lanes_current" in all_sql
+    assert "COALESCE(lane_id, id) IN %s" in all_sql
     assert "silver_app_collection_lane_invoices_current" in all_sql
     assert "silver_app_collection_lane_history_current" in all_sql
     assert "source_query_raw" in all_sql
     assert "is_source_disputed" in all_sql
+
+
+def test_hydrate_candidate_truncates_lane_history_to_latest_25() -> None:
+    """Single-candidate hydration must keep the same history cap as batch mode."""
+    reader = _FakeReader()
+    reader.history = [
+        {
+            "event_type": f"event-{idx}",
+            "detail_json": "{}",
+            "created_at": datetime(2026, 4, 2, 9, 30, tzinfo=timezone.utc),
+        }
+        for idx in range(30)
+    ]
+
+    context = CaseContextHydrator("tenant-1", reader).hydrate_candidate(_candidate())
+    event_types = [event["event_type"] for event in context.lane_history]
+
+    assert len(event_types) == 25
+    assert "event-29" not in event_types
+    assert event_types[0] == "event-24"
+    assert event_types[-1] == "event-0"
 
 
 def test_hydrate_candidate_preserves_source_query_blocks() -> None:
