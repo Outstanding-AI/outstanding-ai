@@ -79,12 +79,6 @@ Silver Application Boundary:
 - Outstanding exposure may be background context, but debtor-facing chase language must focus on
   overdue/sendable candidate obligations.
 
-Procurement / Evidence Grounding:
-- Do NOT claim a purchase order, PO, proof of delivery, POD, goods received, or delivery evidence
-  unless the context explicitly marks has_verified_purchase_order or has_verified_pod as true.
-- procurement_context_status values of missing, candidate_reference, or rejected are not facts
-  for debtor-facing wording. Candidate references may be used only internally, never as claims.
-
 Call-to-Action Options:
 - Request payment by specific date
 - Request a call to discuss

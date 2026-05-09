@@ -127,9 +127,6 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 f"is_sendable={getattr(obligation, 'is_sendable', None)}",
                 f"is_chase_eligible={getattr(obligation, 'is_chase_eligible', None)}",
             ]
-            procurement = getattr(obligation, "procurement_context_status", None)
-            if procurement:
-                status_bits.append(f"procurement_context_status={procurement}")
             if getattr(obligation, "has_verified_purchase_order", False):
                 status_bits.append(
                     "verified_po="

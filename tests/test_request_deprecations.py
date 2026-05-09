@@ -137,3 +137,75 @@ def test_build_extra_sections_ignores_last_response_snippet(sample_generate_draf
 
     assert "Debtor's Last Response" not in extra_sections
     assert "last_response_snippet is deprecated and ignored" in caplog.text
+
+
+def test_build_extra_sections_omits_unverified_procurement_status(sample_generate_draft_request):
+    """Without verified PO/POD, procurement_context_status must not leak into the prompt.
+
+    Even neutral/missing/candidate_reference statuses prime the model to mention
+    procurement evidence the FactualGroundingGuardrail then has to block. Drop
+    the priming entirely; the guardrail remains as the safety net."""
+    obligation = sample_generate_draft_request.context.obligations[0]
+    obligation.procurement_context_status = "missing"
+    obligation.has_verified_purchase_order = False
+    obligation.has_verified_pod = False
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+        candidate_obligations=[obligation],
+    )
+
+    assert "procurement_context_status" not in extra_sections
+    assert "verified_po" not in extra_sections
+    assert "verified_pod" not in extra_sections
+
+
+def test_build_extra_sections_renders_verified_procurement_facts(sample_generate_draft_request):
+    """Verified PO/POD facts ARE renderable — those are grounded evidence the
+    LLM can reference accurately."""
+    obligation = sample_generate_draft_request.context.obligations[0]
+    obligation.procurement_context_status = "verified"
+    obligation.has_verified_purchase_order = True
+    obligation.purchase_order_reference = "PO-12345"
+    obligation.has_verified_pod = True
+    obligation.pod_reference = "POD-987"
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+        candidate_obligations=[obligation],
+    )
+
+    assert "verified_po=PO-12345" in extra_sections
+    assert "verified_pod=POD-987" in extra_sections
+    assert "procurement_context_status" not in extra_sections
+
+
+def test_format_obligation_flags_omits_procurement_status_for_unverified():
+    """``_format_obligation_flags`` is the per-obligation tag string emitter for the
+    text block of the prompt. Same priming concern: drop unverified procurement."""
+    from src.engine.formatters import _format_obligation_flags
+
+    class _Obligation:
+        is_source_disputed = False
+        source_query_raw = None
+        procurement_context_status = "missing"
+        has_verified_purchase_order = False
+        has_verified_pod = False
+
+    flags = _format_obligation_flags(_Obligation())
+    assert "procurement" not in flags
+
+
+def test_factual_grounding_section_removed_from_system_prompt():
+    """System prompt must NOT mention PO/POD/procurement priming tokens.
+
+    The guardrail still validates output, but the model should not be primed
+    with the very words it might then hallucinate around."""
+    from src.prompts.draft_generation import GENERATE_DRAFT_SYSTEM
+
+    lower_prompt = GENERATE_DRAFT_SYSTEM.lower()
+    assert "purchase order" not in lower_prompt
+    assert "proof of delivery" not in lower_prompt
+    assert "procurement" not in lower_prompt

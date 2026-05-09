@@ -151,9 +151,6 @@ def _format_obligation_flags(obligation) -> str:
         or str(getattr(obligation, "source_query_raw", None) or "").strip()
     ):
         flags.append("source_disputed")
-    procurement_status = getattr(obligation, "procurement_context_status", None)
-    if procurement_status:
-        flags.append(f"procurement={procurement_status}")
     if getattr(obligation, "has_verified_purchase_order", False):
         flags.append("verified_po")
     if getattr(obligation, "has_verified_pod", False):
