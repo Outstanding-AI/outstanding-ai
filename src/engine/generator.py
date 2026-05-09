@@ -127,11 +127,27 @@ def _build_usage_breakdown(
 
 @dataclass
 class _TokenTotals:
-    """Accumulated token counts across LLM + guardrail calls."""
+    """Token accumulator with separate main vs guardrail buckets.
+
+    ``total / prompt / completion`` aggregate everything (main LLM call
+    + guardrail LLM calls) and remain the source of truth for the
+    response's top-level ``tokens_used / prompt_tokens / completion_tokens``
+    fields -- product wants the full per-draft cost there.
+
+    ``main_total / main_prompt / main_completion`` cover ONLY the
+    primary draft-generation LLM calls (including retry attempts) so
+    ``usage_breakdown.main_generation`` reports clean main-only
+    attribution. ``main_attempts`` counts how many primary LLM calls
+    succeeded -- useful when a retry inflates main_generation tokens.
+    """
 
     total: int = 0
     prompt: int = 0
     completion: int = 0
+    main_total: int = 0
+    main_prompt: int = 0
+    main_completion: int = 0
+    main_attempts: int = 0
 
 
 @dataclass
@@ -452,10 +468,21 @@ class DraftGenerator:
             )
             timing.llm_latencies.append((time.perf_counter() - llm_start) * 1000)
 
-            # Track total tokens across retries
-            tokens.total += response.usage.get("total_tokens", 0)
-            tokens.prompt += response.usage.get("prompt_tokens", 0)
-            tokens.completion += response.usage.get("completion_tokens", 0)
+            # Track total tokens across retries. Bump the main-only
+            # accumulator separately so usage_breakdown.main_generation
+            # stays clean of guardrail LLM cost (entity verification uses
+            # its own LLM call). Both buckets sum across retry attempts;
+            # ``main_attempts`` exposes the retry count to consumers.
+            response_total = response.usage.get("total_tokens", 0) or 0
+            response_prompt = response.usage.get("prompt_tokens", 0) or 0
+            response_completion = response.usage.get("completion_tokens", 0) or 0
+            tokens.total += response_total
+            tokens.prompt += response_prompt
+            tokens.completion += response_completion
+            tokens.main_total += response_total
+            tokens.main_prompt += response_prompt
+            tokens.main_completion += response_completion
+            tokens.main_attempts += 1
 
             # Parse JSON response - structured output guarantees valid JSON
             raw_result = json.loads(response.content)
@@ -705,16 +732,18 @@ class DraftGenerator:
             final_invoices = prompt_ctx.candidate_invoice_refs
 
         # Stage 3 (#8): per-suboperation usage breakdown — main LLM
-        # call + per-guardrail rollup. Backend telemetry coerces this
-        # into ``LLMRequestLog.metadata.usage_breakdown`` via the
-        # ``_USAGE_SUBOP_ALLOWED_KEYS`` allowlist.
-        main_llm_latency_ms = round(timing.llm_latencies[-1], 2) if timing.llm_latencies else None
+        # call + per-guardrail rollup. ``main_generation`` uses the
+        # main-only accumulator so guardrail LLM tokens (entity
+        # verification etc.) don't inflate it; the response's top-level
+        # tokens_used / prompt_tokens / completion_tokens still report
+        # the full per-draft cost. Latency sums across retry attempts.
+        main_llm_latency_ms = round(sum(timing.llm_latencies), 2) if timing.llm_latencies else None
         usage_breakdown = _build_usage_breakdown(
             main_provider=last_response.provider,
             main_model=last_response.model,
-            main_prompt_tokens=tokens.prompt,
-            main_completion_tokens=tokens.completion,
-            main_total_tokens=tokens.total,
+            main_prompt_tokens=tokens.main_prompt,
+            main_completion_tokens=tokens.main_completion,
+            main_total_tokens=tokens.main_total,
             main_latency_ms=main_llm_latency_ms,
             guardrail_result=guardrail_result,
         )
