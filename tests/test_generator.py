@@ -185,6 +185,7 @@ class TestDraftGenerator:
                     (),
                     {
                         "all_passed": True,
+                        "should_block": False,
                         "results": [],
                         "blocking_guardrails": [],
                         "review_findings": [],
@@ -303,3 +304,125 @@ def test_generate_request_hydrates_sparse_lane_context(sample_generate_draft_req
     assert lane_context.max_days_for_level == 21
     assert lane_context.tone_ladder == ["professional", "firm"]
     assert lane_context.__dict__["outstanding_amount"] == 1500.0
+
+
+# =============================================================================
+# Guardrail retry semantics — Stage 1 of the post-ESWL correctness pass.
+#
+# Pre-fix the generator broke out of the retry loop on
+# ``guardrail_result.all_passed`` and re-tried on any failure, including
+# LOW-severity warnings. That was the dominant contributor to Vertex 429s
+# and per-draft cost during the May 2026 ESWL activation. The fix keys
+# the retry on ``should_block`` (CRITICAL / HIGH only).
+# =============================================================================
+
+
+def _make_guardrail_result(*, should_block: bool, all_passed: bool, blocking: list[str] = None):
+    """Build a minimal stand-in for ``GuardrailPipelineResult``.
+
+    Mirrors only the attributes the generator's retry loop reads —
+    keeps the test independent of unrelated pipeline-result fields.
+    """
+    return type(
+        "MockGuardrailResult",
+        (),
+        {
+            "all_passed": all_passed,
+            "should_block": should_block,
+            "results": [],
+            "blocking_guardrails": list(blocking or []),
+            "review_findings": [],
+            "total_token_usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        },
+    )()
+
+
+class TestGuardrailRetrySemantics:
+    """Lock the ``should_block``-driven retry behaviour."""
+
+    @pytest.fixture
+    def generator(self):
+        return DraftGenerator()
+
+    @pytest.mark.asyncio
+    async def test_low_severity_warning_does_not_trigger_retry(
+        self, generator, sample_generate_draft_request
+    ):
+        """LOW-severity guardrail failure (e.g. contextual_coherence
+        warning) must NOT cause a regeneration attempt. The retry loop
+        should break immediately when ``should_block=False``, even
+        when ``all_passed=False``.
+        """
+        mock_response = _make_llm_response(
+            {
+                "subject": "Follow-up",
+                "body": "<p>Please settle the outstanding balance.</p>",
+                "invoices_referenced": [],
+            }
+        )
+
+        with patch(
+            "src.engine.generator.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+            with patch("src.engine.generator.guardrail_pipeline") as mock_pipeline:
+                # Warning-only result: a LOW-severity failure exists but
+                # nothing blocks. Pre-fix this would have driven up to
+                # ``max_guardrail_retries+1`` LLM calls; post-fix it
+                # should yield exactly ONE.
+                mock_pipeline.validate.return_value = _make_guardrail_result(
+                    should_block=False,
+                    all_passed=False,
+                    blocking=[],
+                )
+                await generator.generate(sample_generate_draft_request)
+
+        assert mock_complete.await_count == 1, (
+            f"LOW-severity guardrail warning triggered {mock_complete.await_count} "
+            f"LLM calls — expected 1. The retry loop must key on ``should_block``, "
+            f"not ``all_passed``."
+        )
+
+    @pytest.mark.asyncio
+    async def test_blocking_failure_does_trigger_retry(
+        self, generator, sample_generate_draft_request
+    ):
+        """HIGH/CRITICAL blocking failures must still drive regeneration
+        attempts up to ``max_guardrail_retries``. This anchors the
+        retry semantics so the LOW-severity short-circuit doesn't
+        accidentally suppress legitimate retries.
+        """
+        from src.config.settings import settings as _settings
+
+        mock_response = _make_llm_response(
+            {
+                "subject": "Follow-up",
+                "body": "<p>Please settle the outstanding balance.</p>",
+                "invoices_referenced": [],
+            }
+        )
+
+        with patch(
+            "src.engine.generator.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+            with patch("src.engine.generator.guardrail_pipeline") as mock_pipeline:
+                # Always-blocking result: forces the loop to retry every
+                # iteration until ``max_guardrail_retries`` is exhausted.
+                mock_pipeline.validate.return_value = _make_guardrail_result(
+                    should_block=True,
+                    all_passed=False,
+                    blocking=["factual_grounding"],
+                )
+                await generator.generate(sample_generate_draft_request)
+
+        expected_calls = _settings.max_guardrail_retries + 1
+        assert mock_complete.await_count == expected_calls, (
+            f"Blocking guardrail failure produced {mock_complete.await_count} "
+            f"LLM calls — expected {expected_calls} (max_guardrail_retries+1). "
+            f"Retry loop must continue while ``should_block=True``."
+        )

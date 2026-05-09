@@ -53,6 +53,7 @@ class TestProviderMetadata:
                     (),
                     {
                         "all_passed": True,
+                        "should_block": False,
                         "results": [],
                         "blocking_guardrails": [],
                         "review_findings": [],
@@ -98,6 +99,7 @@ class TestProviderMetadata:
                     (),
                     {
                         "all_passed": True,
+                        "should_block": False,
                         "results": [],
                         "blocking_guardrails": [],
                         "review_findings": [],

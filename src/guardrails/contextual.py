@@ -128,14 +128,19 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
         if broken_promises_count > 0:
             results.append(self._validate_promise_awareness(output, context))
 
-        # Sprint C item #11 (2026-04-28): structural cross-checks against
-        # ``context.obligations``. These run unconditionally because they
-        # don't depend on context flags — a hallucinated invoice
-        # reference is always wrong, regardless of dispute / hardship /
-        # promise state.
+        # Contextual checks against the lifecycle state of obligations.
+        # NOTE: invoice-reference correctness moved to ``FactualGroundingGuardrail``
+        # (``_validate_invoice_numbers``) — duplicating it here was the
+        # dominant source of LOW-severity warning noise during the ESWL
+        # activation post-mortem (2026-05-08), and the warning loop combined
+        # with the ``not all_passed`` retry policy (now ``should_block``) to
+        # spike per-draft Vertex spend. ``factual_grounding`` is the strict
+        # gate for hallucinated invoice numbers / unsupported amounts;
+        # ``contextual_coherence`` stays focused on lifecycle-state coherence
+        # (paid-obligation chase, dispute awareness, hardship tone, broken-
+        # promise acknowledgement, lane tone — all unique to this guardrail).
         obligations = list(getattr(context, "obligations", None) or [])
         if obligations:
-            results.append(self._validate_invoice_references(output, obligations))
             results.append(self._validate_no_paid_invoice_chase(output, obligations))
 
         # If no checks ran (no flags set, no obligations), pass-through.
@@ -330,60 +335,14 @@ class ContextualCoherenceGuardrail(BaseGuardrail):
     # Sprint C item #11 (2026-04-28): structural cross-checks
     # =========================================================================
 
-    def _validate_invoice_references(self, output: str, obligations: list) -> GuardrailResult:
-        """Pin invoice numbers cited in the prose to ``context.obligations``.
-
-        Pre-fix: the AI could hallucinate an invoice reference (e.g.
-        cite ``INV-99999`` when only ``INV-001/002/003`` are open) and
-        no guardrail caught it. The placeholder guardrail validates
-        ``{INVOICE_TABLE}`` integrity but doesn't scan free-text prose
-        for invoice patterns.
-
-        Post-fix: extract all ``INV-...`` / ``Invoice #...`` patterns
-        from the output and check each against the structured
-        obligations list. Anything not found is flagged.
-
-        ``severity=LOW`` so this never blocks generation; it surfaces
-        in ``guardrail_validation`` for review.
-        """
-        cited_refs = self._extract_invoice_refs(output)
-        if not cited_refs:
-            return self._pass(
-                message="No invoice references in prose to validate",
-                details={"prose_invoice_refs": []},
-            )
-
-        known_refs = {
-            self._normalise_invoice_ref(getattr(ob, "invoice_number", "") or "")
-            for ob in obligations
-            if getattr(ob, "invoice_number", None)
-        }
-        known_refs.discard("")
-
-        unknown = [
-            ref
-            for ref in cited_refs
-            if not self._ref_matches_known_reference(
-                output,
-                self._normalise_invoice_ref(ref),
-                known_refs,
-            )
-        ]
-        if unknown:
-            return self._fail(
-                message=f"AI cited {len(unknown)} invoice reference(s) not found in context.obligations",
-                expected="All invoice references in prose must match context.obligations[*].invoice_number",
-                found=unknown,
-                details={
-                    "hallucinated_refs": unknown,
-                    "known_refs": sorted(known_refs),
-                },
-            )
-
-        return self._pass(
-            message=f"All {len(cited_refs)} invoice reference(s) in prose match context.obligations",
-            details={"validated_refs": sorted(cited_refs)},
-        )
+    # NOTE: ``_validate_invoice_references`` was removed. Invoice-reference
+    # correctness is owned exclusively by
+    # ``FactualGroundingGuardrail._validate_invoice_numbers`` (severity=HIGH,
+    # blocking). Duplicating the check here at severity=LOW produced
+    # warning-level retries that combined with the pre-fix
+    # ``not all_passed`` retry policy to amplify Vertex spend during the
+    # ESWL activation post-mortem (2026-05-08). The factual-grounding
+    # check is a strict superset of what this method enforced.
 
     def _validate_no_paid_invoice_chase(self, output: str, obligations: list) -> GuardrailResult:
         """Fail if the prose demands payment for a non-collectible

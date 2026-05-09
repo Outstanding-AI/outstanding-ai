@@ -20,20 +20,32 @@ from __future__ import annotations
 
 import pytest
 
-from src.api.models.requests import CaseContext
+from src.api.models.requests import CaseContext, PartyInfo
 from src.api.models.requests.context import ObligationInfo
 from src.guardrails.contextual import ContextualCoherenceGuardrail
 
 
-def _make_context(*, obligations: list[ObligationInfo], **overrides) -> CaseContext:
-    """Build a minimal CaseContext fixture for the contextual guardrail.
+def _make_context(*, obligations: list[ObligationInfo]) -> CaseContext:
+    """Build a minimal CaseContext for direct ``validate()`` invocation.
 
-    Skips the heavy fields (party_info, communication_info etc.) since
-    the structural checks only consume ``obligations``.
+    The structural / pipeline-level tests in this file only consume
+    ``obligations`` plus the bare-minimum required fields on the model,
+    so we instantiate the schema directly rather than depending on a
+    shared fixture helper that may or may not exist.
     """
-    from tests.conftest import _build_case_context_minimal  # type: ignore[import-not-found]
-
-    return _build_case_context_minimal(obligations=obligations, **overrides)
+    return CaseContext(
+        schema_version=2,
+        party=PartyInfo(
+            party_id="party-001",
+            external_id="party-ext-001",
+            provider_type="sage_200",
+            customer_code="CUST001",
+            name="Acme Corp",
+            currency="GBP",
+            source="sage_200",
+        ),
+        obligations=obligations,
+    )
 
 
 # Some test environments don't expose a builder helper — fall back to
@@ -152,61 +164,40 @@ class TestInvoiceReferenceExtraction:
         assert guardrail._normalise_invoice_ref("12345") == "12345"
 
 
-class TestInvoiceReferenceValidation:
-    def test_pass_when_no_invoice_refs_in_prose(self, guardrail, open_obligations):
-        result = guardrail._validate_invoice_references(
-            "Just checking in — please advise on the outstanding balance.",
-            open_obligations,
-        )
-        assert result.passed is True
+# ``TestInvoiceReferenceValidation`` removed alongside the
+# ``_validate_invoice_references`` method. Invoice-reference correctness
+# is now owned exclusively by ``FactualGroundingGuardrail`` — see
+# ``tests/test_guardrails/test_factual_grounding.py`` for that coverage.
 
-    def test_pass_when_all_refs_match_context(self, guardrail, open_obligations):
-        result = guardrail._validate_invoice_references(
-            "Reaching out about INV-001 and INV-002 — both are overdue.",
-            open_obligations,
-        )
-        assert result.passed is True
 
-    def test_pass_when_sage_ref_contains_space(self, guardrail):
-        obligations = [
-            ObligationInfo(
-                id="obl-1",
-                external_id="1",
-                provider_type="sage_200",
-                invoice_number="May 102",
-                original_amount=199.0,
-                amount_due=199.0,
-                due_date="2025-06-16",
-                days_past_due=325,
-                state="open",
-                collection_status="open",
-            )
-        ]
+class TestPipelineDoesNotDuplicateInvoiceCheck:
+    """Pipeline-level regression: a hallucinated invoice reference in the
+    output should NOT produce a contextual-coherence failure (factual
+    grounding owns that check now). This locks the
+    duplicate-check-removal in place.
+    """
 
-        result = guardrail._validate_invoice_references(
-            "Our records show invoice May 102 for GBP 199.00 is still outstanding.",
-            obligations,
-        )
-
-        assert result.passed is True
-
-    def test_fail_when_ref_not_in_context(self, guardrail, open_obligations):
-        # INV-99999 doesn't exist in the context.
-        result = guardrail._validate_invoice_references(
+    def test_pipeline_passes_when_only_hallucinated_invoice_present(
+        self, guardrail, open_obligations
+    ):
+        # Pre-fix this would fail at LOW severity in contextual_coherence
+        # AND at HIGH severity in factual_grounding, with the LOW failure
+        # triggering a regen retry under the old ``not all_passed`` rule.
+        # Post-fix contextual_coherence stays silent and only factual
+        # grounding (separate guardrail, separate test file) flags it.
+        ctx = _make_context(obligations=open_obligations)
+        results = guardrail.validate(
             "Following up on INV-99999, which is past due.",
-            open_obligations,
+            ctx,
         )
-        assert result.passed is False
-        # Hallucinated refs should be in the details for operator triage.
-        assert "99999" in str(result.details.get("hallucinated_refs"))
-
-    def test_fail_when_only_some_refs_hallucinated(self, guardrail, open_obligations):
-        # INV-001 exists; INV-9999 doesn't.
-        result = guardrail._validate_invoice_references(
-            "Both INV-001 and INV-9999 remain outstanding.",
-            open_obligations,
+        invoice_ref_failures = [
+            r for r in results if not r.passed and "invoice reference" in r.message.lower()
+        ]
+        assert invoice_ref_failures == [], (
+            "ContextualCoherenceGuardrail must not flag hallucinated invoice "
+            "references — that is FactualGroundingGuardrail's job. Found: "
+            f"{[r.message for r in invoice_ref_failures]}"
         )
-        assert result.passed is False
 
 
 class TestPaidInvoiceChase:

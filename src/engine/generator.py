@@ -440,17 +440,26 @@ class DraftGenerator:
             tokens.prompt += gr_tokens.get("prompt_tokens", 0)
             tokens.completion += gr_tokens.get("completion_tokens", 0)
 
-            if guardrail_result.all_passed:
+            # Retry only on BLOCKING failures (CRITICAL or HIGH severity).
+            # LOW/MEDIUM warnings are logged and surfaced in the response but
+            # do NOT trigger regeneration — that path was the dominant
+            # contributor to Vertex 429 pressure and per-draft cost during
+            # the ESWL activation post-mortem (2026-05-08). The earlier
+            # ``not all_passed`` check meant a single LOW contextual_coherence
+            # warning could force up to ``max_guardrail_retries`` extra LLM
+            # calls per draft.
+            if not guardrail_result.should_block:
                 if attempt > 0:
                     logger.info(
-                        f"Guardrails passed on retry attempt {attempt + 1} for "
+                        f"Guardrails cleared blocking failures on retry "
+                        f"attempt {attempt + 1} for "
                         f"{request.context.party.customer_code}"
                     )
                 break
 
             if attempt >= settings.max_guardrail_retries:
                 logger.warning(
-                    f"Guardrails still failing after {settings.max_guardrail_retries + 1} attempts for "
+                    f"Guardrails still blocking after {settings.max_guardrail_retries + 1} attempts for "
                     f"{request.context.party.customer_code}: {guardrail_result.blocking_guardrails}"
                 )
                 break
