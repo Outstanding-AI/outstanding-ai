@@ -116,6 +116,11 @@ class GuardrailPipelineResult:
     retry_suggested: bool = False
     blocking_guardrails: list[str] = field(default_factory=list)
     review_findings: list[dict] = field(default_factory=list)
+    # Stage 3 (#8): per-guardrail latency rollup so generator.py can
+    # emit ``UsageBreakdown.guardrails`` with attribution. Populated
+    # by ``executor.validate_parallel`` / ``validate_sequential``;
+    # empty dict means the field is unavailable for this run.
+    per_guardrail_latency_ms: dict[str, float] = field(default_factory=dict)
 
     @property
     def critical_failures(self) -> list[GuardrailResult]:

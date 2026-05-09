@@ -32,7 +32,12 @@ from pydantic import ValidationError
 
 from src.api.errors import LLMResponseInvalidError
 from src.api.models.requests import GenerateDraftRequest
-from src.api.models.responses import GenerateDraftResponse, GuardrailValidation
+from src.api.models.responses import (
+    GenerateDraftResponse,
+    GuardrailValidation,
+    UsageBreakdown,
+    UsageBreakdownEntry,
+)
 from src.config.settings import settings
 from src.guardrails.base import GuardrailPipelineResult, GuardrailSeverity
 from src.guardrails.pipeline import guardrail_pipeline
@@ -54,6 +59,70 @@ GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 def _normalize_invoice_ref(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _build_usage_breakdown(
+    *,
+    main_provider: str | None,
+    main_model: str | None,
+    main_prompt_tokens: int,
+    main_completion_tokens: int,
+    main_total_tokens: int,
+    main_latency_ms: float | None,
+    guardrail_result: GuardrailPipelineResult,
+) -> UsageBreakdown:
+    """Roll up main + per-guardrail usage for ``GenerateDraftResponse``.
+
+    Token counts are summed across each guardrail's ``GuardrailResult``
+    instances (one guardrail can emit multiple results); latency comes
+    from the run-level ``per_guardrail_latency_ms`` map populated by
+    the executor. Deterministic guardrails report ``total_tokens=0`` —
+    they still appear so latency attribution is complete.
+    """
+    main_entry = UsageBreakdownEntry(
+        provider=main_provider,
+        model=main_model,
+        prompt_tokens=main_prompt_tokens or None,
+        completion_tokens=main_completion_tokens or None,
+        total_tokens=main_total_tokens or None,
+        latency_ms=main_latency_ms,
+    )
+
+    aggregate: dict[str, dict[str, Any]] = {}
+    for r in guardrail_result.results:
+        agg = aggregate.setdefault(
+            r.guardrail_name,
+            {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "passed": True,
+                "blocking": False,
+            },
+        )
+        usage = r.token_usage or {}
+        agg["prompt_tokens"] += int(usage.get("prompt_tokens", 0) or 0)
+        agg["completion_tokens"] += int(usage.get("completion_tokens", 0) or 0)
+        agg["total_tokens"] += int(usage.get("total_tokens", 0) or 0)
+        agg["passed"] = agg["passed"] and r.passed
+        if r.should_block:
+            agg["blocking"] = True
+
+    guardrails_map: dict[str, UsageBreakdownEntry] = {}
+    for name, agg in aggregate.items():
+        guardrails_map[name] = UsageBreakdownEntry(
+            prompt_tokens=agg["prompt_tokens"] or None,
+            completion_tokens=agg["completion_tokens"] or None,
+            total_tokens=agg["total_tokens"] or None,
+            latency_ms=guardrail_result.per_guardrail_latency_ms.get(name),
+            passed=agg["passed"],
+            blocking=agg["blocking"],
+        )
+
+    return UsageBreakdown(
+        main_generation=main_entry,
+        guardrails=guardrails_map or None,
+    )
 
 
 @dataclass
@@ -635,6 +704,21 @@ class DraftGenerator:
         if not final_invoices:
             final_invoices = prompt_ctx.candidate_invoice_refs
 
+        # Stage 3 (#8): per-suboperation usage breakdown — main LLM
+        # call + per-guardrail rollup. Backend telemetry coerces this
+        # into ``LLMRequestLog.metadata.usage_breakdown`` via the
+        # ``_USAGE_SUBOP_ALLOWED_KEYS`` allowlist.
+        main_llm_latency_ms = round(timing.llm_latencies[-1], 2) if timing.llm_latencies else None
+        usage_breakdown = _build_usage_breakdown(
+            main_provider=last_response.provider,
+            main_model=last_response.model,
+            main_prompt_tokens=tokens.prompt,
+            main_completion_tokens=tokens.completion,
+            main_total_tokens=tokens.total,
+            main_latency_ms=main_llm_latency_ms,
+            guardrail_result=guardrail_result,
+        )
+
         return GenerateDraftResponse(
             subject=result.subject,
             body=result.body,
@@ -664,6 +748,7 @@ class DraftGenerator:
                 completion_tokens=tokens.completion,
                 latency_ms=round(total_latency_ms, 2),
             ),
+            usage_breakdown=usage_breakdown,
         )
 
     def _build_config_section(self, request: GenerateDraftRequest, comm) -> str:

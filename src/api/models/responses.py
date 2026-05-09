@@ -79,6 +79,43 @@ class GuardrailValidation(BaseModel):
     )
 
 
+class UsageBreakdownEntry(BaseModel):
+    """Per-suboperation usage rollup for a single LLM call.
+
+    Used inside ``UsageBreakdown.main_generation`` and per-guardrail
+    entries under ``UsageBreakdown.guardrails``. The shape is a hard
+    allowlist on the backend side (see
+    ``services/ai_engine/_telemetry.py::_USAGE_SUBOP_ALLOWED_KEYS``);
+    keep this Pydantic model aligned so additions land via the
+    contracts bump cycle, not silent drift.
+    """
+
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
+    latency_ms: Optional[float] = None
+    cost_usd: Optional[float] = None
+    passed: Optional[bool] = None
+    blocking: Optional[bool] = None
+
+
+class UsageBreakdown(BaseModel):
+    """Per-suboperation usage breakdown attached to AI responses.
+
+    ``main_generation`` covers the primary LLM call. ``guardrails`` is
+    keyed by guardrail name and rolls up each guardrail's tokens /
+    latency / pass-block state. Only guardrails that actually ran
+    appear; deterministic guardrails with zero LLM cost still appear
+    so the dashboard can attribute their latency contribution.
+    """
+
+    main_generation: Optional[UsageBreakdownEntry] = None
+    guardrails: Optional[Dict[str, UsageBreakdownEntry]] = None
+
+
 class AIAuditMetadata(BaseModel):
     """Prompt/model/lineage metadata for Silver Application audit tables."""
 
@@ -193,6 +230,10 @@ class GenerateDraftResponse(BaseModel):
     primary_cta: Optional[str] = None
     follow_up_days: Optional[int] = None
     ai_audit: Optional[AIAuditMetadata] = None
+    # Stage 3 (#8): per-suboperation usage rollup (main + per-guardrail).
+    # Backend telemetry persists the dict into ``LLMRequestLog.metadata.
+    # usage_breakdown`` once the AI engine emits it.
+    usage_breakdown: Optional[UsageBreakdown] = None
 
 
 class GenerateDraftFromManifestCandidateResult(BaseModel):

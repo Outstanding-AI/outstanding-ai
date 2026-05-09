@@ -114,6 +114,7 @@ def validate_parallel(
         retry_suggested=should_block and len(blocking_guardrails) <= 2,
         blocking_guardrails=blocking_guardrails,
         review_findings=review_findings,
+        per_guardrail_latency_ms={k: round(v, 2) for k, v in guardrail_latencies.items()},
     )
 
 
@@ -195,6 +196,9 @@ def validate_sequential(
                             retry_suggested=True,
                             blocking_guardrails=blocking_guardrails,
                             review_findings=review_findings,
+                            per_guardrail_latency_ms={
+                                k: round(v, 2) for k, v in guardrail_latencies.items()
+                            },
                         )
                 if result.is_review_finding:
                     review_findings.append(result.to_dict())
@@ -249,4 +253,5 @@ def validate_sequential(
         retry_suggested=should_block and len(blocking_guardrails) <= 2,
         blocking_guardrails=blocking_guardrails,
         review_findings=review_findings,
+        per_guardrail_latency_ms={k: round(v, 2) for k, v in guardrail_latencies.items()},
     )
