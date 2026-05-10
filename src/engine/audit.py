@@ -86,14 +86,14 @@ def build_ai_audit(
     )
 
     raw_invocation_config = getattr(response, "model_invocation_config", None)
-    raw_invocation_hash = getattr(response, "model_invocation_config_hash", None)
     sanitized_invocation_config: dict[str, Any] | None = None
     sanitized_invocation_hash: str | None = None
     if raw_invocation_config:
         sanitized_invocation_config = sanitize_persisted_invocation_config(raw_invocation_config)
-        if sanitized_invocation_config == raw_invocation_config:
-            sanitized_invocation_hash = raw_invocation_hash
-        else:
+        if sanitized_invocation_config:
+            # Invariant: the hash on the response always describes the exact
+            # config dict on the response. Recompute unconditionally so stale
+            # or forged provider hashes cannot cross the AI HTTP boundary.
             sanitized_invocation_hash = hash_invocation_config(sanitized_invocation_config)
 
     provider = getattr(response, "provider", None)

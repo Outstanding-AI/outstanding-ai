@@ -625,10 +625,11 @@ class TestBuildAiAuditReSanitizes:
         # And the stale provider-supplied hash was discarded.
         assert built.model_invocation_config_hash != "stale-from-pre-sanitize"
 
-    def test_clean_response_keeps_provider_supplied_hash(self) -> None:
-        """When the provider's config is already clean (no sanitization
-        changes), the hash passes through unchanged — saves a hash op on
-        the happy path."""
+    def test_clean_response_recomputes_provider_supplied_hash(self) -> None:
+        """Even when the provider's config is already clean, the response
+        boundary recomputes the hash from the config it will return."""
+        import hashlib
+
         from src.llm.base import LLMResponse
 
         clean_response = LLMResponse(
@@ -637,13 +638,21 @@ class TestBuildAiAuditReSanitizes:
             provider="vertex",
             usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
             model_invocation_config={"temperature": 0.7},
-            model_invocation_config_hash="provider-hash-untouched",
+            model_invocation_config_hash="stale-provider-hash",
             sdk_library="google-genai",
             sdk_version="1.2.3",
         )
         built = build_ai_audit(response=clean_response, **self._audit_kwargs())
         assert built.model_invocation_config == {"temperature": 0.7}
-        assert built.model_invocation_config_hash == "provider-hash-untouched"
+        canonical = json.dumps(
+            built.model_invocation_config,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        assert built.model_invocation_config_hash == expected
+        assert built.model_invocation_config_hash != "stale-provider-hash"
 
 
 # ---------------------------------------------------------------------------
@@ -684,6 +693,8 @@ class TestInferenceProfile:
 
 class TestBuildAiAuditCopiesProviderFields:
     def test_copies_all_five_provider_fields(self) -> None:
+        import hashlib
+
         # LLMResponse-like duck type carrying the audit fields the providers attach.
         response = SimpleNamespace(
             provider="vertex",
@@ -705,7 +716,15 @@ class TestBuildAiAuditCopiesProviderFields:
             inference_profile="draft_generation",
         )
         assert built.model_invocation_config == {"temperature": 0.7, "structured": False}
-        assert built.model_invocation_config_hash == "abc123"
+        canonical = json.dumps(
+            built.model_invocation_config,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        expected_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        assert built.model_invocation_config_hash == expected_hash
+        assert built.model_invocation_config_hash != "abc123"
         assert built.model_version_fingerprint == "models/gemini-2.5-flash@002"
         assert built.sdk_library == "google-genai"
         assert built.sdk_version == "1.2.3"
