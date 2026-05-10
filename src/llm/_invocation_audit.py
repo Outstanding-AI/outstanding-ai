@@ -119,6 +119,41 @@ _FORBIDDEN_KEYS: frozenset[str] = frozenset(
 )
 
 
+# Union of the per-provider allow lists. Used by the AI-side response-builder
+# (``src/engine/audit.py::build_ai_audit``) as a third defense-in-depth filter
+# between the per-provider helpers and the HTTP response. Whichever provider
+# is in play, no key outside this union may end up in
+# ``AIAuditMetadata.model_invocation_config``.
+_PERSISTED_INVOCATION_ALLOWED_KEYS: frozenset[str] = frozenset(
+    _VERTEX_AUDIT_KEYS | _OPENAI_AUDIT_KEYS | _ANTHROPIC_AUDIT_KEYS
+)
+
+
+def sanitize_persisted_invocation_config(cfg: Mapping[str, Any]) -> Dict[str, Any]:
+    """Re-sanitize an invocation-config dict at the AI HTTP response boundary.
+
+    Provider helpers (``vertex_invocation_audit`` etc.) already sanitize before
+    constructing ``LLMResponse``. This is a third filter that catches any
+    regression where unsafe keys leak into ``LLMResponse.model_invocation_config``
+    between the provider builder and the HTTP response. The backend has its
+    own nested allowlist as the fourth layer; together they keep the
+    "model_invocation_config never carries prompt/customer content"
+    invariant true even if any single layer drifts.
+
+    Returns a fresh dict — never mutates the input.
+    """
+    if not isinstance(cfg, Mapping):
+        return {}
+    return _filter(cfg, _PERSISTED_INVOCATION_ALLOWED_KEYS)
+
+
+def hash_invocation_config(cfg: Mapping[str, Any]) -> str:
+    """Public alias of ``_hash_config`` for callers that re-sanitize and need
+    the hash to match the persisted dict. The backend mirrors this hashing
+    contract; both use canonical-JSON sha256 over the sanitized dict."""
+    return _hash_config(cfg)
+
+
 @dataclass(frozen=True)
 class InvocationAudit:
     """Five-field bundle attached to every LLMResponse.

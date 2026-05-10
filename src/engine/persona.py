@@ -27,6 +27,7 @@ Two operations:
 
 import json
 import logging
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -78,7 +79,9 @@ class PersonaGenerator:
         total_completion_tokens = 0
         last_provider = None
         last_model = None
-        last_ai_audit = None
+        last_response = None  # for model identity / sdk fields on the aggregate audit
+        per_call_user_prompts: list[str] = []
+        per_call_prompt_inputs: list[Any] = []
         is_fallback = False
         for contact in contacts:
             # Skip persona generation for generic/shared mailboxes
@@ -109,7 +112,11 @@ class PersonaGenerator:
                 total_completion_tokens += response_meta.get("completion_tokens", 0)
                 last_provider = response_meta.get("provider", last_provider)
                 last_model = response_meta.get("model", last_model)
-                last_ai_audit = response_meta.get("ai_audit") or last_ai_audit
+                last_response = response_meta.get("_response") or last_response
+                if response_meta.get("_user_prompt") is not None:
+                    per_call_user_prompts.append(response_meta["_user_prompt"])
+                if response_meta.get("_prompt_input") is not None:
+                    per_call_prompt_inputs.append(response_meta["_prompt_input"])
                 if response_meta.get("is_fallback"):
                     is_fallback = True
             except Exception as e:
@@ -129,6 +136,33 @@ class PersonaGenerator:
                         "emphasis": None,
                     }
                 )
+
+        # One aggregate audit per HTTP response. Token counts are summed across
+        # all per-contact LLM calls so metadata.ai_audit.{prompt,completion,token}
+        # matches the top-level LLMRequestLog columns. user_prompt / prompt_input
+        # hashes describe the BATCH (canonical-JSON of the per-call list) so the
+        # audit row is internally consistent — never the last call masquerading
+        # as the whole batch. The system prompt and template are constant
+        # across calls, so their hashes remain meaningful at the aggregate level.
+        aggregate_audit = None
+        if last_response is not None and per_call_user_prompts:
+            aggregate_audit = build_ai_audit(
+                response=last_response,
+                context=None,
+                prompt_template_id=PERSONA_GEN_TEMPLATE_ID,
+                prompt_template_version=PERSONA_GEN_TEMPLATE_VERSION,
+                system_prompt=PERSONA_GENERATION_SYSTEM,
+                # Pass the canonical-JSON of the per-call list as the
+                # "user_prompt" so hash_text produces a deterministic batch
+                # identifier without us needing a separate hash entry-point.
+                user_prompt=json.dumps(per_call_user_prompts, sort_keys=True, ensure_ascii=True),
+                prompt_input=per_call_prompt_inputs,
+                token_count=total_tokens,
+                prompt_tokens=total_prompt_tokens,
+                completion_tokens=total_completion_tokens,
+                inference_profile="persona_gen",
+            )
+
         return {
             "personas": results,
             "tokens_used": total_tokens,
@@ -137,12 +171,7 @@ class PersonaGenerator:
             "provider": last_provider,
             "model": last_model,
             "is_fallback": is_fallback,
-            # One ai_audit per HTTP response — mirrors how last_provider /
-            # last_model are aggregated. All N persona-generation calls
-            # share template/version/profile, so the last call's audit is
-            # representative; backend persists exactly one LLMRequestLog
-            # row for this AI Engine round-trip.
-            "ai_audit": last_ai_audit,
+            "ai_audit": aggregate_audit,
         }
 
     async def _generate_single(self, contact: dict, total_levels: int) -> tuple:
@@ -213,23 +242,12 @@ class PersonaGenerator:
             "formality_level": parsed.formality_level,
             "emphasis": parsed.emphasis,
         }
-        # persona endpoints declared ai_audit on their response
-        # models but never populated it. Build per-call here and let the
-        # caller aggregate (use last call's audit for the response shape,
-        # mirroring last_provider / last_model).
-        ai_audit = build_ai_audit(
-            response=response,
-            context=None,
-            prompt_template_id=PERSONA_GEN_TEMPLATE_ID,
-            prompt_template_version=PERSONA_GEN_TEMPLATE_VERSION,
-            system_prompt=PERSONA_GENERATION_SYSTEM,
-            user_prompt=user_prompt,
-            prompt_input={"contact": contact, "total_levels": total_levels},
-            token_count=response.usage.get("total_tokens", 0),
-            prompt_tokens=response.usage.get("prompt_tokens", 0),
-            completion_tokens=response.usage.get("completion_tokens", 0),
-            inference_profile="persona_gen",
-        )
+        # No per-call audit object built here — generate_personas aggregates
+        # ONE audit after the loop with summed tokens + batch prompt hashes
+        # so LLMRequestLog.prompt_tokens (sum) and metadata.ai_audit.prompt_tokens
+        # describe the same thing. The raw response + per-contact prompt
+        # input flow up under reserved keys (``_response``, ``_user_prompt``,
+        # ``_prompt_input``) so the caller can compute aggregate hashes.
         response_meta = {
             "tokens_used": response.usage.get("total_tokens", 0),
             "prompt_tokens": response.usage.get("prompt_tokens", 0),
@@ -237,7 +255,9 @@ class PersonaGenerator:
             "provider": response.provider,
             "model": response.model,
             "is_fallback": getattr(response, "is_fallback", False),
-            "ai_audit": ai_audit,
+            "_response": response,
+            "_user_prompt": user_prompt,
+            "_prompt_input": {"contact": contact, "total_levels": total_levels},
         }
         return persona, response_meta
 

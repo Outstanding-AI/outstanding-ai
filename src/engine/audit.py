@@ -71,6 +71,31 @@ def build_ai_audit(
             f"must be one of {sorted(_VALID_INFERENCE_PROFILES)}"
         )
 
+    # Defense-in-depth: the per-provider helpers in src/llm/_invocation_audit.py
+    # already sanitize before constructing LLMResponse. This re-sanitization
+    # at the response-building boundary catches any provider regression
+    # that leaks unsafe nested keys into LLMResponse.model_invocation_config
+    # before the HTTP response leaves the AI Engine. Any consumer that
+    # reads the response (logs, traces, debug tooling) sees only the
+    # sanitized dict; backend has its own filter as the final layer.
+    # When sanitization changes the dict, recompute the hash so the
+    # persisted hash always matches the persisted config.
+    from src.llm._invocation_audit import (
+        hash_invocation_config,
+        sanitize_persisted_invocation_config,
+    )
+
+    raw_invocation_config = getattr(response, "model_invocation_config", None)
+    raw_invocation_hash = getattr(response, "model_invocation_config_hash", None)
+    sanitized_invocation_config: dict[str, Any] | None = None
+    sanitized_invocation_hash: str | None = None
+    if raw_invocation_config:
+        sanitized_invocation_config = sanitize_persisted_invocation_config(raw_invocation_config)
+        if sanitized_invocation_config == raw_invocation_config:
+            sanitized_invocation_hash = raw_invocation_hash
+        else:
+            sanitized_invocation_hash = hash_invocation_config(sanitized_invocation_config)
+
     provider = getattr(response, "provider", None)
     input_versions_json = None
     if context is not None:
@@ -98,11 +123,13 @@ def build_ai_audit(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         latency_ms=latency_ms,
-        # Model invocation audit (May 2026): copy the sanitized fields the
-        # provider helper attached to LLMResponse. None-safe so older test
-        # fixtures that build LLMResponse without these attrs still work.
-        model_invocation_config=getattr(response, "model_invocation_config", None),
-        model_invocation_config_hash=getattr(response, "model_invocation_config_hash", None),
+        # Model invocation audit (May 2026): use the re-sanitized values
+        # computed above so the persisted dict and persisted hash agree
+        # even if a provider helper regressed and let unsafe keys through.
+        # None-safe: older test fixtures with no model_invocation_config
+        # attribute land None on both fields.
+        model_invocation_config=sanitized_invocation_config,
+        model_invocation_config_hash=sanitized_invocation_hash,
         model_version_fingerprint=getattr(response, "model_version_fingerprint", None),
         sdk_library=getattr(response, "sdk_library", None),
         sdk_version=getattr(response, "sdk_version", None),

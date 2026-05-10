@@ -405,14 +405,22 @@ class TestPersonaAudit:
         assert ai_audit.sdk_library == "google-genai"
         assert ai_audit.model_invocation_config == {"temperature": 0.5, "structured": True}
 
-    def test_generate_personas_aggregates_last_call_ai_audit(self, monkeypatch) -> None:
+    def test_generate_personas_aggregates_token_counts_not_last_call(self, monkeypatch) -> None:
+        """Three contacts → three LLM calls. The aggregate ai_audit MUST report
+        SUMMED tokens (matching the top-level ``prompt_tokens`` /
+        ``completion_tokens`` keys on the response) instead of just the last
+        call's tokens. Earlier behavior leaked an inconsistency: the top-level
+        column summed across all calls but ``metadata.ai_audit.prompt_tokens``
+        described only the final contact, so a reader cross-referencing the
+        two saw wildly different numbers."""
         import asyncio
 
         from src.engine.persona import persona_generator
         from src.llm import factory as llm_factory
         from src.llm.base import LLMResponse
 
-        # Two contacts -> two LLM calls. Aggregate uses the last call's audit.
+        # Three contacts -> three LLM calls, with DIFFERENT per-call token
+        # counts so the sum can be distinguished from any individual call.
         responses = [
             LLMResponse(
                 content=json.dumps(
@@ -424,13 +432,17 @@ class TestPersonaAudit:
                 ),
                 model="gemini-2.5-flash",
                 provider="vertex",
-                usage={"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
-                model_invocation_config={"temperature": 0.7, "call": i},
-                model_invocation_config_hash=f"hash{i}" * 8,
+                usage={
+                    "prompt_tokens": 100 * (i + 1),
+                    "completion_tokens": 20 * (i + 1),
+                    "total_tokens": 120 * (i + 1),
+                },
+                model_invocation_config={"temperature": 0.7},
+                model_invocation_config_hash="hashvalue" * 7 + "x" * (64 - 56),
                 sdk_library="google-genai",
                 sdk_version="1.2.3",
             )
-            for i in range(2)
+            for i in range(3)
         ]
         call_idx = {"i": 0}
 
@@ -444,13 +456,194 @@ class TestPersonaAudit:
         contacts = [
             {"name": "A", "title": "AR", "level": 1},
             {"name": "B", "title": "Manager", "level": 2},
+            {"name": "C", "title": "Director", "level": 3},
         ]
         result = asyncio.run(persona_generator.generate_personas(contacts, total_levels=4))
         ai_audit = result["ai_audit"]
         assert ai_audit is not None
         assert ai_audit.inference_profile == "persona_gen"
-        # Last call's invocation config is what surfaces — call=1 (zero-indexed).
-        assert ai_audit.model_invocation_config["call"] == 1
+        # Sum is 100+200+300 = 600 prompt tokens; 20+40+60 = 120 completion tokens.
+        # Last-call-only would have been 300 / 60. Either matches "the batch"
+        # or the test is wrong.
+        assert ai_audit.prompt_tokens == 600, (
+            f"expected sum across 3 calls, got {ai_audit.prompt_tokens}"
+        )
+        assert ai_audit.completion_tokens == 120
+        assert ai_audit.token_count == 720
+        # Top-level keys on the response dict must agree with the audit.
+        assert result["prompt_tokens"] == ai_audit.prompt_tokens
+        assert result["completion_tokens"] == ai_audit.completion_tokens
+        assert result["tokens_used"] == ai_audit.token_count
+
+    def test_generate_personas_audit_user_prompt_hash_describes_batch(self, monkeypatch) -> None:
+        """Two batches with the same contacts in the same order produce the
+        same ``user_prompt_hash``; reordering the contacts produces a
+        different hash. Confirms the hash is over the BATCH, not just the
+        last contact's user prompt."""
+        import asyncio
+
+        from src.engine.persona import persona_generator
+        from src.llm import factory as llm_factory
+        from src.llm.base import LLMResponse
+
+        def _make_response(idx: int) -> LLMResponse:
+            return LLMResponse(
+                content=json.dumps(
+                    {
+                        "communication_style": f"s-{idx}",
+                        "formality_level": "professional",
+                        "emphasis": "x",
+                    }
+                ),
+                model="gemini-2.5-flash",
+                provider="vertex",
+                usage={"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+                model_invocation_config={"temperature": 0.7},
+                model_invocation_config_hash="aaa" * 21 + "x",
+                sdk_library="google-genai",
+                sdk_version="1.2.3",
+            )
+
+        responses_iter = {"i": 0}
+
+        async def _fake_complete(*args, **kwargs):
+            r = _make_response(responses_iter["i"])
+            responses_iter["i"] += 1
+            return r
+
+        monkeypatch.setattr(llm_factory.llm_client, "complete", _fake_complete)
+
+        contacts_ab = [
+            {"name": "A", "title": "AR", "level": 1},
+            {"name": "B", "title": "Mgr", "level": 2},
+        ]
+        contacts_ba = [
+            {"name": "B", "title": "Mgr", "level": 2},
+            {"name": "A", "title": "AR", "level": 1},
+        ]
+        responses_iter["i"] = 0
+        r_ab1 = asyncio.run(persona_generator.generate_personas(contacts_ab, total_levels=4))
+        responses_iter["i"] = 0
+        r_ab2 = asyncio.run(persona_generator.generate_personas(contacts_ab, total_levels=4))
+        responses_iter["i"] = 0
+        r_ba = asyncio.run(persona_generator.generate_personas(contacts_ba, total_levels=4))
+
+        # Same contacts same order → same batch hash
+        assert r_ab1["ai_audit"].user_prompt_hash == r_ab2["ai_audit"].user_prompt_hash
+        # Different order → different batch hash (proves the hash sees more
+        # than just the last contact)
+        assert r_ab1["ai_audit"].user_prompt_hash != r_ba["ai_audit"].user_prompt_hash
+
+
+# ---------------------------------------------------------------------------
+# AI-side re-sanitize defense-in-depth in build_ai_audit
+# ---------------------------------------------------------------------------
+
+
+class TestBuildAiAuditReSanitizes:
+    """Even if a provider helper regression leaks unsafe nested keys into
+    ``LLMResponse.model_invocation_config``, ``build_ai_audit`` must drop
+    them before constructing ``AIAuditMetadata`` and the persisted hash
+    must match the persisted dict."""
+
+    def _audit_kwargs(self) -> dict:
+        return dict(
+            context=None,
+            prompt_template_id="t",
+            prompt_template_version="v",
+            system_prompt="sys",
+            user_prompt="usr",
+            prompt_input={"a": 1},
+            inference_profile="draft_generation",
+        )
+
+    def test_unsafe_nested_keys_are_dropped(self) -> None:
+        from src.llm.base import LLMResponse
+
+        # Simulate a provider regression: LLMResponse carries ``system_instruction``
+        # inside its model_invocation_config. ``build_ai_audit`` must drop it.
+        regressed_response = LLMResponse(
+            content="x",
+            model="gemini-2.5-flash",
+            provider="vertex",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            model_invocation_config={
+                "temperature": 0.7,
+                "system_instruction": "LEAKED_SYSTEM_PROMPT_TEXT",
+                "messages": [{"role": "user", "content": "LEAKED_USER_TEXT"}],
+                "openai_api_key": "sk-LEAKED",
+                "temperature_drift_test": "extra-key-not-in-allow-list",
+            },
+            model_invocation_config_hash="provided-hash-from-provider",
+            sdk_library="google-genai",
+            sdk_version="1.2.3",
+        )
+        built = build_ai_audit(response=regressed_response, **self._audit_kwargs())
+        cfg = built.model_invocation_config
+        assert "system_instruction" not in cfg
+        assert "messages" not in cfg
+        assert "openai_api_key" not in cfg
+        assert "temperature_drift_test" not in cfg
+        # The legitimate field survives
+        assert cfg["temperature"] == 0.7
+        # PII strings absent from serialized output
+        serialized = json.dumps(cfg)
+        assert "LEAKED" not in serialized
+        assert "sk-LEAKED" not in serialized
+
+    def test_hash_matches_persisted_config_after_sanitize(self) -> None:
+        """Invariant: hash(persisted_config) == persisted_hash. If
+        sanitization drops keys, hash must be recomputed."""
+        import hashlib
+
+        from src.llm.base import LLMResponse
+
+        regressed_response = LLMResponse(
+            content="x",
+            model="gemini-2.5-flash",
+            provider="vertex",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            model_invocation_config={
+                "temperature": 0.7,
+                "system_instruction": "LEAK",
+            },
+            model_invocation_config_hash="stale-from-pre-sanitize",
+            sdk_library="google-genai",
+            sdk_version="1.2.3",
+        )
+        built = build_ai_audit(response=regressed_response, **self._audit_kwargs())
+
+        # Recompute hash from the persisted config and assert equality.
+        canonical = json.dumps(
+            built.model_invocation_config,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        assert built.model_invocation_config_hash == expected
+        # And the stale provider-supplied hash was discarded.
+        assert built.model_invocation_config_hash != "stale-from-pre-sanitize"
+
+    def test_clean_response_keeps_provider_supplied_hash(self) -> None:
+        """When the provider's config is already clean (no sanitization
+        changes), the hash passes through unchanged — saves a hash op on
+        the happy path."""
+        from src.llm.base import LLMResponse
+
+        clean_response = LLMResponse(
+            content="x",
+            model="gemini-2.5-flash",
+            provider="vertex",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            model_invocation_config={"temperature": 0.7},
+            model_invocation_config_hash="provider-hash-untouched",
+            sdk_library="google-genai",
+            sdk_version="1.2.3",
+        )
+        built = build_ai_audit(response=clean_response, **self._audit_kwargs())
+        assert built.model_invocation_config == {"temperature": 0.7}
+        assert built.model_invocation_config_hash == "provider-hash-untouched"
 
 
 # ---------------------------------------------------------------------------
