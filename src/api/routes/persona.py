@@ -76,6 +76,7 @@ async def generate_persona(
         provider=gen_result.get("provider"),
         model=gen_result.get("model"),
         is_fallback=gen_result.get("is_fallback", False),
+        ai_audit=gen_result.get("ai_audit"),
     )
 
 
@@ -138,4 +139,5 @@ async def refine_persona(
         provider=result.get("provider"),
         model=result.get("model"),
         is_fallback=result.get("is_fallback", False),
+        ai_audit=result.get("ai_audit"),
     )

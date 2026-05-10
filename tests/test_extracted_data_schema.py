@@ -3,7 +3,7 @@
 Pins the two new fields:
 
 - ``promise_strength``: captured for future use only as of 2026-04-28
-  (Codex P2). The lane reply router currently treats every
+  . The lane reply router currently treats every
   PROMISE_TO_PAY identically; strength-aware suppression intensity
   (``firm`` vs ``soft`` vs ``aspirational``) is Sprint B+ work. These
   tests pin the schema so the downstream consumer has a stable shape

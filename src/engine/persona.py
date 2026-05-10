@@ -39,8 +39,17 @@ from src.config.constants import (
     PERSONA_REFINEMENT_USER,
 )
 from src.config.settings import settings
+from src.engine.audit import build_ai_audit
 from src.llm.factory import llm_client
 from src.llm.schemas import PersonaLLMResponse, PersonaRefinementLLMResponse
+
+# Prompt template identifiers for persona pipeline audits. Match the cadence
+# used by draft_generation / classification: stable IDs the AI Engine never
+# changes mid-version + a version label aligned with prompt-text-of-record.
+PERSONA_GEN_TEMPLATE_ID = "persona_generation"
+PERSONA_GEN_TEMPLATE_VERSION = "v1"
+PERSONA_REFINE_TEMPLATE_ID = "persona_refinement"
+PERSONA_REFINE_TEMPLATE_VERSION = "v1"
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +78,7 @@ class PersonaGenerator:
         total_completion_tokens = 0
         last_provider = None
         last_model = None
+        last_ai_audit = None
         is_fallback = False
         for contact in contacts:
             # Skip persona generation for generic/shared mailboxes
@@ -99,6 +109,7 @@ class PersonaGenerator:
                 total_completion_tokens += response_meta.get("completion_tokens", 0)
                 last_provider = response_meta.get("provider", last_provider)
                 last_model = response_meta.get("model", last_model)
+                last_ai_audit = response_meta.get("ai_audit") or last_ai_audit
                 if response_meta.get("is_fallback"):
                     is_fallback = True
             except Exception as e:
@@ -126,6 +137,12 @@ class PersonaGenerator:
             "provider": last_provider,
             "model": last_model,
             "is_fallback": is_fallback,
+            # One ai_audit per HTTP response — mirrors how last_provider /
+            # last_model are aggregated. All N persona-generation calls
+            # share template/version/profile, so the last call's audit is
+            # representative; backend persists exactly one LLMRequestLog
+            # row for this AI Engine round-trip.
+            "ai_audit": last_ai_audit,
         }
 
     async def _generate_single(self, contact: dict, total_levels: int) -> tuple:
@@ -196,6 +213,23 @@ class PersonaGenerator:
             "formality_level": parsed.formality_level,
             "emphasis": parsed.emphasis,
         }
+        # persona endpoints declared ai_audit on their response
+        # models but never populated it. Build per-call here and let the
+        # caller aggregate (use last call's audit for the response shape,
+        # mirroring last_provider / last_model).
+        ai_audit = build_ai_audit(
+            response=response,
+            context=None,
+            prompt_template_id=PERSONA_GEN_TEMPLATE_ID,
+            prompt_template_version=PERSONA_GEN_TEMPLATE_VERSION,
+            system_prompt=PERSONA_GENERATION_SYSTEM,
+            user_prompt=user_prompt,
+            prompt_input={"contact": contact, "total_levels": total_levels},
+            token_count=response.usage.get("total_tokens", 0),
+            prompt_tokens=response.usage.get("prompt_tokens", 0),
+            completion_tokens=response.usage.get("completion_tokens", 0),
+            inference_profile="persona_gen",
+        )
         response_meta = {
             "tokens_used": response.usage.get("total_tokens", 0),
             "prompt_tokens": response.usage.get("prompt_tokens", 0),
@@ -203,6 +237,7 @@ class PersonaGenerator:
             "provider": response.provider,
             "model": response.model,
             "is_fallback": getattr(response, "is_fallback", False),
+            "ai_audit": ai_audit,
         }
         return persona, response_meta
 
@@ -327,6 +362,26 @@ class PersonaGenerator:
             parsed.reasoning,
         )
 
+        ai_audit = build_ai_audit(
+            response=response,
+            context=None,
+            prompt_template_id=PERSONA_REFINE_TEMPLATE_ID,
+            prompt_template_version=PERSONA_REFINE_TEMPLATE_VERSION,
+            system_prompt=PERSONA_REFINEMENT_SYSTEM,
+            user_prompt=user_prompt,
+            prompt_input={
+                "contact": contact,
+                "current_persona": current_persona,
+                "performance": performance,
+                "persona_version": persona_version,
+                "style_description": style_description,
+                "style_examples_count": len(style_examples or []),
+            },
+            token_count=response.usage.get("total_tokens", 0),
+            prompt_tokens=response.usage.get("prompt_tokens", 0),
+            completion_tokens=response.usage.get("completion_tokens", 0),
+            inference_profile="persona_refine",
+        )
         return {
             "communication_style": parsed.communication_style,
             "formality_level": parsed.formality_level,
@@ -338,6 +393,7 @@ class PersonaGenerator:
             "provider": response.provider,
             "model": response.model,
             "is_fallback": getattr(response, "is_fallback", False),
+            "ai_audit": ai_audit,
         }
 
     @staticmethod

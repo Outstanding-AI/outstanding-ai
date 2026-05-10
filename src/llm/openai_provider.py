@@ -187,13 +187,17 @@ class OpenAIProvider(BaseLLMProvider):
                         "caller": caller,
                     },
                 )
-                # Codex constraint #3: structured path probes raw_output["raw"]
+                # structured path probes raw_output["raw"]
                 # for system_fingerprint defensively. The helper accepts the
                 # full ``raw_output`` dict and unwraps internally.
+                # capture schema identity + format type so an OpenAI
+                # fallback during a Vertex 429 produces a symmetric audit row
+                # (LangChain's with_structured_output method here is "json_schema").
                 audit = openai_invocation_audit(
                     client_kwargs=client_kwargs,
                     structured=True,
-                    response_format_type=None,
+                    response_format_type="json_schema",
+                    response_schema=response_schema,
                     raw_response=raw_output,
                 )
                 return LLMResponse(

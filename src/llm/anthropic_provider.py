@@ -156,7 +156,7 @@ class AnthropicProvider(BaseLLMProvider):
             },
         )
 
-        # Codex constraint #4: provider is currently disabled (raise above);
+        # provider is currently disabled (raise above);
         # helper wiring is symmetric so reactivation needs no new plumbing.
         # Live tests deliberately omitted — see tests/test_invocation_audit_pii_safety.py
         # for the helper-level coverage.

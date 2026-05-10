@@ -46,7 +46,7 @@ class ClassifyRequest(BaseModel):
 class FollowUpContext(BaseModel):
     """Verification claim/match context for queued follow-up drafts.
 
-    Sprint A item #3 follow-up (Codex P1, 2026-04-28): supplies the AI
+    Sprint A item #3 follow-up (2026-04-28): supplies the AI
     prompt with the debtor's ORIGINAL claim (amount/date/reference) and
     what we did/didn't find on Sage when the verifier ran. Without this
     block, ``payment_not_found`` and ``partial_payment_ack`` templates

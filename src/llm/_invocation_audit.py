@@ -60,7 +60,11 @@ _VERTEX_AUDIT_KEYS: frozenset[str] = frozenset(
 
 _OPENAI_AUDIT_KEYS: frozenset[str] = frozenset(
     {
-        "model",
+        # ``model`` is intentionally NOT here — it's redundant with the
+        # top-level ``ai_model`` on AIAuditMetadata. Keeping providers
+        # symmetric (Vertex / Anthropic also don't carry ``model`` inside
+        # the sanitized config) so the backend nested allowlist stays a
+        # single source of truth.
         "temperature",
         "top_p",
         "max_completion_tokens",
@@ -70,6 +74,12 @@ _OPENAI_AUDIT_KEYS: frozenset[str] = frozenset(
         "reasoning_effort",
         # ``response_format_type`` only — never the schema body.
         "response_format_type",
+        # structured-output identity, mirrors Vertex.
+        # ``response_schema_name`` is the Pydantic class __name__;
+        # ``response_schema_hash`` is sha256 of canonical-JSON of the
+        # JSON schema fields. Schema body is NEVER stored.
+        "response_schema_name",
+        "response_schema_hash",
         "structured",
     }
 )
@@ -246,12 +256,17 @@ def openai_invocation_audit(
     client_kwargs: Mapping[str, Any],
     structured: bool,
     response_format_type: Optional[str] = None,
+    response_schema: Any = None,
     raw_response: Any = None,
 ) -> InvocationAudit:
     """Build the audit bundle for an OpenAI call routed via LangChain.
 
     ``sdk_library`` is ``"langchain-openai"`` because LangChain (not the raw
     ``openai`` SDK) owns default-shape decisions for our call sites.
+
+    ``response_schema`` (Pydantic class) is captured by IDENTITY only —
+    class ``__name__`` plus sha256 of canonical-JSON of the JSON schema.
+    Schema body is NEVER serialized. Mirrors the Vertex contract.
 
     ``raw_response`` may be either the LangChain ``AIMessage`` (text path) or
     the dict returned by ``with_structured_output(..., include_raw=True)``
@@ -263,6 +278,11 @@ def openai_invocation_audit(
     sanitized["structured"] = bool(structured)
     if response_format_type:
         sanitized["response_format_type"] = response_format_type
+    schema_name, schema_hash = _schema_identity(response_schema)
+    if schema_name:
+        sanitized["response_schema_name"] = schema_name
+    if schema_hash:
+        sanitized["response_schema_hash"] = schema_hash
 
     # Defensive system_fingerprint extraction. Two shapes:
     #   1. raw_response is an AIMessage with .response_metadata

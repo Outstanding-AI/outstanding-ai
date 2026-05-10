@@ -471,7 +471,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             "Address what the debtor said directly."
         )
 
-    # Sprint A item #3 follow-up (Codex P1, 2026-04-28): for auto-replies
+    # Sprint A item #3 follow-up (2026-04-28): for auto-replies
     # to payment claims (``payment_not_found`` / ``partial_payment_ack``),
     # surface the EXACT figures the debtor cited and the EXACT figures we
     # matched against. The model must use these — never invent values.

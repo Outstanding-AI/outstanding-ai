@@ -39,7 +39,7 @@ class LLMExtractedData(BaseModel):
     promise_date: Optional[str] = None  # String from LLM, parsed to date in engine
     promise_amount: Optional[float] = None
     # PROMISE_TO_PAY — strength of the commitment. Captured for future
-    # use only (Codex P2, 2026-04-28). At the moment lane reply routing
+    # use only (2026-04-28). At the moment lane reply routing
     # treats every PROMISE_TO_PAY identically (full ``promise_suppressed``
     # for ``promise_date + promise_grace_days``); strength-aware
     # suppression (e.g. ``aspirational`` → next-touch defer instead of

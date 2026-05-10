@@ -4,7 +4,7 @@ These are CI-enforced contract tests for ``src/llm/_invocation_audit.py``:
 
   - The sanitized ``model_invocation_config`` MUST NEVER contain prompt
     text, system instructions, message content, customer data, or
-    schema bodies. (Codex Point 2 turned into regression tests.)
+    schema bodies.
   - The hash MUST be stable across two builds with identical sanitized
     inputs and MUST NOT include SDK / library version (those have
     dedicated fields per the user's constraint).
@@ -12,7 +12,7 @@ These are CI-enforced contract tests for ``src/llm/_invocation_audit.py``:
     for OpenAI, ``google-genai`` for Vertex, ``anthropic`` for Anthropic).
   - ``inference_profile`` MUST reject unknown values at ``build_ai_audit``.
   - The structured OpenAI path MUST defensively pull ``system_fingerprint``
-    from ``raw_output["raw"].response_metadata`` (Codex Point 3 / final
+    from ``raw_output["raw"].response_metadata`` ( final
     constraint #3).
 """
 
@@ -58,7 +58,7 @@ def _openai_structured_raw_output(system_fingerprint: str | None) -> dict[str, A
 
 
 # ---------------------------------------------------------------------------
-# PII non-leak — Codex Point 2 hardened as regression test
+# PII non-leak — hardened as regression test
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +231,7 @@ class TestSdkLibraryValues:
 
 
 # ---------------------------------------------------------------------------
-# system_fingerprint extraction — Codex constraint #3
+# system_fingerprint extraction — internal constraint
 # ---------------------------------------------------------------------------
 
 
@@ -279,6 +279,178 @@ class TestOpenAIFingerprint:
             raw_response=bad_response,
         )
         assert audit.model_version_fingerprint is None
+
+
+# ---------------------------------------------------------------------------
+# OpenAI structured-output audit symmetry — P3
+# ---------------------------------------------------------------------------
+
+
+class TestOpenAIStructuredAuditSymmetry:
+    """The structured OpenAI path (LangChain ``with_structured_output(method="json_schema")``)
+    must surface ``response_format_type``, ``response_schema_name``, and
+    ``response_schema_hash`` so a Vertex-429 fallback row carries the same
+    audit shape as a Vertex success row."""
+
+    def test_structured_path_captures_format_type_and_schema_identity(self) -> None:
+        from pydantic import BaseModel
+
+        class FallbackDraftSchema(BaseModel):
+            subject: str = ""
+            body: str = ""
+
+        audit = openai_invocation_audit(
+            client_kwargs={"model": "gpt-5-mini", "temperature": 0.3},
+            structured=True,
+            response_format_type="json_schema",
+            response_schema=FallbackDraftSchema,
+            raw_response=_openai_structured_raw_output(system_fingerprint="fp_struct"),
+        )
+        cfg = audit.model_invocation_config
+        assert cfg["response_format_type"] == "json_schema"
+        assert cfg["response_schema_name"] == "FallbackDraftSchema"
+        assert (
+            isinstance(cfg["response_schema_hash"], str) and len(cfg["response_schema_hash"]) == 64
+        )
+        assert cfg["structured"] is True
+        # And the schema body is NOT in the dict.
+        assert "response_schema" not in cfg
+        assert "json_schema" not in json.dumps(
+            {k: v for k, v in cfg.items() if k != "response_format_type"}
+        )
+
+    def test_structured_path_without_schema_keeps_legacy_shape(self) -> None:
+        # Old call sites that omit response_schema (e.g. JSON mode without
+        # structured output) still work and don't accidentally inject schema
+        # fields.
+        audit = openai_invocation_audit(
+            client_kwargs={"model": "gpt-5-mini", "temperature": 0.3},
+            structured=False,
+            response_format_type="json_object",
+            response_schema=None,
+            raw_response=_openai_text_response(),
+        )
+        cfg = audit.model_invocation_config
+        assert cfg["response_format_type"] == "json_object"
+        assert "response_schema_name" not in cfg
+        assert "response_schema_hash" not in cfg
+
+
+# ---------------------------------------------------------------------------
+# Persona route emits ai_audit —
+# ---------------------------------------------------------------------------
+
+
+class TestPersonaAudit:
+    """Persona routes declared ``ai_audit`` on their response models but
+    never populated it. After the wiring fix, both endpoints must surface
+    a populated ``ai_audit`` with the correct ``inference_profile``.
+    """
+
+    def test_refine_persona_audit_carries_persona_refine_profile(self, monkeypatch) -> None:
+        # Refine is the simpler path — single LLM call, single ai_audit.
+        # Mock llm_client.complete to return a synthetic LLMResponse with
+        # the audit fields the providers attach.
+        import asyncio
+
+        from src.engine.persona import persona_generator
+        from src.llm import factory as llm_factory
+        from src.llm.base import LLMResponse
+
+        synthetic_response = LLMResponse(
+            content=json.dumps(
+                {
+                    "communication_style": "warmer",
+                    "formality_level": "professional",
+                    "emphasis": "rapport-first",
+                    "reasoning": "rationale",
+                }
+            ),
+            model="gemini-2.5-flash",
+            provider="vertex",
+            usage={"prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200},
+            model_invocation_config={"temperature": 0.5, "structured": True},
+            model_invocation_config_hash="fakehash" * 8,
+            model_version_fingerprint="models/gemini-2.5-flash@002",
+            sdk_library="google-genai",
+            sdk_version="1.2.3",
+        )
+
+        async def _fake_complete(*args, **kwargs):
+            return synthetic_response
+
+        monkeypatch.setattr(llm_factory.llm_client, "complete", _fake_complete)
+
+        # Minimal contact / persona shapes the helper expects.
+        result = asyncio.run(
+            persona_generator.refine_persona(
+                contact={"name": "Bob", "title": "AR Manager", "level": 1},
+                current_persona={
+                    "communication_style": "neutral",
+                    "formality_level": "professional",
+                    "emphasis": "factual",
+                },
+                performance={
+                    "total_touches": 12,
+                    "response_rate": 0.5,
+                    "cooperative_count": 3,
+                    "hostile_count": 1,
+                },
+            )
+        )
+        ai_audit = result["ai_audit"]
+        assert ai_audit is not None
+        assert ai_audit.inference_profile == "persona_refine"
+        assert ai_audit.prompt_template_id == "persona_refinement"
+        assert ai_audit.sdk_library == "google-genai"
+        assert ai_audit.model_invocation_config == {"temperature": 0.5, "structured": True}
+
+    def test_generate_personas_aggregates_last_call_ai_audit(self, monkeypatch) -> None:
+        import asyncio
+
+        from src.engine.persona import persona_generator
+        from src.llm import factory as llm_factory
+        from src.llm.base import LLMResponse
+
+        # Two contacts -> two LLM calls. Aggregate uses the last call's audit.
+        responses = [
+            LLMResponse(
+                content=json.dumps(
+                    {
+                        "communication_style": f"style-{i}",
+                        "formality_level": "professional",
+                        "emphasis": "clarity",
+                    }
+                ),
+                model="gemini-2.5-flash",
+                provider="vertex",
+                usage={"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+                model_invocation_config={"temperature": 0.7, "call": i},
+                model_invocation_config_hash=f"hash{i}" * 8,
+                sdk_library="google-genai",
+                sdk_version="1.2.3",
+            )
+            for i in range(2)
+        ]
+        call_idx = {"i": 0}
+
+        async def _fake_complete(*args, **kwargs):
+            r = responses[call_idx["i"]]
+            call_idx["i"] += 1
+            return r
+
+        monkeypatch.setattr(llm_factory.llm_client, "complete", _fake_complete)
+
+        contacts = [
+            {"name": "A", "title": "AR", "level": 1},
+            {"name": "B", "title": "Manager", "level": 2},
+        ]
+        result = asyncio.run(persona_generator.generate_personas(contacts, total_levels=4))
+        ai_audit = result["ai_audit"]
+        assert ai_audit is not None
+        assert ai_audit.inference_profile == "persona_gen"
+        # Last call's invocation config is what surfaces — call=1 (zero-indexed).
+        assert ai_audit.model_invocation_config["call"] == 1
 
 
 # ---------------------------------------------------------------------------
