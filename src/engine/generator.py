@@ -776,6 +776,7 @@ class DraftGenerator:
                 prompt_tokens=tokens.prompt,
                 completion_tokens=tokens.completion,
                 latency_ms=round(total_latency_ms, 2),
+                inference_profile="draft_generation",
             ),
             usage_breakdown=usage_breakdown,
         )

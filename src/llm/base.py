@@ -15,6 +15,16 @@ class LLMResponse(BaseModel):
     usage: Dict[str, int]  # prompt_tokens, completion_tokens, total_tokens
     raw_response: Optional[Dict[str, Any]] = None
     is_fallback: bool = False
+    # Model invocation audit (May 2026) — populated by per-provider helpers in
+    # src/llm/_invocation_audit.py. NEVER carries prompt text, system_instruction,
+    # or customer data; only sanitized non-content knobs from a fixed allow list.
+    # See AIAuditMetadata.model_invocation_config docstring + tests in
+    # tests/test_invocation_audit_pii_safety.py for the contract.
+    model_invocation_config: Optional[Dict[str, Any]] = None
+    model_invocation_config_hash: Optional[str] = None
+    model_version_fingerprint: Optional[str] = None
+    sdk_library: Optional[str] = None
+    sdk_version: Optional[str] = None
 
 
 class LLMProviderError(RuntimeError):

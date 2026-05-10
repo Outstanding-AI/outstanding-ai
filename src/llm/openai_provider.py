@@ -16,6 +16,7 @@ from tenacity import (
 
 from src.config.settings import settings
 
+from ._invocation_audit import openai_invocation_audit
 from .base import (
     BaseLLMProvider,
     LLMProviderUnavailableError,
@@ -186,12 +187,26 @@ class OpenAIProvider(BaseLLMProvider):
                         "caller": caller,
                     },
                 )
+                # Codex constraint #3: structured path probes raw_output["raw"]
+                # for system_fingerprint defensively. The helper accepts the
+                # full ``raw_output`` dict and unwraps internally.
+                audit = openai_invocation_audit(
+                    client_kwargs=client_kwargs,
+                    structured=True,
+                    response_format_type=None,
+                    raw_response=raw_output,
+                )
                 return LLMResponse(
                     content=content,
                     model=self._model,
                     provider="openai",
                     usage=usage,
                     raw_response={"structured": True},
+                    model_invocation_config=audit.model_invocation_config,
+                    model_invocation_config_hash=audit.model_invocation_config_hash,
+                    model_version_fingerprint=audit.model_version_fingerprint,
+                    sdk_library=audit.sdk_library,
+                    sdk_version=audit.sdk_version,
                 )
 
             # Standard invoke for non-structured output
@@ -226,6 +241,16 @@ class OpenAIProvider(BaseLLMProvider):
                 },
             )
 
+            # Non-structured path: response is a LangChain AIMessage with
+            # ``.response_metadata``. The helper reads ``system_fingerprint``
+            # defensively (returns None if absent — gpt-5 sometimes omits it).
+            response_format_type = "json_object" if json_mode else None
+            audit = openai_invocation_audit(
+                client_kwargs=client_kwargs,
+                structured=False,
+                response_format_type=response_format_type,
+                raw_response=response,
+            )
             return LLMResponse(
                 content=response.content,
                 model=self._model,
@@ -234,6 +259,11 @@ class OpenAIProvider(BaseLLMProvider):
                 raw_response={"response_metadata": response.response_metadata}
                 if hasattr(response, "response_metadata")
                 else None,
+                model_invocation_config=audit.model_invocation_config,
+                model_invocation_config_hash=audit.model_invocation_config_hash,
+                model_version_fingerprint=audit.model_version_fingerprint,
+                sdk_library=audit.sdk_library,
+                sdk_version=audit.sdk_version,
             )
 
         except Exception as e:

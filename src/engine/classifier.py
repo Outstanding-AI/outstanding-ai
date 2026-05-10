@@ -253,6 +253,7 @@ class EmailClassifier:
                 token_count=tokens_used,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                inference_profile="classification",
             ),
         )
 

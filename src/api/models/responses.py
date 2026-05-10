@@ -139,6 +139,22 @@ class AIAuditMetadata(BaseModel):
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     latency_ms: Optional[float] = None
+    # Model invocation audit (May 2026) — EU AI Act Article 13 readiness.
+    # ``model_invocation_config`` is the SANITIZED dict of explicit knobs we
+    # passed to the SDK (per-provider allow-key list in src/llm/_invocation_audit.py).
+    # NEVER includes prompt text, customer data, system_instruction, or raw
+    # SDK config objects. The hash is over the sanitized dict only — SDK
+    # version is NOT folded into the hash; it has its own dedicated field.
+    model_invocation_config: Optional[Dict[str, Any]] = None
+    model_invocation_config_hash: Optional[str] = None
+    model_version_fingerprint: Optional[str] = (
+        None  # vertex response.model_version / openai system_fingerprint
+    )
+    sdk_library: Optional[str] = None  # google-genai | langchain-openai | anthropic
+    sdk_version: Optional[str] = None  # importlib.metadata version of the wrapper-of-record
+    inference_profile: Optional[str] = (
+        None  # draft_generation | classification | persona_gen | persona_refine
+    )
 
 
 class ClassifyResponse(BaseModel):

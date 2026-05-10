@@ -19,6 +19,7 @@ from tenacity import (
 
 from src.config.settings import settings
 
+from ._invocation_audit import anthropic_invocation_audit
 from .base import BaseLLMProvider, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -155,11 +156,24 @@ class AnthropicProvider(BaseLLMProvider):
             },
         )
 
+        # Codex constraint #4: provider is currently disabled (raise above);
+        # helper wiring is symmetric so reactivation needs no new plumbing.
+        # Live tests deliberately omitted — see tests/test_invocation_audit_pii_safety.py
+        # for the helper-level coverage.
+        audit = anthropic_invocation_audit(
+            explicit_config={"temperature": temp},
+            response=response,
+        )
         return LLMResponse(
             content=content_text,
             model=self._model,
             provider="anthropic",
             usage=usage,
+            model_invocation_config=audit.model_invocation_config,
+            model_invocation_config_hash=audit.model_invocation_config_hash,
+            model_version_fingerprint=audit.model_version_fingerprint,
+            sdk_library=audit.sdk_library,
+            sdk_version=audit.sdk_version,
         )
 
     async def health_check(self) -> Dict[str, Any]:

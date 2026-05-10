@@ -16,6 +16,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from src.config.settings import settings
 
+from ._invocation_audit import vertex_invocation_audit
 from .aws_ecs_supplier import EcsTaskRoleSupplier
 from .base import (
     BaseLLMProvider,
@@ -84,9 +85,17 @@ class VertexProvider(BaseLLMProvider):
         *,
         caller: str = "unknown",
     ) -> LLMResponse:
+        # Sanitized invocation audit input. Build the explicit-knobs dict here
+        # so we never have to round-trip through GenerateContentConfig
+        # (which carries system_instruction = full prompt text).
+        resolved_temperature = temperature if temperature is not None else self._temperature
+        explicit_invocation: Dict[str, Any] = {"temperature": resolved_temperature}
+        if json_mode or response_schema:
+            explicit_invocation["response_mime_type"] = "application/json"
+
         config = types.GenerateContentConfig(
             system_instruction=system_prompt,
-            temperature=temperature if temperature is not None else self._temperature,
+            temperature=resolved_temperature,
         )
 
         if json_mode or response_schema:
@@ -135,12 +144,22 @@ class VertexProvider(BaseLLMProvider):
                     "caller": caller,
                 },
             )
+            audit = vertex_invocation_audit(
+                explicit_config=explicit_invocation,
+                response_schema=response_schema,
+                response=response,
+            )
             return LLMResponse(
                 content=content,
                 model=self._model,
                 provider="vertex",
                 usage=usage,
                 raw_response={"response_id": response.response_id},
+                model_invocation_config=audit.model_invocation_config,
+                model_invocation_config_hash=audit.model_invocation_config_hash,
+                model_version_fingerprint=audit.model_version_fingerprint,
+                sdk_library=audit.sdk_library,
+                sdk_version=audit.sdk_version,
             )
         except ResourceExhausted as exc:
             logger.error(

@@ -2,10 +2,24 @@
 
 import hashlib
 import json
-from typing import Any
+from typing import Any, Literal
 
 from src.api.models.responses import AIAuditMetadata
 from src.config.settings import settings
+
+# Fixed enum for ``inference_profile`` — keep in lockstep with the values
+# documented in ``AIAuditMetadata.inference_profile`` and CLAUDE.md note 51.
+# Free-form values are rejected at ``build_ai_audit`` so dashboards and
+# cost-by-purpose queries have a stable join key.
+InferenceProfile = Literal[
+    "draft_generation",
+    "classification",
+    "persona_gen",
+    "persona_refine",
+]
+_VALID_INFERENCE_PROFILES: frozenset[str] = frozenset(
+    {"draft_generation", "classification", "persona_gen", "persona_refine"}
+)
 
 
 def hash_text(value: str) -> str:
@@ -39,8 +53,24 @@ def build_ai_audit(
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
     latency_ms: float | None = None,
+    inference_profile: InferenceProfile | None = None,
 ) -> AIAuditMetadata:
-    """Build the shared audit object returned by AI endpoints."""
+    """Build the shared audit object returned by AI endpoints.
+
+    Args:
+        inference_profile: One of ``draft_generation``, ``classification``,
+            ``persona_gen``, ``persona_refine``. Validated against
+            ``_VALID_INFERENCE_PROFILES``; unknown values raise ValueError so
+            a typo can't pollute audit dashboards. Pass ``None`` only for
+            test fixtures or experimental call sites — production callers
+            should always set this.
+    """
+    if inference_profile is not None and inference_profile not in _VALID_INFERENCE_PROFILES:
+        raise ValueError(
+            f"Unknown inference_profile {inference_profile!r}; "
+            f"must be one of {sorted(_VALID_INFERENCE_PROFILES)}"
+        )
+
     provider = getattr(response, "provider", None)
     input_versions_json = None
     if context is not None:
@@ -68,4 +98,13 @@ def build_ai_audit(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         latency_ms=latency_ms,
+        # Model invocation audit (May 2026): copy the sanitized fields the
+        # provider helper attached to LLMResponse. None-safe so older test
+        # fixtures that build LLMResponse without these attrs still work.
+        model_invocation_config=getattr(response, "model_invocation_config", None),
+        model_invocation_config_hash=getattr(response, "model_invocation_config_hash", None),
+        model_version_fingerprint=getattr(response, "model_version_fingerprint", None),
+        sdk_library=getattr(response, "sdk_library", None),
+        sdk_version=getattr(response, "sdk_version", None),
+        inference_profile=inference_profile,
     )
