@@ -90,6 +90,9 @@ class _FakeReader:
                 "name": "AP Team",
                 "email": "ap@example.com",
                 "is_default": True,
+                "is_send_statement_to": True,
+                "is_preferred_send_statement_to": True,
+                "recipient_selection_source": "send_statement_to_preferred",
                 "is_active": True,
                 "email_valid": True,
                 "source": "sage",
@@ -146,6 +149,8 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert context.policy_snapshot_id == "policy-1"
     assert context.draft_candidate_id == "candidate-1"
     assert context.debtor_contact["email"] == "ap@example.com"
+    assert context.debtor_contact["is_preferred_send_statement_to"] is True
+    assert context.debtor_contact["recipient_selection_source"] == "send_statement_to_preferred"
     assert context.behavior.behaviour_segment == "reliable_late_payer"
     assert context.obligations[0].invoice_number == "INV-1"
     assert context.obligations[0].due_date == "2026-03-01"
@@ -182,6 +187,8 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert "party_comm_state_events_current" in all_sql
     assert "party_behavior_profile_versions_current" in all_sql
     assert "silver_core_party_contacts_current" in all_sql
+    assert "is_preferred_send_statement_to" in all_sql
+    assert "recipient_selection_source" in all_sql
     assert "silver_core_obligations_current" in all_sql
     assert "silver_app_collection_lanes_current" in all_sql
     assert "COALESCE(lane_id, id) IN %s" in all_sql
@@ -384,6 +391,9 @@ def _contact_row() -> dict[str, Any]:
         "name": "AP Team",
         "email": "ap@example.com",
         "is_default": True,
+        "is_send_statement_to": False,
+        "is_preferred_send_statement_to": False,
+        "recipient_selection_source": "default_email",
         "is_active": True,
         "email_valid": True,
         "source": "sage",

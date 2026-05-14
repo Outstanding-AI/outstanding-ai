@@ -643,6 +643,9 @@ class CaseContextHydrator:
                 COALESCE(c.contact_name, c.name, c.email_normalized, c.email, c.email_address) AS name,
                 COALESCE(c.email_normalized, c.email, c.email_address) AS email,
                 COALESCE(c.is_default_email, c.is_default_contact, c.is_default, FALSE) AS is_default,
+                COALESCE(c.is_send_statement_to, FALSE) AS is_send_statement_to,
+                COALESCE(c.is_preferred_send_statement_to, FALSE) AS is_preferred_send_statement_to,
+                c.recipient_selection_source,
                 c.is_active,
                 c.email_valid,
                 COALESCE(c.source_contact_key, c.source) AS source
@@ -652,6 +655,8 @@ class CaseContextHydrator:
               AND COALESCE(c.email_normalized, c.email, c.email_address) IS NOT NULL
             ORDER BY
                 c.party_id,
+                COALESCE(c.is_preferred_send_statement_to, FALSE) DESC,
+                COALESCE(c.is_send_statement_to, FALSE) DESC,
                 COALESCE(c.is_default_email, c.is_default_contact, c.is_default, FALSE) DESC,
                 c.silver_observed_at DESC NULLS LAST
             """
@@ -665,6 +670,9 @@ class CaseContextHydrator:
                 "name": row.get("name"),
                 "email": row.get("email"),
                 "is_default": bool(row.get("is_default")),
+                "is_send_statement_to": bool(row.get("is_send_statement_to")),
+                "is_preferred_send_statement_to": bool(row.get("is_preferred_send_statement_to")),
+                "recipient_selection_source": row.get("recipient_selection_source"),
                 "source": row.get("source"),
             }
             for row in rows
