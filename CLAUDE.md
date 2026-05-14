@@ -119,6 +119,10 @@ CORS_ORIGINS=http://localhost:8000
 | solvix-etl | `../solvix-etl` | ETL — no direct integration |
 | solvix_frontend | `../solvix_frontend` | Frontend — no direct integration |
 
+## Production Data Lake Guardrail
+
+AI does not write the data lake directly, but generated drafts and classification results flow into Silver Application through the backend/ETL pipeline. Do not change production S3 lifecycle policy for `silver_core/` or `silver_application/` to `GLACIER` or `DEEP_ARCHIVE`; those prefixes may use `STANDARD_IA` only. Athena-backed dashboards, Gold refreshes, reconciliation, and current-state reads need old Silver partitions to remain queryable.
+
 ## Lane-Only Escalation Protocol (April 2026)
 
 - `GenerateDraftRequest` carries `collection_lane.tone_ladder: list[str]` as the deterministic per-touch ladder for the current level.
@@ -224,7 +228,7 @@ If the LLM emits cross-intent invoice leakage or omits per-intent extraction for
 
 **Telemetry**: classify/generate routes log the actual `schema_version` in every event (start/success/error).
 
-**Long-term home**: backend-owned `solvix-contracts` package (`Solvix/contracts/src/solvix_contracts/ai/context.v2`) exports the shared v2 core while AI carries additive v3/v4 transition fields locally. Backend and AI are aligned to **`solvix-contracts==0.11.1`**; parity CI at `.github/workflows/contracts-version-parity.yml` should block any joint deploy if the AI pin drifts again.
+**Long-term home**: backend-owned `solvix-contracts` package (`Solvix/contracts/src/solvix_contracts/ai/context.v2`) exports the shared v2 core while AI carries additive v3/v4 transition fields locally. Backend, ETL, and AI are aligned to **`solvix-contracts==0.12.4`** for the archive-safe delta runtime work; parity CI at `.github/workflows/contracts-version-parity.yml` should block any joint deploy if the AI pin drifts again.
 
 ## LLM Runtime Invariants (April 2026)
 
