@@ -125,3 +125,19 @@ class TestPromptDocumentsNewFields:
         assert any(a in prompt.lower() for a in anchors), (
             f"prompt must enumerate account-wide language anchors; none of {anchors} found"
         )
+
+    def test_prompt_extracts_remittance_as_payment_evidence(self):
+        prompt = self._read_prompt()
+        marker = "- **REMITTANCE_ADVICE**:"
+        idx = prompt.find(marker)
+        assert idx > 0, "prompt must document REMITTANCE_ADVICE extraction"
+        section = prompt[idx : prompt.find("\n", idx)]
+        for field in (
+            "claimed_amount",
+            "claimed_date",
+            "claimed_reference",
+            "claimed_details",
+            "invoice_refs",
+            "account_wide",
+        ):
+            assert field in section, f"REMITTANCE_ADVICE extraction missing {field}"

@@ -57,7 +57,8 @@ Many debtor emails contain MULTIPLE intents across different invoices. For examp
 **Rules for multi-intent emails:**
 1. Choose the PRIMARY classification — the intent that requires the most urgent action:
    - Legal/compliance intents (INSOLVENCY, UNSUBSCRIBE, HOSTILE) ALWAYS win
-   - Payment claims (ALREADY_PAID, DISPUTE) take priority over commitments (PROMISE_TO_PAY)
+   - Payment claims (ALREADY_PAID, PAYMENT_CONFIRMATION, REMITTANCE_ADVICE, PARTIAL_PAYMENT_NOTIFICATION)
+     and disputes take priority over commitments (PROMISE_TO_PAY)
    - But if the overall tone is cooperative and the debtor is working with you, consider COOPERATIVE
 2. **Emit per-intent extraction via `intent_details`.** This is the preferred
    shape when an email has multiple intents:
@@ -98,7 +99,7 @@ Extract data for ALL detected intents (primary + secondary):
 - **DISPUTE**: dispute_type (goods_not_received, quality_issue, pricing_error, wrong_customer, other), dispute_reason, invoice_refs, disputed_amount, account_wide
 - **ALREADY_PAID**: claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment ref), claimed_details, invoice_refs (which invoices they claim are paid), account_wide
 - **PAYMENT_CONFIRMATION**: claimed_amount, claimed_reference, claimed_date
-- **REMITTANCE_ADVICE**: claimed_amount, claimed_reference, invoice_refs
+- **REMITTANCE_ADVICE**: claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment/remittance ref), claimed_details, invoice_refs, account_wide
 - **INSOLVENCY**: insolvency_type (administration, liquidation, bankruptcy, cva, iva, receivership), insolvency_details, administrator_name, administrator_email, reference_number
 - **OUT_OF_OFFICE**: return_date (YYYY-MM-DD)
 - **REDIRECT**: redirect_name, redirect_contact, redirect_email
