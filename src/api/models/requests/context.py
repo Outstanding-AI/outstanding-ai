@@ -144,13 +144,33 @@ class CommunicationInfo(CommunicationInfoV2):
 
 
 class TouchHistory(BaseModel):
-    """Single touch record."""
+    """Single touch record.
+
+    Covers both AI-generated email touches and operator-logged manual
+    touchpoints (phone, SMS, letter, in-person, voicemail, other). The
+    ``touch_type`` discriminator drives the prompt-template split — the AI
+    sees email touches in the existing Conversation History section and
+    manual touches in a separate Recent Manual Touchpoints section, never
+    mixed.
+    """
 
     sent_at: datetime
     tone: Optional[str] = None
     sender_level: Optional[int] = None
     sender_name: Optional[str] = None
     had_response: bool = False
+    # Manual-communication fields (NULL on email rows). Both ``touch_type``
+    # and ``logged_by_user_name`` are required by the prompt template:
+    # generator_prompts.py filters ``recent_touches`` to
+    # ``touch_type == 'manual_log'`` and renders ``"logged by <name>"``.
+    # Backend hydrates the name from App DB; AI engine treats it as opaque.
+    touch_type: Optional[str] = None  # 'ai_email' | 'manual_log' | 'system'
+    channel: Optional[str] = (
+        None  # 'email' | 'phone' | 'sms' | 'letter' | 'in_person' | 'voicemail' | 'other'
+    )
+    direction: Optional[str] = None  # 'inbound' | 'outbound'
+    manual_notes: Optional[str] = None
+    logged_by_user_name: Optional[str] = None
 
 
 class PromiseHistory(BaseModel):

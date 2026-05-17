@@ -237,6 +237,18 @@ class FactualGroundingGuardrail(BaseGuardrail):
                 {round(float(a), 2) for a in conversation_amounts if a is not None}
             )
 
+        # Manual touchpoints: amounts quoted by the AI from an operator's
+        # phone-log notes ("you promised £500 by Friday") must not trigger a
+        # hallucination flag. Apply on the same code path as conversation
+        # history. Touches are typed Pydantic objects (TouchHistory) — pull
+        # ``manual_notes`` directly.
+        recent_touches = getattr(context, "recent_touches", None) or []
+        manual_touch_amounts = self._extract_manual_touch_amounts(recent_touches)
+        if manual_touch_amounts:
+            valid_amounts.update(
+                {round(float(a), 2) for a in manual_touch_amounts if a is not None}
+            )
+
         # Deduplicated float set for comparison (22 == 22.0 == 22.00)
         valid_amounts_float = {round(float(a), 2) for a in valid_amounts if a is not None}
         valid_amounts_int = {int(a) for a in valid_amounts_float}
@@ -418,6 +430,34 @@ class FactualGroundingGuardrail(BaseGuardrail):
             snippet = msg.get("body_snippet", "") or ""
             for pattern in AMOUNT_PATTERNS:
                 matches = re.findall(pattern, snippet)
+                for match in matches:
+                    cleaned = match.replace(",", "").replace(" ", "")
+                    try:
+                        amounts.add(float(cleaned))
+                    except ValueError:
+                        continue
+        return amounts
+
+    @staticmethod
+    def _extract_manual_touch_amounts(recent_touches: list) -> set:
+        """Extract monetary amounts from operator-logged manual touchpoint notes.
+
+        Mirrors ``_extract_conversation_amounts`` but operates on
+        ``TouchHistory`` Pydantic objects rather than message dicts. Skips
+        non-manual rows (email touches have no ``manual_notes``). Amounts
+        found here join the validity set so the AI quoting a verbal
+        commitment from a phone call ("you promised £500 by Friday") does
+        not trigger a factual-grounding failure.
+        """
+        amounts = set()
+        for touch in recent_touches:
+            if getattr(touch, "touch_type", None) != "manual_log":
+                continue
+            notes = getattr(touch, "manual_notes", None) or ""
+            if not notes:
+                continue
+            for pattern in AMOUNT_PATTERNS:
+                matches = re.findall(pattern, notes)
                 for match in matches:
                     cleaned = match.replace(",", "").replace(" ", "")
                     try:

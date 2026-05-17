@@ -406,6 +406,44 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 )
             sections.append(header + "\n".join(msg_lines) + footer)
 
+    # Recent manual touchpoints (phone / SMS / letter / in-person / voicemail / other).
+    # The metric-isolation discriminator ``touch_type`` is the source of truth for the
+    # email-vs-manual split — NOT ``channel != 'email'`` — because the email section
+    # above already covers AI emails. Backend filters out redacted manual rows at the
+    # SQL layer (manual_status != 'redacted' on the AI context path only); we do not
+    # re-filter here so the section reflects exactly what the operator's audit trail
+    # shows in the timeline (minus redactions).
+    recent_touches = getattr(request.context, "recent_touches", None) or []
+    manual_touches = [t for t in recent_touches if getattr(t, "touch_type", None) == "manual_log"]
+    if manual_touches:
+        manual_lines = []
+        # Show oldest-first so the prompt reads chronologically and the most
+        # recent touch is the last thing the model sees before the directive.
+        for touch in reversed(manual_touches):
+            channel = (getattr(touch, "channel", None) or "other").replace("_", " ")
+            direction = getattr(touch, "direction", None) or "outbound"
+            sent_at = getattr(touch, "sent_at", None)
+            sent_at_str = sent_at.strftime("%Y-%m-%d") if sent_at else "unknown date"
+            operator = getattr(touch, "logged_by_user_name", None) or "an operator"
+            notes = (getattr(touch, "manual_notes", None) or "").strip()
+            line = f"- {sent_at_str} ({channel.capitalize()}, {direction}, logged by {operator})"
+            if notes:
+                # Trim notes to keep the prompt window manageable; full text stays
+                # in Silver. 800 chars is roughly the length of a detailed call
+                # summary without dominating the prompt.
+                snippet = notes if len(notes) <= 800 else notes[:800] + "…"
+                line += f': "{snippet}"'
+            manual_lines.append(line)
+        sections.append(
+            "\n\n**Recent Manual Touchpoints:**\n"
+            + "\n".join(manual_lines)
+            + "\n\nThese are operator-logged off-channel conversations (phone calls, SMS, "
+            "letters, etc.). If a recent manual touchpoint is relevant — especially payment "
+            "commitments made on a call — acknowledge it explicitly and reference promised "
+            "dates / amounts verbatim from the operator's notes. Do NOT escalate tone if a "
+            "verbal commitment is in flight."
+        )
+
     # last_response_snippet is deprecated; recent_messages is the canonical source.
     if not recent_msgs and request.context.communication:
         comm = request.context.communication
