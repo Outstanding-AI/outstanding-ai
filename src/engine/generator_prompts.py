@@ -140,7 +140,8 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         sections.append(
             "\n\n**Draft Candidate Obligations:**\n"
             + "\n".join(candidate_lines)
-            + "\nUse only these obligations for collection wording. Do not add invoices or widen the scope."
+            + "\nUse only these obligations for collection wording. Do not add invoices, widen the scope, "
+            "or imply this is the debtor's full account unless these obligations are the full supplied scope."
         )
 
     excluded_lines = []
@@ -234,8 +235,16 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             f"- Tone Ladder: {tone_ladder}\n"
             f"- Open Invoices: {invoice_refs}\n"
             f"- Outstanding Amount: {lane_state.get('outstanding_amount')}\n"
-            f"- Suppression State: {lane_state.get('suppression_state') or 'none'}"
+            f"- Suppression State: {lane_state.get('suppression_state') or 'none'}\n"
+            "- Scope Rule: this email is for this lane/cohort only. Other lanes for the same debtor may exist "
+            "and may be handled by different senders; do not merge or reference them unless listed here."
         )
+        protocol_lines = _build_protocol_decision_lines(lane_state, request)
+        if protocol_lines:
+            sections.append(
+                "\n\n**Protocol Decision (deterministic, do not override):**\n"
+                + "\n".join(protocol_lines)
+            )
     elif request.context.lane_contexts:
         logger.warning(
             "LaneContextInfo.invoice_refs and outstanding_amount are deprecated; "
@@ -253,7 +262,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             f"- Level Window (days): {lane.max_days_for_level}\n"
             f"- Tone Ladder: {tone_ladder}\n"
             f"- Open Invoices: {invoice_refs}\n"
-            f"- Outstanding Amount: {lane.outstanding_amount}"
+            f"- Outstanding Amount: {lane.outstanding_amount}\n"
+            "- Scope Rule: this email is for this lane/cohort only. Other lanes for the same debtor may exist "
+            "and may be handled by different senders; do not merge or reference them unless listed here."
         )
 
     lane_history = getattr(request.context, "lane_history", None)
@@ -538,3 +549,52 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             )
 
     return "".join(sections)
+
+
+def _build_protocol_decision_lines(lane_state, request) -> list[str]:
+    """Render overdue-protocol routing facts when present on the lane context."""
+    if not isinstance(lane_state, dict):
+        return []
+
+    field_labels = (
+        ("protocol_anchor_basis", "Anchor Basis"),
+        ("protocol_anchor_date", "Anchor Date"),
+        ("protocol_age_days", "Overdue Age Used"),
+        ("protocol_selected_day", "Selected Protocol Day"),
+        ("protocol_selected_level", "Selected Level"),
+        ("protocol_selected_touch_index", "Selected Touch Index"),
+        ("protocol_selected_tone", "Selected Tone"),
+        ("protocol_intended_level", "Intended Level"),
+        ("protocol_actual_sender_level", "Actual Sender Level"),
+        ("protocol_fallback_reason", "Fallback Reason"),
+        ("protocol_slot_key", "Protocol Slot"),
+    )
+
+    lines = []
+    for field, label in field_labels:
+        value = lane_state.get(field)
+        if value is not None and value != "":
+            lines.append(f"- {label}: {_safe_prompt_value(value)}")
+
+    runtime_tone = getattr(request, "tone", None)
+    if runtime_tone:
+        lines.append(f"- Runtime-Selected Tone: {_safe_prompt_value(runtime_tone)}")
+
+    sender_email = lane_state.get("current_sender_email")
+    sender_name = lane_state.get("current_sender_name")
+    if sender_email or sender_name:
+        sender = " / ".join(str(v) for v in (sender_name, sender_email) if v)
+        lines.append(f"- Runtime-Selected Sender: {_safe_prompt_value(sender)}")
+
+    recipient_email = lane_state.get("current_recipient_email")
+    recipient_name = lane_state.get("current_recipient_name")
+    if recipient_email or recipient_name:
+        recipient = " / ".join(str(v) for v in (recipient_name, recipient_email) if v)
+        lines.append(f"- Runtime-Selected Recipient: {_safe_prompt_value(recipient)}")
+
+    if lines:
+        lines.append(
+            "- Instruction: follow these protocol facts exactly. They are deterministic product decisions, "
+            "not suggestions for the model to reinterpret."
+        )
+    return lines

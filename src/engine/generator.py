@@ -53,7 +53,7 @@ from .generator_prompts import build_extra_sections, format_sender_persona
 logger = logging.getLogger(__name__)
 
 DRAFT_PROMPT_TEMPLATE_ID = "draft_generation"
-DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v1"
+DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v2"
 GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 

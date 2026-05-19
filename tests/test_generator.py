@@ -259,6 +259,50 @@ class TestDraftGenerator:
         assert "INV-2: excluded" in prompt_ctx.user_prompt
         assert "</user_preferences>" not in prompt_ctx.user_prompt
 
+    def test_prompt_renders_overdue_protocol_decision_for_lane(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.tone = "friendly_escalating"
+        sample_generate_draft_request.context.schema_version = 4
+        sample_generate_draft_request.context.collection_basis = "overdue"
+        sample_generate_draft_request.context.collection_lane_id = "lane-123"
+        sample_generate_draft_request.context.lane = {
+            "collection_lane_id": "lane-123",
+            "current_level": 0,
+            "entry_level": 0,
+            "scheduled_touch_index": 2,
+            "max_touches_for_level": 3,
+            "reminder_cadence_days_for_level": 7,
+            "max_days_for_level": 60,
+            "tone_ladder": ["friendly_reminder", "friendly_escalating", "professional"],
+            "invoice_refs": ["INV-12345"],
+            "outstanding_amount": 1500.0,
+            "current_sender_name": "Accounts Receivable Team",
+            "current_sender_email": "accounts@example.com",
+            "current_recipient_name": "AP Team",
+            "current_recipient_email": "ap@example.com",
+            "protocol_anchor_basis": "max_invoice_due_date",
+            "protocol_anchor_date": "2026-05-01",
+            "protocol_age_days": 20,
+            "protocol_selected_day": 15,
+            "protocol_selected_level": 0,
+            "protocol_selected_touch_index": 2,
+            "protocol_selected_tone": "friendly_escalating",
+            "protocol_slot_key": "L0:T2",
+        }
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+
+        assert "**Protocol Decision (deterministic, do not override):**" in prompt_ctx.user_prompt
+        assert "Runtime-Selected Tone: friendly_escalating" in prompt_ctx.user_prompt
+        assert (
+            "Runtime-Selected Sender: Accounts Receivable Team / accounts@example.com"
+            in prompt_ctx.user_prompt
+        )
+        assert "this email is for this lane/cohort only" in prompt_ctx.user_prompt
+        assert "Other lanes for the same debtor may exist" in prompt_ctx.user_prompt
+        assert "Tone: always friendly_reminder at Level 0" not in prompt_ctx.user_prompt
+
 
 def test_generate_request_hydrates_sparse_lane_context(sample_generate_draft_request):
     """Sparse lane_context payloads should inherit required fields from context.lane."""

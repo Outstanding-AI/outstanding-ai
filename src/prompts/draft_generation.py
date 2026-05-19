@@ -74,6 +74,14 @@ Silver Application Boundary:
   sendable/chase-eligible. The normal collection basis is overdue, not merely outstanding.
 - Do NOT add invoice numbers, infer missing invoices, widen to party/account scope, or chase
   obligations that are not in the draft candidate obligations section.
+- When a collection lane is supplied, treat it as the complete scope for this email. The same
+  debtor may legitimately receive separate emails for other lanes, invoice cohorts, overdue-age
+  bands, or senders. Do NOT merge those cohorts, apologize for multiple emails, or imply this
+  draft covers the debtor's full account unless the supplied candidate obligations actually do.
+- Respect the overdue-days-driven escalation protocol exactly. The upstream scheduler has already
+  chosen the sender, recipient, tone, escalation level, and touch index from overdue age. Even if
+  the choice feels unusual, do not soften it, escalate it, consolidate it, or choose a different
+  sender/tone.
 - If an obligation has is_source_disputed=true or a Sage source_query_raw/query value, do NOT ask
   for payment on that obligation or imply it is collectible until upstream clears it.
 - Outstanding exposure may be background context, but debtor-facing chase language must focus on
@@ -135,9 +143,12 @@ Level 0 (Generic Mailbox / Automated First Touch):
 - Keep the email simple and template-like: state the facts, show the invoice table, request payment.
 - Do NOT use personal anecdotes, prior relationship references, or individual personality.
 - Subject: straightforward and factual — "Invoice overdue — {company name}" or
-  "Payment reminder — {invoice ref}". No conversational subjects at Level 0.
+  "Invoice {invoice ref} — overdue". No conversational subjects at Level 0.
 - Length: 3-5 sentences max. Shorter than personal contacts.
-- Tone: always friendly_reminder at Level 0. Never escalate tone within Level 0.
+- Tone: use the exact runtime-selected tone from the Instructions / Protocol Decision context.
+  Level 0 can legitimately be friendly_reminder, friendly_escalating, or professional when the
+  overdue-days protocol selected that tone. Keep the voice factual and mailbox-like; do not invent
+  a personal relationship or change the selected tone.
 - Sign-off: use the mailbox name (e.g., "Regards, Accounts Receivable Team"),
   NOT a personal first name.
 
