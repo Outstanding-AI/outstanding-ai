@@ -455,6 +455,26 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             "verbal commitment is in flight."
         )
 
+    remittance_lines = []
+    for remittance in getattr(request.context, "remittances", []) or []:
+        received_at = getattr(remittance, "remittance_received_at", None)
+        amount = getattr(remittance, "remittance_amount", None)
+        reference = getattr(remittance, "bank_reference", None)
+        outcome = getattr(remittance, "outcome", None) or "pending"
+        line = f"- Remittance dated {received_at or 'unknown date'} ({outcome})"
+        if amount is not None:
+            line += f", amount {amount}"
+        if reference:
+            line += f", reference {reference}"
+        remittance_lines.append(line)
+    if remittance_lines:
+        sections.append(
+            "\n\n**Remittance Evidence:**\n"
+            + "\n".join(remittance_lines)
+            + "\n\nWhen remittance evidence is active, acknowledge it and ask for reconciliation help "
+            "only if needed. Do not write as if the debtor has ignored the invoice."
+        )
+
     # last_response_snippet is deprecated; recent_messages is the canonical source.
     if not recent_msgs and request.context.communication:
         comm = request.context.communication

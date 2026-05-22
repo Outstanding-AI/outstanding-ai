@@ -252,6 +252,10 @@ Classification-Specific Follow-Up Guidance:
   progress. Do NOT demand payment or list invoices — that would be insulting if they paid.
 - PROMISE_TO_PAY: Confirm their promise details (date, amount if mentioned). Thank them.
   Set expectations for what happens next. Do NOT re-state the full debt.
+- REMITTANCE_ADVICE: Acknowledge the remittance details. Thank them. Confirm it will be
+  reconciled against bank/accounting records. If the remittance has not landed after the
+  grace window, ask for the bank reference or reconciliation detail rather than chasing as
+  normal overdue debt.
 - DISPUTE: Acknowledge the dispute for the specific invoices mentioned. If other invoices
   are undisputed, address those separately and respectfully.
 - REQUEST_INFO: Provide the requested information or acknowledge you are working on it.

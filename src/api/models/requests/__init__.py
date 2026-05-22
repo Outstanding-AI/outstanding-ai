@@ -12,6 +12,7 @@ from .context import (
     LaneContextInfo,
     ObligationInfo,
     PromiseHistory,
+    RemittanceHistory,
     TouchHistory,
 )
 from .party import BehaviorInfo, EmailContent, PartyInfo
@@ -40,6 +41,7 @@ __all__ = [
     "CommunicationTrackingInfo",
     "TouchHistory",
     "PromiseHistory",
+    "RemittanceHistory",
     "IndustryInfo",
     "LaneContextInfo",
     "CaseContext",

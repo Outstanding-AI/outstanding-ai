@@ -181,6 +181,15 @@ class PromiseHistory(BaseModel):
     outcome: Optional[str] = None  # kept, broken, pending
 
 
+class RemittanceHistory(BaseModel):
+    """Single remittance evidence record."""
+
+    remittance_received_at: Optional[str] = None
+    remittance_amount: Optional[float] = None
+    bank_reference: Optional[str] = None
+    outcome: Optional[str] = None  # pending, fulfilled, expired_unfulfilled, cancelled
+
+
 class CommunicationTrackingInfo(BaseModel):
     """Thread monitoring coverage for communication-aware generation."""
 
@@ -261,6 +270,7 @@ class CaseContext(CaseContextV2):
     communication_tracking: Optional[CommunicationTrackingInfo] = None
     recent_touches: List[TouchHistory] = []
     promises: List[PromiseHistory] = []
+    remittances: List[RemittanceHistory] = []
 
     # ------------------------------------------------------------------
     # V3-only top-level fields (Optional so V2 callers omit them safely).
