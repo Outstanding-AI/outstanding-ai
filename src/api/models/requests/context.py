@@ -294,7 +294,7 @@ class CaseContext(CaseContextV2):
     grace_days: int = 0  # Effective: party.grace_days_override OR tenant.grace_days
 
     # Promise verification settings
-    promise_grace_days: int = 3
+    promise_grace_days: int = 7
 
     # Debtor-specific context (NEW - for gate evaluation and draft generation)
     do_not_contact_until: Optional[str] = None  # ISO date if set (from party)

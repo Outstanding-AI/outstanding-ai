@@ -258,8 +258,9 @@ class DraftGenerator:
         )
         obligation_count = len(candidate_obligations)
 
-        # Sort obligations by severity (most overdue first) and cap at 10
-        # to keep the prompt within token limits.
+        # Sort obligations by severity (most overdue first). Do not cap the
+        # list: the backend has already selected the eligible chase scope, and
+        # every overdue candidate must be visible to the model/table pipeline.
         sorted_obligations = sorted(
             candidate_obligations,
             key=lambda o: (
@@ -268,7 +269,7 @@ class DraftGenerator:
                 else o.days_past_due
             ),
             reverse=True,
-        )[:10]
+        )
 
         if request.skip_invoice_table:
             # Follow-up / closure drafts: suppress {INVOICE_TABLE} placeholder.
@@ -719,17 +720,20 @@ class DraftGenerator:
         if result.reasoning:
             reasoning_dict = result.reasoning.model_dump()
 
-        # Use LLM-provided invoices_referenced only when they remain inside
-        # the upstream candidate scope; then fall back to body scan and the
-        # candidate invoice refs represented by {INVOICE_TABLE}.
+        # For normal collection drafts, the backend/programmatic invoice table
+        # represents the full candidate scope. Persist that deterministic set
+        # even if the LLM returns a partial `invoices_referenced` list.
         llm_refs = [
             r
             for r in (result.invoices_referenced or [])
             if r and _normalize_invoice_ref(r) in candidate_refs
         ]
-        final_invoices = llm_refs or invoices_referenced
-        if not final_invoices:
+        if not request.skip_invoice_table and not request.closure_mode:
             final_invoices = prompt_ctx.candidate_invoice_refs
+        else:
+            final_invoices = llm_refs or invoices_referenced
+            if not final_invoices:
+                final_invoices = prompt_ctx.candidate_invoice_refs
 
         # Stage 3 (#8): per-suboperation usage breakdown — main LLM
         # call + per-guardrail rollup. ``main_generation`` uses the

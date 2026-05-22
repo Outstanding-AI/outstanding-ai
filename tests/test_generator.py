@@ -303,6 +303,52 @@ class TestDraftGenerator:
         assert "Other lanes for the same debtor may exist" in prompt_ctx.user_prompt
         assert "Tone: always friendly_reminder at Level 0" not in prompt_ctx.user_prompt
 
+    @pytest.mark.asyncio
+    async def test_collection_draft_prompt_and_response_keep_full_invoice_scope(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.context.schema_version = 4
+        sample_generate_draft_request.context.collection_basis = "overdue"
+        sample_generate_draft_request.context.obligations = [
+            ObligationInfo(
+                id=f"obl-{idx:02d}",
+                external_id=f"ext-{idx:02d}",
+                provider_type="sage_200",
+                invoice_number=f"INV-{idx:02d}",
+                original_amount=100.0 + idx,
+                amount_due=100.0 + idx,
+                is_overdue=True,
+                days_overdue=idx,
+                days_past_due=idx,
+                is_sendable=True,
+                is_chase_eligible=True,
+            )
+            for idx in range(1, 13)
+        ]
+        mock_response = _make_llm_response(
+            {
+                "subject": "Overdue invoices",
+                "body": "<p>Please see the invoice table below.</p><p>{INVOICE_TABLE}</p>",
+                "invoices_referenced": ["INV-01"],
+            }
+        )
+
+        with patch(
+            "src.engine.generator.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+            with patch("src.engine.generator.guardrail_pipeline") as mock_pipeline:
+                mock_pipeline.validate.return_value = _make_guardrail_result(
+                    should_block=False,
+                    all_passed=True,
+                )
+                result = await generator.generate(sample_generate_draft_request)
+
+        user_prompt = mock_complete.await_args.kwargs["user_prompt"]
+        assert "- INV-12:" in user_prompt
+        assert "- INV-01:" in user_prompt
+        assert result.invoices_referenced == [f"INV-{idx:02d}" for idx in range(1, 13)]
+
 
 def test_generate_request_hydrates_sparse_lane_context(sample_generate_draft_request):
     """Sparse lane_context payloads should inherit required fields from context.lane."""
