@@ -1371,7 +1371,7 @@ wheels = [
 [[package]]
 name = "solvix-contracts"
 version = "0.12.11"
-source = { git = "https://github.com/Outstanding-AI/outstanding-backend.git?subdirectory=contracts&tag=contracts-v0.12.11#6a1e217d2ebc2468ff9d781c81a4908fcdee1cbb" }
+source = { git = "https://github.com/Outstanding-AI/outstanding-backend.git?subdirectory=contracts&tag=contracts-v0.12.11#631c17c9e6faa41206f534593e364ed62bb79782" }
 dependencies = [
     { name = "pydantic" },
 ]
