@@ -33,7 +33,7 @@ jobs:
 
       - name: Create contracts read token
         id: contracts-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.CONTRACTS_APP_ID }}
           private-key: ${{ secrets.CONTRACTS_APP_PRIVATE_KEY }}
@@ -44,8 +44,9 @@ jobs:
         env:
           TOKEN: ${{ steps.contracts-token.outputs.token }}
         run: |
-          git config --global url."https://x-access-token:${TOKEN}@github.com/Outstanding-AI/".insteadOf \
-            "https://github.com/Outstanding-AI/"
+          AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          git config --global http.https://github.com/Outstanding-AI/.extraheader \
+            "AUTHORIZATION: basic ${AUTH}"
 
       - run: uv sync --frozen --extra dev
 
@@ -67,4 +68,4 @@ jobs:
           TOKEN: ${{ steps.contracts-token.outputs.token }}
         run: |
           git config --global --unset-all \
-            url."https://x-access-token:${TOKEN}@github.com/Outstanding-AI/".insteadOf || true
+            http.https://github.com/Outstanding-AI/.extraheader || true
