@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8001
     debug: bool = False
+    enable_api_docs: bool = False
 
     @field_validator("debug", mode="before")
     @classmethod
@@ -66,6 +67,17 @@ class Settings(BaseSettings):
                 return ["*"]  # Allow all in debug mode only
             return []  # No CORS in production without explicit config
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
+    def api_docs_enabled(self) -> bool:
+        """Expose interactive API docs only outside production or by explicit opt-in."""
+        return self.enable_api_docs or self.environment != "production"
+
+    def public_paths(self) -> set[str]:
+        """Unauthenticated paths for health checks and, in non-prod, docs."""
+        paths = {"/health", "/ping"}
+        if self.api_docs_enabled():
+            paths.update({"/docs", "/openapi.json", "/redoc"})
+        return paths
 
     # --- LLM Provider Selection ---
     llm_provider: str = "vertex"  # "vertex", "openai", "anthropic"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -11,6 +12,10 @@ from google.auth import aws, exceptions
 
 ECS_METADATA_HOST = "http://169.254.170.2"
 EXPIRY_SKEW_SECONDS = 60
+ERROR_BODY_MAX_CHARS = 160
+_CREDENTIAL_FIELD_RE = re.compile(
+    r'(?i)("(?:AccessKeyId|SecretAccessKey|Token|Expiration)"\s*:\s*")[^"]*(")'
+)
 
 
 class EcsTaskRoleSupplier(aws.AwsSecurityCredentialsSupplier):
@@ -90,13 +95,13 @@ class EcsTaskRoleSupplier(aws.AwsSecurityCredentialsSupplier):
         body = response.data.decode("utf-8") if hasattr(response.data, "decode") else response.data
         if response.status != 200:
             raise exceptions.RefreshError(
-                f"ECS credential endpoint returned {response.status}: {body}"
+                f"ECS credential endpoint returned {response.status}: {_safe_body_excerpt(body)}"
             )
         try:
             payload = json.loads(body)
         except json.JSONDecodeError as exc:
             raise exceptions.RefreshError(
-                f"ECS credential endpoint returned invalid JSON: {body}"
+                f"ECS credential endpoint returned invalid JSON: {_safe_body_excerpt(body)}"
             ) from exc
         if not isinstance(payload, dict):
             raise exceptions.RefreshError(
@@ -115,3 +120,13 @@ class EcsTaskRoleSupplier(aws.AwsSecurityCredentialsSupplier):
         if expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=timezone.utc)
         return expiry
+
+
+def _safe_body_excerpt(body: Any) -> str:
+    """Return a short credential-endpoint error excerpt without secret values."""
+    if body is None:
+        return ""
+    text = _CREDENTIAL_FIELD_RE.sub(r"\1<redacted>\2", str(body))
+    if len(text) > ERROR_BODY_MAX_CHARS:
+        return f"{text[:ERROR_BODY_MAX_CHARS]}..."
+    return text

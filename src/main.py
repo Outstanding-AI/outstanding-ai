@@ -121,11 +121,15 @@ async def lifespan(app: FastAPI):
 
 
 # Create app
+_docs_enabled = settings.api_docs_enabled()
 app = FastAPI(
     title="Outstanding AI Engine",
     description="AI-powered email classification and draft generation for debt collection",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 # Attach limiter to app state (required by slowapi)
@@ -135,7 +139,11 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Service-to-service auth middleware (outermost — runs before request ID)
-app.add_middleware(ServiceAuthMiddleware, token=settings.service_auth_token)
+app.add_middleware(
+    ServiceAuthMiddleware,
+    token=settings.service_auth_token,
+    public_paths=settings.public_paths(),
+)
 
 # Request ID middleware
 app.add_middleware(RequestIDMiddleware)

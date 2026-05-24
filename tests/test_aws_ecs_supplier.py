@@ -140,3 +140,24 @@ def test_invalid_payload_raises_refresh_error(monkeypatch):
 
     with pytest.raises(exceptions.RefreshError, match="missing required fields"):
         supplier.get_aws_security_credentials(None, request)
+
+
+def test_error_response_does_not_log_credential_field_names(monkeypatch):
+    def request(*, url, method, headers=None):
+        del url, method, headers
+        return _response(
+            '{"AccessKeyId":"AKIA","SecretAccessKey":"secret","Token":"session"}',
+            status=500,
+        )
+
+    monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/broken")
+    supplier = EcsTaskRoleSupplier()
+
+    with pytest.raises(exceptions.RefreshError) as exc_info:
+        supplier.get_aws_security_credentials(None, request)
+
+    message = str(exc_info.value)
+    assert "AKIA" not in message
+    assert "secret" not in message
+    assert "session" not in message
+    assert "<redacted>" in message

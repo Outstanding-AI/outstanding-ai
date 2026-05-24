@@ -111,16 +111,12 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             request_id_var.reset(token)
 
 
-# Paths that bypass authentication. /health/llm intentionally NOT listed —
-# it triggers real LLM calls and must require bearer auth.
-_PUBLIC_PATHS = {"/health", "/ping", "/docs", "/openapi.json", "/redoc"}
-
-
 class ServiceAuthMiddleware(BaseHTTPMiddleware):
     """
     Middleware that enforces service-to-service authentication.
 
-    When SERVICE_AUTH_TOKEN is set, all requests (except health/docs)
+    When SERVICE_AUTH_TOKEN is set, all requests outside the configured
+    public paths
     must include a valid Authorization: Bearer <token> header.
 
     If SERVICE_AUTH_TOKEN is not configured, authentication is disabled
@@ -133,9 +129,12 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
     limiter.
     """
 
-    def __init__(self, app, token: str | None = None):
+    def __init__(self, app, token: str | None = None, public_paths: set[str] | None = None):
         super().__init__(app)
         self.token = token
+        # /health/llm intentionally must not be included by callers — it
+        # triggers real provider calls and must require bearer auth.
+        self.public_paths = public_paths or {"/health", "/ping"}
 
     async def dispatch(self, request: Request, call_next) -> Response:
         # Local dev: no token configured, trust everything. Production
@@ -146,7 +145,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
 
         # Public paths bypass auth but still get the flag set so limiter
         # key functions behave consistently.
-        if request.url.path in _PUBLIC_PATHS:
+        if request.url.path in self.public_paths:
             request.state.service_auth_ok = True
             return await call_next(request)
 

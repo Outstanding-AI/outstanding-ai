@@ -18,6 +18,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   lint-smoke:
     runs-on: ubuntu-latest
@@ -26,7 +29,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
