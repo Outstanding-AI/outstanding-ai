@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -25,11 +26,34 @@ class DraftCandidate(BaseModel):
     lane_id: str = Field(..., max_length=255)
     sync_run_id: str = Field(..., max_length=255)
     candidate_id: str = Field(..., max_length=255)
+    mode: str | None = Field(default=None, max_length=64)
+    obligation_ids: list[str] = Field(default_factory=list)
+    lane_context: dict[str, Any] = Field(default_factory=dict)
+    lane_contexts: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("party_id", "lane_id", "sync_run_id", "candidate_id")
     @classmethod
     def require_non_empty_identity(cls, value: str, info) -> str:
         return _non_empty(value, field_name=info.field_name)
+
+    def lane_ids(self) -> list[str]:
+        seen: set[str] = set()
+        lane_ids: list[str] = []
+        values = [
+            self.lane_id,
+            *[
+                context.get("collection_lane_id") or context.get("lane_id")
+                for context in self.lane_contexts
+                if isinstance(context, dict)
+            ],
+        ]
+        for value in values:
+            normalized = str(value or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            lane_ids.append(normalized)
+        return lane_ids
 
 
 class DraftGenerationHandoff(BaseModel):

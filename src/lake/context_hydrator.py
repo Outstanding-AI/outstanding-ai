@@ -121,7 +121,9 @@ class CaseContextHydrator:
         """
         party = self._load_party(candidate.party_id)
         lane = self._load_lane(candidate.lane_id)
-        obligations = self._load_lane_obligations(candidate.lane_id)
+        lane_ids = candidate.lane_ids()
+        obligations_by_lane = self._load_lane_obligations_batch(lane_ids)
+        obligations = self._candidate_obligations(candidate, obligations_by_lane, lane_ids)
         party_contacts = self._load_party_contacts(candidate.party_id)
         history = self._load_lane_history(candidate.lane_id)
         return self._assemble_case_context(
@@ -150,7 +152,7 @@ class CaseContextHydrator:
             return []
 
         party_ids = sorted({str(c.party_id) for c in candidates})
-        lane_ids = sorted({str(c.lane_id) for c in candidates})
+        lane_ids = sorted({lane_id for candidate in candidates for lane_id in candidate.lane_ids()})
 
         parties_by_id = self._load_parties_batch(party_ids)
         lanes_by_id = self._load_lanes_batch(lane_ids)
@@ -162,6 +164,7 @@ class CaseContextHydrator:
         for candidate in candidates:
             party_id = str(candidate.party_id)
             lane_id = str(candidate.lane_id)
+            candidate_lane_ids = candidate.lane_ids()
             try:
                 party = parties_by_id.get(party_id)
                 if party is None:
@@ -175,7 +178,9 @@ class CaseContextHydrator:
                     candidate=candidate,
                     party=party,
                     lane=lane,
-                    obligations=obligations_by_lane.get(lane_id, []),
+                    obligations=self._candidate_obligations(
+                        candidate, obligations_by_lane, candidate_lane_ids
+                    ),
                     party_contacts=contacts_by_party.get(party_id, []),
                     history=history_by_lane.get(lane_id, []),
                 )
@@ -184,6 +189,31 @@ class CaseContextHydrator:
             else:
                 results.append(BatchHydrationResult(candidate=candidate, context=ctx))
         return results
+
+    @staticmethod
+    def _candidate_obligations(
+        candidate: DraftCandidate,
+        obligations_by_lane: dict[str, list[ObligationInfo]],
+        lane_ids: list[str],
+    ) -> list[ObligationInfo]:
+        obligations = [
+            obligation
+            for lane_id in lane_ids
+            for obligation in obligations_by_lane.get(lane_id, [])
+        ]
+        expected_ids = {str(value) for value in (candidate.obligation_ids or []) if str(value)}
+        if not expected_ids:
+            return obligations
+
+        seen: set[str] = set()
+        filtered: list[ObligationInfo] = []
+        for obligation in obligations:
+            obligation_id = str(getattr(obligation, "id", "") or "")
+            if obligation_id not in expected_ids or obligation_id in seen:
+                continue
+            seen.add(obligation_id)
+            filtered.append(obligation)
+        return filtered
 
     def _assemble_case_context(
         self,
@@ -214,6 +244,13 @@ class CaseContextHydrator:
         sendable_obligation_ids = [
             obligation.id for obligation in obligations if obligation.is_sendable is not False
         ]
+        if candidate.obligation_ids:
+            expected_ids = {str(value) for value in candidate.obligation_ids if str(value)}
+            sendable_obligation_ids = [
+                obligation_id
+                for obligation_id in sendable_obligation_ids
+                if obligation_id in expected_ids
+            ]
         input_silver_version_ids = [
             str(value)
             for value in (
@@ -247,6 +284,12 @@ class CaseContextHydrator:
             "entry_level": lane.get("entry_level"),
             "tone_ladder": lane_context["tone_ladder"],
         }
+        lane_contexts = self._candidate_lane_contexts(
+            candidate=candidate,
+            fallback_context=sparse_lane_context,
+            obligations=obligations,
+        )
+        mode = candidate.mode or ("multi_lane" if len(lane_contexts) > 1 else "single_lane")
 
         return CaseContext(
             schema_version=4,
@@ -275,8 +318,8 @@ class CaseContextHydrator:
             sendable_obligation_ids=sendable_obligation_ids,
             lane_broken_promises_count=int(party.get("broken_promises_count") or 0),
             lane_last_tone_used=party.get("last_tone_used"),
-            lane_contexts=[sparse_lane_context],
-            mode="single_lane",
+            lane_contexts=lane_contexts,
+            mode=mode,
             debtor_contact=debtor_contact,
             party_contacts=party_contacts,
             context_version="v4",
@@ -303,6 +346,40 @@ class CaseContextHydrator:
                 1 for obligation in obligations if getattr(obligation, "is_overdue", False)
             ),
         )
+
+    @staticmethod
+    def _candidate_lane_contexts(
+        *,
+        candidate: DraftCandidate,
+        fallback_context: dict[str, Any],
+        obligations: list[ObligationInfo],
+    ) -> list[dict[str, Any]]:
+        contexts = [
+            dict(context)
+            for context in (candidate.lane_contexts or [])
+            if isinstance(context, dict)
+            and (context.get("lane_id") or context.get("collection_lane_id"))
+        ]
+        if not contexts:
+            return [fallback_context]
+
+        refs_by_obligation_id = {
+            str(getattr(obligation, "id", "") or ""): str(
+                getattr(obligation, "invoice_number", "") or ""
+            )
+            for obligation in obligations
+            if getattr(obligation, "id", None)
+        }
+        for context in contexts:
+            if not context.get("invoice_refs") and context.get("obligation_ids"):
+                context["invoice_refs"] = [
+                    refs_by_obligation_id.get(str(obligation_id), "")
+                    for obligation_id in context.get("obligation_ids") or []
+                    if refs_by_obligation_id.get(str(obligation_id), "")
+                ]
+            context["lane_id"] = str(context.get("lane_id") or context.get("collection_lane_id"))
+            context.setdefault("role", "single" if len(contexts) == 1 else "guest")
+        return contexts
 
     # ------------------------------------------------------------------
     # Per-id loaders (legacy single-shot path, used by hydrate_candidate)
@@ -454,7 +531,7 @@ class CaseContextHydrator:
         rows = self._fetch_lane_obligations(lane_ids)
         grouped: dict[str, list[ObligationInfo]] = defaultdict(list)
         for row in rows:
-            lane_key = str(row.get("lane_id") or "")
+            lane_key = str(row.get("lane_id") or (lane_ids[0] if len(lane_ids) == 1 else "") or "")
             if not lane_key:
                 continue
             grouped[lane_key].append(self._obligation_info(row))

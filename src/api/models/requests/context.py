@@ -224,6 +224,15 @@ class LaneContextInfo(BaseModel):
     )
     prior_touch_dates: List[str] = []
     is_newly_joined: bool = False
+    action: Optional[str] = None
+    obligation_ids: List[str] = []
+    open_obligation_ids: List[str] = []
+    overdue_obligation_ids: List[str] = []
+    blocked_obligation_ids: List[str] = []
+    protocol_slot_key: Optional[str] = None
+    protocol_selected_day: Optional[int] = None
+    protocol_selected_level: Optional[int] = None
+    protocol_actual_sender_level: Optional[int] = None
 
 
 class IndustryInfo(BaseModel):
@@ -356,7 +365,7 @@ class CaseContext(CaseContextV2):
     lane_contexts: List[LaneContextInfo] = []
     mode: Optional[str] = Field(
         default=None,
-        pattern=r"^(single_lane)$",
+        pattern=r"^(single_lane|multi_lane)$",
     )
 
     # Silver Application / Gold current-context lineage. These fields are

@@ -571,6 +571,60 @@ def test_hydrate_batch_preserves_source_query_metadata() -> None:
     assert by_id["inv-A2"].is_sendable is False
 
 
+def test_hydrate_batch_preserves_manifest_grouped_lane_scope() -> None:
+    reader = _BatchFakeReader(
+        parties={"party-A": _party_row("party-A", "CUST-A")},
+        lanes={
+            "lane-A": _lane_row("lane-A"),
+            "lane-B": _lane_row("lane-B"),
+        },
+        obligations_by_lane={
+            "lane-A": [_obligation_row("inv-A1")],
+            "lane-B": [
+                _obligation_row("inv-B1"),
+                _obligation_row("inv-B2", is_source_disputed=True),
+            ],
+        },
+        contacts_by_party={"party-A": [_contact_row()]},
+    )
+    candidates = [
+        DraftCandidate(
+            party_id="party-A",
+            lane_id="lane-A",
+            sync_run_id="sync-1",
+            candidate_id="c-A",
+            mode="multi_lane",
+            obligation_ids=["inv-A1", "inv-B1"],
+            lane_contexts=[
+                {
+                    "lane_id": "lane-A",
+                    "collection_lane_id": "lane-A",
+                    "current_level": 1,
+                    "invoice_refs": ["inv-A1"],
+                    "obligation_ids": ["inv-A1"],
+                },
+                {
+                    "lane_id": "lane-B",
+                    "collection_lane_id": "lane-B",
+                    "current_level": 1,
+                    "invoice_refs": ["inv-B1"],
+                    "obligation_ids": ["inv-B1"],
+                },
+            ],
+        ),
+    ]
+
+    [result] = CaseContextHydrator("tenant-1", reader).hydrate_batch(candidates)
+
+    assert result.context is not None
+    assert result.context.mode == "multi_lane"
+    assert [obligation.id for obligation in result.context.obligations] == ["inv-A1", "inv-B1"]
+    assert result.context.sendable_obligation_ids == ["inv-A1", "inv-B1"]
+    assert [context.lane_id for context in result.context.lane_contexts] == ["lane-A", "lane-B"]
+    obligation_call = reader.execute_calls[2]
+    assert set(obligation_call[1][1]) == {"lane-A", "lane-B"}
+
+
 def test_hydrate_batch_returns_empty_for_empty_input() -> None:
     reader = _BatchFakeReader(parties={}, lanes={})
     assert CaseContextHydrator("tenant-1", reader).hydrate_batch([]) == []

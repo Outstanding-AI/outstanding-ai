@@ -250,22 +250,50 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             "LaneContextInfo.invoice_refs and outstanding_amount are deprecated; "
             "prefer CaseContext.lane for prompt construction."
         )
-        lane = request.context.lane_contexts[0]
-        invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
-        tone_ladder = ", ".join(lane.tone_ladder) if getattr(lane, "tone_ladder", None) else "none"
-        sections.append(
-            "\n\n**Collection Lane Context:**\n"
-            f"- Collection Lane: {lane.lane_id}\n"
-            f"- Current Level: {lane.current_level} (entry level {lane.entry_level})\n"
-            f"- Scheduled Touch Index: {lane.scheduled_touch_index} of {lane.max_touches_for_level}\n"
-            f"- Reminder Cadence (days): {lane.reminder_cadence_days_for_level}\n"
-            f"- Level Window (days): {lane.max_days_for_level}\n"
-            f"- Tone Ladder: {tone_ladder}\n"
-            f"- Open Invoices: {invoice_refs}\n"
-            f"- Outstanding Amount: {lane.outstanding_amount}\n"
-            "- Scope Rule: this email is for this lane/cohort only. Other lanes for the same debtor may exist "
-            "and may be handled by different senders; do not merge or reference them unless listed here."
-        )
+        lane_contexts = request.context.lane_contexts
+        if len(lane_contexts) > 1 or getattr(request.context, "mode", None) == "multi_lane":
+            lane_lines = []
+            for lane in lane_contexts:
+                invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
+                tone_ladder = (
+                    ", ".join(lane.tone_ladder) if getattr(lane, "tone_ladder", None) else "none"
+                )
+                lane_lines.append(
+                    f"- Lane {lane.lane_id}: level {lane.current_level}, "
+                    f"touch {lane.scheduled_touch_index} of {lane.max_touches_for_level}, "
+                    f"action={lane.action or 'collection'}, invoices={invoice_refs}, tone_ladder={tone_ladder}"
+                )
+            sections.append(
+                "\n\n**Collection Scope Context:**\n"
+                "- Coverage Mode: multiple due recovery lanes are intentionally grouped because they share the "
+                "same debtor, recipient, sender, and protocol level.\n"
+                "- Scope Rule: the invoice table is the authoritative scope for this draft. Include every listed "
+                "sendable invoice, but do not claim this is the debtor's complete account if other lanes are not "
+                "listed here.\n"
+                "- Wording Rule: if lanes have different actions or touch indices, describe the request as a "
+                "follow-up on the listed overdue invoices. Only say an invoice was previously reminded if the "
+                "provided history proves it; otherwise keep the wording neutral.\n"
+                + "\n".join(lane_lines)
+            )
+        else:
+            lane = lane_contexts[0]
+            invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
+            tone_ladder = (
+                ", ".join(lane.tone_ladder) if getattr(lane, "tone_ladder", None) else "none"
+            )
+            sections.append(
+                "\n\n**Collection Lane Context:**\n"
+                f"- Collection Lane: {lane.lane_id}\n"
+                f"- Current Level: {lane.current_level} (entry level {lane.entry_level})\n"
+                f"- Scheduled Touch Index: {lane.scheduled_touch_index} of {lane.max_touches_for_level}\n"
+                f"- Reminder Cadence (days): {lane.reminder_cadence_days_for_level}\n"
+                f"- Level Window (days): {lane.max_days_for_level}\n"
+                f"- Tone Ladder: {tone_ladder}\n"
+                f"- Open Invoices: {invoice_refs}\n"
+                f"- Outstanding Amount: {lane.outstanding_amount}\n"
+                "- Scope Rule: this email is for this lane/cohort only. Other lanes for the same debtor may exist "
+                "and may be handled by different senders; do not merge or reference them unless listed here."
+            )
 
     lane_history = getattr(request.context, "lane_history", None)
     if lane_history:

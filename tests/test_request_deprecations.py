@@ -6,7 +6,12 @@ import logging
 
 import pytest
 
-from src.api.models.requests import BehaviorInfo, CommunicationInfo, GenerateDraftRequest
+from src.api.models.requests import (
+    BehaviorInfo,
+    CommunicationInfo,
+    GenerateDraftRequest,
+    LaneContextInfo,
+)
 from src.engine.generator_prompts import build_extra_sections
 
 
@@ -118,6 +123,43 @@ def test_case_context_lane_context_duplicate_fields_warn(sample_case_context):
     lane_context = request.context.lane_contexts[0]
     assert lane_context.__dict__["invoice_refs"] == ["INV-12345"]
     assert lane_context.__dict__["outstanding_amount"] == 1500.0
+
+
+def test_build_extra_sections_renders_grouped_lane_scope(sample_generate_draft_request):
+    sample_generate_draft_request.context.mode = "multi_lane"
+    sample_generate_draft_request.context.lane = None
+    sample_generate_draft_request.context.lane_contexts = [
+        LaneContextInfo(
+            lane_id="lane-old",
+            current_level=1,
+            entry_level=1,
+            scheduled_touch_index=2,
+            max_touches_for_level=3,
+            tone_ladder=["professional", "firm"],
+            invoice_refs=["INV-OLD"],
+            action="reminder",
+        ),
+        LaneContextInfo(
+            lane_id="lane-new",
+            current_level=1,
+            entry_level=1,
+            scheduled_touch_index=1,
+            max_touches_for_level=3,
+            tone_ladder=["professional"],
+            invoice_refs=["INV-NEW"],
+            action="initial",
+        ),
+    ]
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+    )
+
+    assert "Coverage Mode: multiple due recovery lanes" in extra_sections
+    assert "invoice table is the authoritative scope" in extra_sections
+    assert "INV-OLD" in extra_sections
+    assert "INV-NEW" in extra_sections
 
 
 def test_build_extra_sections_ignores_last_response_snippet(sample_generate_draft_request, caplog):
