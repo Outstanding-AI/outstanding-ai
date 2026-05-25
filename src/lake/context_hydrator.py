@@ -56,6 +56,8 @@ OBLIGATIONS_CURRENT = "silver_core_obligations_current"
 COLLECTION_LANES_CURRENT = "silver_app_collection_lanes_current"
 COLLECTION_LANE_INVOICES_CURRENT = "silver_app_collection_lane_invoices_current"
 COLLECTION_LANE_HISTORY_CURRENT = "silver_app_collection_lane_history_current"
+SENT_DRAFT_ANALYSIS_EVENTS_CURRENT = "sent_draft_analysis_events_current"
+DRAFTS_CURRENT = "silver_app_drafts_current"
 PARTY_COLLECTION_STATE_CURRENT = "party_collection_state_events_current"
 PARTY_COMM_STATE_CURRENT = "party_comm_state_events_current"
 PARTY_BEHAVIOR_PROFILE_CURRENT = "party_behavior_profile_versions_current"
@@ -126,6 +128,7 @@ class CaseContextHydrator:
         obligations = self._candidate_obligations(candidate, obligations_by_lane, lane_ids)
         party_contacts = self._load_party_contacts(candidate.party_id)
         history = self._load_lane_history(candidate.lane_id)
+        actual_sent_scope_history = self._load_actual_sent_scope_history(candidate.party_id)
         return self._assemble_case_context(
             candidate=candidate,
             party=party,
@@ -133,6 +136,7 @@ class CaseContextHydrator:
             obligations=obligations,
             party_contacts=party_contacts,
             history=history,
+            actual_sent_scope_history=actual_sent_scope_history,
         )
 
     def hydrate_batch(self, candidates: list[DraftCandidate]) -> list[BatchHydrationResult]:
@@ -159,6 +163,7 @@ class CaseContextHydrator:
         obligations_by_lane = self._load_lane_obligations_batch(lane_ids)
         contacts_by_party = self._load_party_contacts_batch(party_ids)
         history_by_lane = self._load_lane_history_batch(lane_ids)
+        actual_sent_scope_by_party = self._load_actual_sent_scope_history_batch(party_ids)
 
         results: list[BatchHydrationResult] = []
         for candidate in candidates:
@@ -183,6 +188,7 @@ class CaseContextHydrator:
                     ),
                     party_contacts=contacts_by_party.get(party_id, []),
                     history=history_by_lane.get(lane_id, []),
+                    actual_sent_scope_history=actual_sent_scope_by_party.get(party_id, []),
                 )
             except ContextHydrationError as exc:
                 results.append(BatchHydrationResult(candidate=candidate, error=exc))
@@ -224,6 +230,7 @@ class CaseContextHydrator:
         obligations: list[ObligationInfo],
         party_contacts: list[dict[str, Any]],
         history: list[dict[str, Any]],
+        actual_sent_scope_history: list[dict[str, Any]],
     ) -> CaseContext:
         """Compose a V4 ``CaseContext`` from pre-loaded row data.
 
@@ -314,6 +321,7 @@ class CaseContextHydrator:
             collection_lane_id=str(lane["id"]),
             lane=lane_context,
             lane_history=history,
+            actual_sent_scope_history=actual_sent_scope_history,
             lane_mail_mode="single_lane",
             sendable_obligation_ids=sendable_obligation_ids,
             lane_broken_promises_count=int(party.get("broken_promises_count") or 0),
@@ -691,6 +699,91 @@ class CaseContextHydrator:
             }
             for row in reversed(rows)
         ]
+
+    def _load_actual_sent_scope_history(self, party_id: str) -> list[dict[str, Any]]:
+        rows_by_party = self._load_actual_sent_scope_history_batch([party_id])
+        return rows_by_party.get(str(party_id), [])
+
+    def _load_actual_sent_scope_history_batch(
+        self,
+        party_ids: list[str],
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Return post-send invoice-scope evidence keyed by party.
+
+        Missing schema columns should not block draft generation during a
+        rolling deployment; the history block simply stays empty until schema
+        evolution and the ETL writer are both live.
+        """
+        if not party_ids:
+            return {}
+        try:
+            rows = self._fetch_actual_sent_scope_history(party_ids)
+        except Exception:
+            return {}
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            party_key = str(row.get("party_id") or "")
+            if not party_key:
+                continue
+            if len(grouped[party_key]) >= 10:
+                continue
+            grouped[party_key].append(self._format_actual_sent_scope_row(row))
+        return dict(grouped)
+
+    def _fetch_actual_sent_scope_history(self, party_ids: list[str]) -> list[dict[str, Any]]:
+        sql = f"""
+            SELECT
+                d.party_id,
+                a.draft_id,
+                a.touch_id,
+                a.provider_message_id,
+                d.lane_id,
+                COALESCE(d.sent_at, a.event_time, a.valid_from) AS sent_at,
+                a.invoice_refs_generated_json,
+                a.invoice_refs_sent_json,
+                a.invoice_refs_added_json,
+                a.invoice_refs_removed_json,
+                COALESCE(a.invoice_scope_changed, FALSE) AS invoice_scope_changed,
+                a.edit_severity,
+                COALESCE(a.payment_expectation_added, FALSE) AS payment_expectation_added,
+                a.payment_expectation_kind,
+                a.payment_expectation_date,
+                a.payment_expectation_amount,
+                a.review_reason_codes_json
+            FROM {_current_projection_in(DRAFTS_CURRENT, "d", id_column="party_id")}
+            JOIN {_current_projection(SENT_DRAFT_ANALYSIS_EVENTS_CURRENT, "a")}
+              ON a.tenant_id = d.tenant_id
+             AND a.draft_id = d.draft_id
+            ORDER BY d.party_id, COALESCE(d.sent_at, a.event_time, a.valid_from) DESC NULLS LAST
+            """
+        return self.reader.execute(sql, [self.tenant_id, tuple(party_ids), self.tenant_id])
+
+    @staticmethod
+    def _format_actual_sent_scope_row(row: dict[str, Any]) -> dict[str, Any]:
+        def _json_list(value: Any) -> list[str]:
+            parsed = _json_value(value, fallback=[])
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed if str(item)]
+            return []
+
+        return {
+            "draft_id": str(row.get("draft_id")) if row.get("draft_id") else None,
+            "touch_id": str(row.get("touch_id")) if row.get("touch_id") else None,
+            "provider_message_id": row.get("provider_message_id"),
+            "lane_id": str(row.get("lane_id")) if row.get("lane_id") else None,
+            "sent_at": row.get("sent_at"),
+            "invoice_refs_generated": _json_list(row.get("invoice_refs_generated_json")),
+            "invoice_refs_sent": _json_list(row.get("invoice_refs_sent_json")),
+            "invoice_refs_added": _json_list(row.get("invoice_refs_added_json")),
+            "invoice_refs_removed": _json_list(row.get("invoice_refs_removed_json")),
+            "invoice_scope_changed": bool(row.get("invoice_scope_changed")),
+            "edit_severity": row.get("edit_severity"),
+            "payment_expectation_added": bool(row.get("payment_expectation_added")),
+            "payment_expectation_kind": row.get("payment_expectation_kind"),
+            "payment_expectation_date": _date_string(row.get("payment_expectation_date")),
+            "payment_expectation_amount": row.get("payment_expectation_amount"),
+            "review_reason_codes": _json_list(row.get("review_reason_codes_json")),
+        }
 
     def _load_party_contacts(self, party_id: str) -> list[dict[str, Any]]:
         rows = self._fetch_party_contacts([party_id])

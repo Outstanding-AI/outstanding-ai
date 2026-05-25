@@ -7,6 +7,7 @@ import logging
 import pytest
 
 from src.api.models.requests import (
+    ActualSentScopeHistory,
     BehaviorInfo,
     CommunicationInfo,
     GenerateDraftRequest,
@@ -249,6 +250,35 @@ def test_build_extra_sections_renders_stale_draft_lane_history(sample_generate_d
     assert "stale_draft_replacement_requested" in extra_sections
     assert "replacement_reason=protocol_drift" in extra_sections
     assert "protocol slot changed from L0:T3:D15 to L1:T1:D22" in extra_sections
+
+
+def test_build_extra_sections_renders_actual_sent_scope_history(sample_generate_draft_request):
+    sample_generate_draft_request.context.actual_sent_scope_history = [
+        ActualSentScopeHistory(
+            draft_id="draft-1",
+            sent_at="2026-05-26T09:00:00Z",
+            invoice_refs_generated=["INV-1001", "INV-1002"],
+            invoice_refs_sent=["INV-1002", "INV-1003"],
+            invoice_refs_added=["INV-1003"],
+            invoice_refs_removed=["INV-1001"],
+            invoice_scope_changed=True,
+            edit_severity="critical",
+            payment_expectation_added=True,
+            payment_expectation_kind="promise_to_pay",
+            payment_expectation_date="2026-05-30",
+        )
+    ]
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+    )
+
+    assert "Actual Sent Scope History" in extra_sections
+    assert "actually sent invoices INV-1002, INV-1003" in extra_sections
+    assert "AI-generated scope: INV-1001, INV-1002" in extra_sections
+    assert "operator removed before send: INV-1001" in extra_sections
+    assert "current invoice table remains the authoritative scope" in extra_sections
 
 
 def test_format_obligation_flags_omits_procurement_status_for_unverified():

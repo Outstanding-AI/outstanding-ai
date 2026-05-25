@@ -84,6 +84,27 @@ class _FakeReader:
                 "created_at": datetime(2026, 4, 2, 9, 30, tzinfo=timezone.utc),
             }
         ]
+        self.actual_sent_scope = [
+            {
+                "party_id": "party-1",
+                "draft_id": "draft-1",
+                "touch_id": "touch-1",
+                "provider_message_id": "msg-1",
+                "lane_id": "lane-1",
+                "sent_at": datetime(2026, 4, 2, 9, 45, tzinfo=timezone.utc),
+                "invoice_refs_generated_json": '["INV-OLD"]',
+                "invoice_refs_sent_json": '["INV-1"]',
+                "invoice_refs_added_json": '["INV-1"]',
+                "invoice_refs_removed_json": '["INV-OLD"]',
+                "invoice_scope_changed": True,
+                "edit_severity": "critical",
+                "payment_expectation_added": True,
+                "payment_expectation_kind": "promise_to_pay",
+                "payment_expectation_date": date(2026, 4, 10),
+                "payment_expectation_amount": 250.0,
+                "review_reason_codes_json": '["invoice_scope_changed"]',
+            }
+        ]
         self.contacts = [
             {
                 "id": "contact-1",
@@ -123,6 +144,8 @@ class _FakeReader:
             return self.contacts
         if "collection_lane_history" in sql:
             return self.history
+        if "sent_draft_analysis_events_current" in sql:
+            return self.actual_sent_scope
         return []
 
 
@@ -161,6 +184,9 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert context.lane["tone_ladder"] == ["firm", "final_notice"]
     assert context.lane_contexts[0].lane_id == "lane-1"
     assert context.lane_history[0]["detail"] == {"reason": "cadence"}
+    assert context.actual_sent_scope_history[0].invoice_refs_sent == ["INV-1"]
+    assert context.actual_sent_scope_history[0].invoice_refs_removed == ["INV-OLD"]
+    assert context.actual_sent_scope_history[0].payment_expectation_added is True
     assert context.sendable_obligation_ids == ["obl-1"]
 
     # P3-2: per-id loaders now route through the bulk SELECTs with a
@@ -177,6 +203,8 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert contacts_call[1] == ["tenant-1", ("party-1",)]
     history_call = reader.execute_calls[4]
     assert history_call[1] == ["tenant-1", ("lane-1",)]
+    actual_sent_call = reader.execute_calls[5]
+    assert actual_sent_call[1] == ["tenant-1", ("party-1",), "tenant-1"]
 
     all_sql = "\n".join(
         [sql for sql, _ in reader.execute_one_calls] + [sql for sql, _ in reader.execute_calls]
@@ -194,6 +222,7 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert "COALESCE(lane_id, id) IN %s" in all_sql
     assert "silver_app_collection_lane_invoices_current" in all_sql
     assert "silver_app_collection_lane_history_current" in all_sql
+    assert "sent_draft_analysis_events_current" in all_sql
     assert "source_query_raw" in all_sql
     assert "is_source_disputed" in all_sql
 
@@ -268,7 +297,7 @@ def test_hydrate_candidate_fails_closed_when_lane_missing() -> None:
 class _BatchFakeReader:
     """Multi-party / multi-lane fake reader for ``hydrate_batch`` tests.
 
-    Tracks every ``execute`` call so tests can assert exactly five
+    Tracks every ``execute`` call so tests can assert exactly six
     bulk SELECTs were issued -- one per shape -- regardless of how
     many candidates were passed in.
     """
@@ -323,6 +352,8 @@ class _BatchFakeReader:
                 for h in self.history_by_lane.get(lid, []):
                     rows.append({**h, "lane_id": lid})
             return rows
+        if "sent_draft_analysis_events_current" in sql:
+            return []
         return []
 
 
@@ -401,7 +432,7 @@ def _contact_row() -> dict[str, Any]:
 
 
 def test_hydrate_batch_issues_one_bulk_select_per_shape() -> None:
-    """Five Athena SELECTs for N candidates, not 5 * N. The whole point
+    """Six Athena SELECTs for N candidates, not 6 * N. The whole point
     of batch hydration is to collapse per-candidate fan-out.
     """
     reader = _BatchFakeReader(
@@ -443,9 +474,9 @@ def test_hydrate_batch_issues_one_bulk_select_per_shape() -> None:
     assert len(results) == 3
     assert all(r.context is not None and r.error is None for r in results)
     assert reader.execute_one_calls == []
-    assert len(reader.execute_calls) == 5, (
-        "hydrate_batch must issue exactly 5 bulk SELECTs (parties / lanes / "
-        "lane obligations / party contacts / lane history) regardless of "
+    assert len(reader.execute_calls) == 6, (
+        "hydrate_batch must issue exactly 6 bulk SELECTs (parties / lanes / "
+        "lane obligations / party contacts / lane history / actual sent scope) regardless of "
         "candidate count."
     )
 
@@ -455,6 +486,7 @@ def test_hydrate_batch_issues_one_bulk_select_per_shape() -> None:
     assert "collection_lane_invoices" in sql_blob
     assert "party_contacts" in sql_blob
     assert "collection_lane_history" in sql_blob
+    assert "sent_draft_analysis_events_current" in sql_blob
 
     # Each batch query passes the IDs as a tuple param so ``IN %s``
     # renders to ``('id-1', 'id-2', ...)``.

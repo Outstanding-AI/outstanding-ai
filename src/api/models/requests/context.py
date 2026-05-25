@@ -190,6 +190,27 @@ class RemittanceHistory(BaseModel):
     outcome: Optional[str] = None  # pending, fulfilled, expired_unfulfilled, cancelled
 
 
+class ActualSentScopeHistory(BaseModel):
+    """What the debtor actually received after operator edits."""
+
+    draft_id: Optional[str] = None
+    touch_id: Optional[str] = None
+    provider_message_id: Optional[str] = None
+    lane_id: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    invoice_refs_generated: List[str] = []
+    invoice_refs_sent: List[str] = []
+    invoice_refs_added: List[str] = []
+    invoice_refs_removed: List[str] = []
+    invoice_scope_changed: bool = False
+    edit_severity: Optional[str] = None
+    payment_expectation_added: bool = False
+    payment_expectation_kind: Optional[str] = None
+    payment_expectation_date: Optional[str] = None
+    payment_expectation_amount: Optional[float] = None
+    review_reason_codes: List[str] = []
+
+
 class CommunicationTrackingInfo(BaseModel):
     """Thread monitoring coverage for communication-aware generation."""
 
@@ -280,6 +301,7 @@ class CaseContext(CaseContextV2):
     recent_touches: List[TouchHistory] = []
     promises: List[PromiseHistory] = []
     remittances: List[RemittanceHistory] = []
+    actual_sent_scope_history: List[ActualSentScopeHistory] = []
 
     # ------------------------------------------------------------------
     # V3-only top-level fields (Optional so V2 callers omit them safely).

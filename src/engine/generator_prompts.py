@@ -321,6 +321,51 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             )
         sections.append("\n\n**Lane History:**\n" + "\n".join(history_lines))
 
+    actual_sent_scope_history = getattr(request.context, "actual_sent_scope_history", None) or []
+    if actual_sent_scope_history:
+        sent_scope_lines = []
+        for history in actual_sent_scope_history[-6:]:
+            sent_at = getattr(history, "sent_at", None)
+            sent_at_str = sent_at.strftime("%Y-%m-%d") if sent_at else "unknown date"
+            sent_refs = getattr(history, "invoice_refs_sent", None) or []
+            generated_refs = getattr(history, "invoice_refs_generated", None) or []
+            added_refs = getattr(history, "invoice_refs_added", None) or []
+            removed_refs = getattr(history, "invoice_refs_removed", None) or []
+            severity = getattr(history, "edit_severity", None) or "none"
+            line = (
+                f"- {sent_at_str}: actually sent invoices "
+                f"{', '.join(sent_refs) if sent_refs else 'none recorded'}"
+                f" (AI-generated scope: {', '.join(generated_refs) if generated_refs else 'none recorded'}; "
+                f"edit severity: {severity})"
+            )
+            if added_refs:
+                line += f"; operator added: {', '.join(added_refs)}"
+            if removed_refs:
+                line += f"; operator removed before send: {', '.join(removed_refs)}"
+            if getattr(history, "payment_expectation_added", False):
+                expectation_bits = [
+                    getattr(history, "payment_expectation_kind", None) or "payment expectation"
+                ]
+                if getattr(history, "payment_expectation_date", None):
+                    expectation_bits.append(f"date {getattr(history, 'payment_expectation_date')}")
+                if getattr(history, "payment_expectation_amount", None) is not None:
+                    expectation_bits.append(
+                        f"amount {getattr(history, 'payment_expectation_amount')}"
+                    )
+                line += "; operator added payment expectation: " + ", ".join(expectation_bits)
+            sent_scope_lines.append(line)
+        sections.append(
+            "\n\n**Actual Sent Scope History:**\n"
+            + "\n".join(sent_scope_lines)
+            + "\n\nUse this section only as evidence of what the debtor actually received after operator edits. "
+            "The current invoice table remains the authoritative scope for this draft. Do not chase, demand, "
+            "or re-add any invoice merely because it appears here if it is absent from the current invoice table. "
+            "For wording such as 'we previously reminded you', rely on the actually sent invoices above, not on "
+            "the AI-generated scope when an operator removed invoices before sending. Treat payment expectation "
+            "flags here as prior-email evidence only; do not state a current promise/remittance unless the current "
+            "promise or remittance context also supports it."
+        )
+
     if request.context.sendable_obligation_ids or request.context.blocked_obligation_ids:
         sections.append(
             "\n\n**Lane Sendable Scope:**\n"
