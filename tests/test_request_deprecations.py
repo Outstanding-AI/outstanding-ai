@@ -182,6 +182,33 @@ def test_build_extra_sections_renders_verified_procurement_facts(sample_generate
     assert "procurement_context_status" not in extra_sections
 
 
+def test_build_extra_sections_renders_stale_draft_lane_history(sample_generate_draft_request):
+    sample_generate_draft_request.context.lane_history = [
+        {
+            "event_type": "stale_draft_replacement_requested",
+            "from_level": 0,
+            "to_level": 1,
+            "created_at": "2026-05-25T08:00:00Z",
+            "detail": {
+                "replacement_reason": "protocol_drift",
+                "stale_changes": [
+                    "protocol slot changed from L0:T3:D15 to L1:T1:D22",
+                    "sender changed from accounts@eswl-americas.com to charleen.shanks@eswl-ltd.com",
+                ],
+            },
+        }
+    ]
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+    )
+
+    assert "stale_draft_replacement_requested" in extra_sections
+    assert "replacement_reason=protocol_drift" in extra_sections
+    assert "protocol slot changed from L0:T3:D15 to L1:T1:D22" in extra_sections
+
+
 def test_format_obligation_flags_omits_procurement_status_for_unverified():
     """``_format_obligation_flags`` is the per-obligation tag string emitter for the
     text block of the prompt. Same priming concern: drop unverified procurement."""

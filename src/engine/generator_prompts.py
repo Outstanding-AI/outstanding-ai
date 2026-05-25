@@ -279,6 +279,13 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 detail_bits.append(f"tone={detail['tone_used']}")
             if detail.get("reason"):
                 detail_bits.append(f"reason={detail['reason']}")
+            if detail.get("replacement_reason"):
+                detail_bits.append(f"replacement_reason={detail['replacement_reason']}")
+            stale_changes = detail.get("stale_changes") or []
+            if stale_changes:
+                detail_bits.append(
+                    "stale_changes=" + "; ".join(str(change) for change in stale_changes[:5])
+                )
             suffix = f" ({', '.join(detail_bits)})" if detail_bits else ""
             history_lines.append(
                 f"- {event.get('created_at', 'unknown')}: {event.get('event_type', 'event')} "
