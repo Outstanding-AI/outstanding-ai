@@ -9,7 +9,7 @@ on:
       - '.vscode/**'
   workflow_call:
     secrets:
-      CONTRACTS_APP_ID:
+      CONTRACTS_CLIENT_ID:
         required: true
       CONTRACTS_APP_PRIVATE_KEY:
         required: true
@@ -25,7 +25,7 @@ jobs:
   lint-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
@@ -38,7 +38,7 @@ jobs:
         id: contracts-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.CONTRACTS_APP_ID }}
+          client-id: ${{ secrets.CONTRACTS_CLIENT_ID }}
           private-key: ${{ secrets.CONTRACTS_APP_PRIVATE_KEY }}
           owner: Outstanding-AI
           repositories: outstanding-backend
