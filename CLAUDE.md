@@ -8,6 +8,8 @@ Stateless AI microservice powering intelligent debt collection workflows.
 - **Stack**: FastAPI + Vertex AI (`google-genai`) primary / OpenAI fallback / Anthropic optional
 - **Port**: 8001
 
+> **Python runtime for operations**: when running AI Engine scripts, generated query tooling, or ad hoc helpers that import application code, use the AI runtime version, Python 3.12. Do not use macOS/system Python for app imports; AWS-CLI-only shell commands are the exception.
+
 ## Directory Structure
 
 ```
