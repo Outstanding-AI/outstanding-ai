@@ -231,6 +231,8 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert "sent_draft_analysis_events_current" in all_sql
     assert "source_query_raw" in all_sql
     assert "is_source_disputed" in all_sql
+    assert "NULLIF(o.currency_code, '')" in all_sql
+    assert all_sql.index("NULLIF(o.currency_code, '')") < all_sql.index("NULLIF(o.currency, '')")
 
 
 def test_hydrate_candidate_truncates_lane_history_to_latest_25() -> None:

@@ -427,12 +427,17 @@ class CaseContextHydrator:
                 COALESCE(p.customer_code, p.sage_customer_reference, p.source_id, p.id) AS customer_code,
                 COALESCE(p.customer_name, p.name, p.customer_code, p.id) AS name,
                 CAST(NULL AS VARCHAR) AS country_code,
-                COALESCE(p.customer_currency_code, p.currency_code, p.currency, 'GBP') AS currency,
                 COALESCE(
-                    p.base_currency,
-                    p.customer_currency_code,
-                    p.currency_code,
-                    p.currency,
+                    NULLIF(p.customer_currency_code, ''),
+                    NULLIF(p.currency_code, ''),
+                    NULLIF(p.currency, ''),
+                    'GBP'
+                ) AS currency,
+                COALESCE(
+                    NULLIF(p.base_currency, ''),
+                    NULLIF(p.customer_currency_code, ''),
+                    NULLIF(p.currency_code, ''),
+                    NULLIF(p.currency, ''),
                     'GBP'
                 ) AS base_currency,
                 p.credit_limit,
@@ -573,8 +578,20 @@ class CaseContextHydrator:
                 o.document_allocated_value * COALESCE(o.exchange_rate, 1.0) AS allocated_amount_base,
                 o.amount_due,
                 o.amount_due * COALESCE(o.exchange_rate, 1.0) AS amount_due_base,
-                COALESCE(o.currency_code, o.currency, o.document_currency_code, 'GBP') AS currency,
-                COALESCE(o.base_currency, o.currency_code, o.currency, o.document_currency_code, 'GBP') AS base_currency,
+                COALESCE(
+                    NULLIF(o.currency_code, ''),
+                    NULLIF(o.currency, ''),
+                    NULLIF(o.document_currency_code, ''),
+                    NULLIF(o.base_currency, ''),
+                    'GBP'
+                ) AS currency,
+                COALESCE(
+                    NULLIF(o.base_currency, ''),
+                    NULLIF(o.currency_code, ''),
+                    NULLIF(o.currency, ''),
+                    NULLIF(o.document_currency_code, ''),
+                    'GBP'
+                ) AS base_currency,
                 o.exchange_rate AS document_to_base_rate,
                 o.due_date,
                 CASE
@@ -588,7 +605,12 @@ class CaseContextHydrator:
                 END AS state,
                 o.silver_version_id,
                 o.document_no,
-                COALESCE(o.document_currency_code, o.currency_code, o.currency, 'GBP') AS document_currency_code,
+                COALESCE(
+                    NULLIF(o.document_currency_code, ''),
+                    NULLIF(o.currency_code, ''),
+                    NULLIF(o.currency, ''),
+                    'GBP'
+                ) AS document_currency_code,
                 COALESCE(li.is_outstanding, o.amount_due > 0) AS is_outstanding,
                 COALESCE(
                     li.is_overdue,
