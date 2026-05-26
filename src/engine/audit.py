@@ -39,6 +39,25 @@ def hash_payload(payload: Any) -> str:
     return hash_text(canonical)
 
 
+def _json_list_or_none(values: set[str]) -> str | None:
+    cleaned = sorted(value for value in values if value)
+    return json.dumps(cleaned, sort_keys=True) if cleaned else None
+
+
+def _actual_sent_scope_audit_inputs(context: Any) -> tuple[str | None, str | None]:
+    """Return lineage for sent-draft analysis rows included in context."""
+    event_ids: set[str] = set()
+    hashes: set[str] = set()
+    for row in getattr(context, "actual_sent_scope_history", None) or []:
+        event_id = getattr(row, "sent_draft_analysis_event_id", None)
+        content_hash = getattr(row, "application_content_hash", None)
+        if event_id:
+            event_ids.add(str(event_id))
+        if content_hash:
+            hashes.add(str(content_hash))
+    return _json_list_or_none(event_ids), _json_list_or_none(hashes)
+
+
 def build_ai_audit(
     *,
     response: Any,
@@ -98,10 +117,15 @@ def build_ai_audit(
 
     provider = getattr(response, "provider", None)
     input_versions_json = None
+    sent_analysis_event_ids_json = None
+    sent_analysis_hashes_json = None
     if context is not None:
         input_versions_json = getattr(context, "input_silver_version_ids_json", None)
         if not input_versions_json and getattr(context, "input_silver_version_ids", None):
             input_versions_json = json.dumps(context.input_silver_version_ids, sort_keys=True)
+        sent_analysis_event_ids_json, sent_analysis_hashes_json = _actual_sent_scope_audit_inputs(
+            context
+        )
 
     return AIAuditMetadata(
         ai_provider=provider,
@@ -114,6 +138,8 @@ def build_ai_audit(
         prompt_input_hash=hash_payload(prompt_input),
         guardrail_pipeline_version=guardrail_pipeline_version,
         input_silver_version_ids_json=input_versions_json,
+        input_sent_draft_analysis_event_ids_json=sent_analysis_event_ids_json,
+        input_sent_draft_analysis_hashes_json=sent_analysis_hashes_json,
         policy_snapshot_id=getattr(context, "policy_snapshot_id", None),
         draft_candidate_id=getattr(context, "draft_candidate_id", None),
         draft_generation_run_id=getattr(context, "draft_generation_run_id", None),

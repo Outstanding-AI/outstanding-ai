@@ -193,6 +193,8 @@ class RemittanceHistory(BaseModel):
 class ActualSentScopeHistory(BaseModel):
     """What the debtor actually received after operator edits."""
 
+    sent_draft_analysis_event_id: Optional[str] = None
+    application_content_hash: Optional[str] = None
     draft_id: Optional[str] = None
     touch_id: Optional[str] = None
     provider_message_id: Optional[str] = None

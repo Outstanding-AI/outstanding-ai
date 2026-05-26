@@ -263,6 +263,7 @@ class CaseContextHydrator:
             for value in (
                 [party.get("silver_version_id"), lane.get("application_version_id")]
                 + [getattr(obligation, "silver_version_id", None) for obligation in obligations]
+                + self._actual_sent_scope_version_ids(actual_sent_scope_history)
             )
             if value
         ]
@@ -734,6 +735,8 @@ class CaseContextHydrator:
         sql = f"""
             SELECT
                 d.party_id,
+                a.sent_draft_analysis_event_id,
+                a.application_content_hash,
                 a.draft_id,
                 a.touch_id,
                 a.provider_message_id,
@@ -767,6 +770,10 @@ class CaseContextHydrator:
             return []
 
         return {
+            "sent_draft_analysis_event_id": str(row.get("sent_draft_analysis_event_id"))
+            if row.get("sent_draft_analysis_event_id")
+            else None,
+            "application_content_hash": row.get("application_content_hash"),
             "draft_id": str(row.get("draft_id")) if row.get("draft_id") else None,
             "touch_id": str(row.get("touch_id")) if row.get("touch_id") else None,
             "provider_message_id": row.get("provider_message_id"),
@@ -784,6 +791,18 @@ class CaseContextHydrator:
             "payment_expectation_amount": row.get("payment_expectation_amount"),
             "review_reason_codes": _json_list(row.get("review_reason_codes_json")),
         }
+
+    @staticmethod
+    def _actual_sent_scope_version_ids(rows: list[dict[str, Any]]) -> list[str]:
+        version_ids: list[str] = []
+        for row in rows:
+            event_id = row.get("sent_draft_analysis_event_id")
+            content_hash = row.get("application_content_hash")
+            if event_id:
+                version_ids.append(f"sent_draft_analysis_event:{event_id}")
+            if content_hash:
+                version_ids.append(f"sent_draft_analysis_hash:{content_hash}")
+        return version_ids
 
     def _load_party_contacts(self, party_id: str) -> list[dict[str, Any]]:
         rows = self._fetch_party_contacts([party_id])

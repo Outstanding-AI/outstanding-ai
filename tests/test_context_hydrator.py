@@ -87,6 +87,8 @@ class _FakeReader:
         self.actual_sent_scope = [
             {
                 "party_id": "party-1",
+                "sent_draft_analysis_event_id": "analysis-event-1",
+                "application_content_hash": "analysis-hash-1",
                 "draft_id": "draft-1",
                 "touch_id": "touch-1",
                 "provider_message_id": "msg-1",
@@ -187,6 +189,10 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert context.actual_sent_scope_history[0].invoice_refs_sent == ["INV-1"]
     assert context.actual_sent_scope_history[0].invoice_refs_removed == ["INV-OLD"]
     assert context.actual_sent_scope_history[0].payment_expectation_added is True
+    assert context.actual_sent_scope_history[0].sent_draft_analysis_event_id == "analysis-event-1"
+    assert context.actual_sent_scope_history[0].application_content_hash == "analysis-hash-1"
+    assert "sent_draft_analysis_event:analysis-event-1" in context.input_silver_version_ids
+    assert "sent_draft_analysis_hash:analysis-hash-1" in context.input_silver_version_ids
     assert context.sendable_obligation_ids == ["obl-1"]
 
     # P3-2: per-id loaders now route through the bulk SELECTs with a

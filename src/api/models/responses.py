@@ -130,6 +130,8 @@ class AIAuditMetadata(BaseModel):
     guardrail_pipeline_version: Optional[str] = None
     guardrail_result_ids: Optional[List[str]] = None
     input_silver_version_ids_json: Optional[str] = None
+    input_sent_draft_analysis_event_ids_json: Optional[str] = None
+    input_sent_draft_analysis_hashes_json: Optional[str] = None
     policy_snapshot_id: Optional[str] = None
     draft_candidate_id: Optional[str] = None
     draft_generation_run_id: Optional[str] = None

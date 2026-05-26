@@ -654,6 +654,35 @@ class TestBuildAiAuditReSanitizes:
         assert built.model_invocation_config_hash == expected
         assert built.model_invocation_config_hash != "stale-provider-hash"
 
+    def test_actual_sent_scope_lineage_is_audited_without_prompt_text(self) -> None:
+        context = SimpleNamespace(
+            actual_sent_scope_history=[
+                SimpleNamespace(
+                    sent_draft_analysis_event_id="event-2",
+                    application_content_hash="hash-2",
+                ),
+                SimpleNamespace(
+                    sent_draft_analysis_event_id="event-1",
+                    application_content_hash="hash-1",
+                ),
+            ],
+            input_silver_version_ids=[
+                "party-version",
+                "sent_draft_analysis_event:event-1",
+                "sent_draft_analysis_hash:hash-1",
+            ],
+            policy_snapshot_id="policy-1",
+        )
+
+        built = build_ai_audit(
+            response=SimpleNamespace(provider="vertex", model="gemini"),
+            **{**self._audit_kwargs(), "context": context},
+        )
+
+        assert built.input_sent_draft_analysis_event_ids_json == '["event-1", "event-2"]'
+        assert built.input_sent_draft_analysis_hashes_json == '["hash-1", "hash-2"]'
+        assert "INV-" not in (built.input_sent_draft_analysis_event_ids_json or "")
+
 
 # ---------------------------------------------------------------------------
 # inference_profile validation
