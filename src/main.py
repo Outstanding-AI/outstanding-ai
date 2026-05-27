@@ -28,7 +28,7 @@ from slowapi.util import get_remote_address
 
 from src.api.errors import ErrorCode, ErrorResponse, OutstandingAIBaseError
 from src.api.middleware import RequestIDMiddleware, ServiceAuthMiddleware, get_request_id
-from src.api.routes import classify, generate, health, persona
+from src.api.routes import classify, generate, health, persona, sent_scope
 from src.config.settings import settings
 
 # Configure logging
@@ -243,6 +243,7 @@ if IDLE_SHUTDOWN_SECONDS > 0:
 app.include_router(health.router, tags=["Health"])
 app.include_router(classify.router, tags=["Classification"])
 app.include_router(generate.router, tags=["Generation"])
+app.include_router(sent_scope.router, tags=["Sent Scope"])
 # /evaluate-gates router removed 2026-04-26 — gate evaluation moved to backend
 # `services/gate_checker.py` (CLAUDE.md note #40). Backend was never calling
 # this AI endpoint after the move; the route + GateEvaluator + tests were

@@ -16,9 +16,10 @@ InferenceProfile = Literal[
     "classification",
     "persona_gen",
     "persona_refine",
+    "sent_scope_analysis",
 ]
 _VALID_INFERENCE_PROFILES: frozenset[str] = frozenset(
-    {"draft_generation", "classification", "persona_gen", "persona_refine"}
+    {"draft_generation", "classification", "persona_gen", "persona_refine", "sent_scope_analysis"}
 )
 
 

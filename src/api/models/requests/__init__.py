@@ -25,6 +25,12 @@ from .persona import (
     SenderPerformanceStats,
     SenderPersona,
 )
+from .sent_scope import (
+    AnalyzeSentDraftScopeRequest,
+    GeneratedDraftInput,
+    SentDraftEmailInput,
+    SentDraftInvoiceCandidate,
+)
 from .validation import (
     PROMPT_INJECTION_PATTERNS,
     ClassifyRequest,
@@ -54,6 +60,11 @@ __all__ = [
     "SenderPerformanceStats",
     "RefinePersonaRequest",
     "SenderContext",
+    # Sent draft scope analysis
+    "AnalyzeSentDraftScopeRequest",
+    "GeneratedDraftInput",
+    "SentDraftEmailInput",
+    "SentDraftInvoiceCandidate",
     # Validation / Requests
     "ClassifyRequest",
     "GenerateDraftRequest",

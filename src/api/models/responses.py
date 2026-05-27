@@ -155,7 +155,7 @@ class AIAuditMetadata(BaseModel):
     sdk_library: Optional[str] = None  # google-genai | langchain-openai | anthropic
     sdk_version: Optional[str] = None  # importlib.metadata version of the wrapper-of-record
     inference_profile: Optional[str] = (
-        None  # draft_generation | classification | persona_gen | persona_refine
+        None  # draft_generation | classification | persona_gen | persona_refine | sent_scope_analysis
     )
 
 
@@ -276,6 +276,47 @@ class GenerateDraftFromManifestResponse(BaseModel):
     failed_count: int
     status: Literal["completed", "partial_failed", "failed"]
     results: List[GenerateDraftFromManifestCandidateResult]
+
+
+class SentDraftInvoiceScopeDecision(BaseModel):
+    """One invoice decision from final sent-email scope analysis."""
+
+    invoice_number: str
+    obligation_id: Optional[str] = None
+    status: Literal[
+        "retained_generated_invoice",
+        "operator_added_invoice",
+        "removed_generated_invoice",
+        "not_present",
+        "ambiguous",
+    ]
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    evidence: Optional[str] = None
+
+
+class AnalyzeSentDraftScopeResponse(BaseModel):
+    """Structured extraction of the invoice scope that was actually sent."""
+
+    invoice_refs_sent: List[str] = []
+    invoice_refs_retained: List[str] = []
+    invoice_refs_operator_added: List[str] = []
+    invoice_refs_removed: List[str] = []
+    invoice_refs_ambiguous: List[str] = []
+    invoice_scope_changed: bool = False
+    scope_extraction_confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    scope_extraction_status: Literal["succeeded", "review_required", "failed"] = "succeeded"
+    review_recommended: bool = False
+    review_reason_codes: List[str] = []
+    decisions: List[SentDraftInvoiceScopeDecision] = []
+    reasoning: Optional[str] = None
+    tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    scope_extraction_llm_request_id: Optional[str] = None
+    is_fallback: bool = False
+    ai_audit: Optional[AIAuditMetadata] = None
 
 
 class GateResult(BaseModel):
