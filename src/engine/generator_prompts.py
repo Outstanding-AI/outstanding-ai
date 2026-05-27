@@ -185,6 +185,45 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             + "\nDo not ask for payment on these obligations unless the upstream context explicitly marks them cleared and sendable."
         )
 
+    credit_positions = getattr(request.context, "party_credit_position_by_currency", None) or []
+    invoice_credit_adjustments = getattr(request.context, "invoice_credit_adjustments", None) or []
+    credit_review_flags = getattr(request.context, "credit_review_flags", None) or []
+    if credit_positions or invoice_credit_adjustments:
+        credit_lines = []
+        for position in credit_positions:
+            currency = getattr(position, "currency_code", None) or getattr(request.context.party, "currency", "")
+            unapplied = float(getattr(position, "unapplied_credit_amount_native", 0.0) or 0.0)
+            overdue = float(getattr(position, "recovery_eligible_overdue_amount_native", 0.0) or 0.0)
+            net = float(getattr(position, "net_recovery_eligible_overdue_native", 0.0) or 0.0)
+            if unapplied > 0 or overdue > 0:
+                credit_lines.append(
+                    f"- {currency}: overdue eligible for recovery {overdue:,.2f}; "
+                    f"unapplied credit notes {unapplied:,.2f}; net requiring payment/allocation {net:,.2f}"
+                )
+        for adjustment in invoice_credit_adjustments:
+            invoice = getattr(adjustment, "invoice_number", None) or getattr(adjustment, "obligation_id", "")
+            currency = getattr(adjustment, "currency_code", None) or getattr(request.context.party, "currency", "")
+            allocated = float(getattr(adjustment, "allocated_credit_amount_native", 0.0) or 0.0)
+            net = getattr(adjustment, "invoice_amount_due_after_credit_native", None)
+            credit_lines.append(
+                f"- Invoice {invoice}: Sage allocated credit {currency} {allocated:,.2f}"
+                + (f"; net invoice balance {float(net):,.2f}" if net is not None else "")
+            )
+        if credit_lines:
+            sections.append(
+                "\n\n**Credit Note Context:**\n"
+                + "\n".join(credit_lines)
+                + "\nRules: allocated credit notes reduce only the Sage-linked invoice. "
+                "Unapplied credit notes are account-level context: mention the unapplied credit and net amount, "
+                "but do not claim it has been allocated to a specific invoice. Do not net across currencies."
+            )
+        if credit_review_flags:
+            sections.append(
+                "\nCredit review flags: "
+                + ", ".join(str(flag) for flag in credit_review_flags)
+                + ". If credit fully covers recovery-eligible overdue, do not write a normal payment chase."
+            )
+
     # Behaviour segment
     if behavior and behavior.behaviour_segment:
         sections.append(f"\n\n**Behaviour Segment:** {behavior.behaviour_segment}")

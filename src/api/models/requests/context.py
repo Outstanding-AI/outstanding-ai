@@ -124,6 +124,48 @@ class ObligationInfo(ObligationInfoV3):
     ] = None
     purchase_order_reference: Optional[str] = None
     pod_reference: Optional[str] = None
+    allocated_credit_amount_native: Optional[float] = None
+    allocated_credit_amount_base: Optional[float] = None
+    credit_note_count: Optional[int] = None
+    net_amount_due_after_credit_native: Optional[float] = None
+    net_amount_due_after_credit_base: Optional[float] = None
+    credit_adjustment_status: Optional[str] = None
+
+
+class CreditPositionInfo(BaseModel):
+    """Debtor/currency credit-note position supplied by the backend."""
+
+    currency_code: str
+    base_currency: Optional[str] = None
+    unapplied_credit_amount_native: float = 0.0
+    unapplied_credit_amount_base: Optional[float] = None
+    financial_overdue_amount_native: float = 0.0
+    financial_overdue_amount_base: Optional[float] = None
+    recovery_eligible_overdue_amount_native: float = 0.0
+    recovery_eligible_overdue_amount_base: Optional[float] = None
+    net_recovery_eligible_overdue_native: float = 0.0
+    net_recovery_eligible_overdue_base: Optional[float] = None
+    credit_fully_covers_recovery_overdue: bool = False
+    credit_partially_covers_recovery_overdue: bool = False
+    requires_credit_review: bool = False
+    credit_note_refs: List[dict[str, Any]] = []
+
+
+class InvoiceCreditAdjustmentInfo(BaseModel):
+    """Invoice-level allocated credit-note adjustment."""
+
+    obligation_id: str
+    invoice_number: Optional[str] = None
+    currency_code: Optional[str] = None
+    base_currency: Optional[str] = None
+    invoice_amount_due_before_credit_native: Optional[float] = None
+    invoice_amount_due_before_credit_base: Optional[float] = None
+    allocated_credit_amount_native: float = 0.0
+    allocated_credit_amount_base: Optional[float] = None
+    invoice_amount_due_after_credit_native: Optional[float] = None
+    invoice_amount_due_after_credit_base: Optional[float] = None
+    credit_note_count: int = 0
+    credit_note_refs: List[dict[str, Any]] = []
 
 
 class CommunicationInfo(CommunicationInfoV2):
@@ -304,6 +346,10 @@ class CaseContext(CaseContextV2):
     promises: List[PromiseHistory] = []
     remittances: List[RemittanceHistory] = []
     actual_sent_scope_history: List[ActualSentScopeHistory] = []
+    party_credit_position_by_currency: List[CreditPositionInfo] = []
+    invoice_credit_adjustments: List[InvoiceCreditAdjustmentInfo] = []
+    credit_review_flags: List[str] = []
+    net_recovery_eligible_by_currency: dict[str, float] = Field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # V3-only top-level fields (Optional so V2 callers omit them safely).

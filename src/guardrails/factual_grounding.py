@@ -211,6 +211,15 @@ class FactualGroundingGuardrail(BaseGuardrail):
                 valid_amounts.add(round(float(o.original_amount), 2))
             if getattr(o, "original_amount_base", None) is not None:
                 valid_amounts.add(round(float(o.original_amount_base), 2))
+            for credit_field in (
+                "allocated_credit_amount_native",
+                "allocated_credit_amount_base",
+                "net_amount_due_after_credit_native",
+                "net_amount_due_after_credit_base",
+            ):
+                value = getattr(o, credit_field, None)
+                if value is not None:
+                    valid_amounts.add(round(float(value), 2))
 
         safe_dues = [float(o.amount_due) for o in context.obligations if o.amount_due is not None]
         total_outstanding = round(sum(safe_dues), 2)
@@ -222,6 +231,32 @@ class FactualGroundingGuardrail(BaseGuardrail):
         ]
         if safe_originals:
             valid_amounts.add(round(sum(safe_originals), 2))
+
+        for position in getattr(context, "party_credit_position_by_currency", None) or []:
+            for credit_field in (
+                "unapplied_credit_amount_native",
+                "unapplied_credit_amount_base",
+                "recovery_eligible_overdue_amount_native",
+                "recovery_eligible_overdue_amount_base",
+                "net_recovery_eligible_overdue_native",
+                "net_recovery_eligible_overdue_base",
+            ):
+                value = getattr(position, credit_field, None)
+                if value is not None:
+                    valid_amounts.add(round(float(value), 2))
+
+        for adjustment in getattr(context, "invoice_credit_adjustments", None) or []:
+            for credit_field in (
+                "invoice_amount_due_before_credit_native",
+                "invoice_amount_due_before_credit_base",
+                "allocated_credit_amount_native",
+                "allocated_credit_amount_base",
+                "invoice_amount_due_after_credit_native",
+                "invoice_amount_due_after_credit_base",
+            ):
+                value = getattr(adjustment, credit_field, None)
+                if value is not None:
+                    valid_amounts.add(round(float(value), 2))
 
         # Add per-party sub-totals (LLM often sums a subset of invoices)
         # and common rounding variants

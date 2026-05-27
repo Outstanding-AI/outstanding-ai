@@ -234,6 +234,13 @@ class DraftGenerator:
         candidate_obligations = self._select_candidate_obligations(request)
         if (
             request.context.schema_version == 4
+            and not request.skip_invoice_table
+            and not request.closure_mode
+            and "unapplied_credit_fully_covers_overdue" in (request.context.credit_review_flags or [])
+        ):
+            raise ValueError("Credit review required: unapplied credit fully covers recovery-eligible overdue")
+        if (
+            request.context.schema_version == 4
             and not candidate_obligations
             and not request.skip_invoice_table
             and not request.closure_mode
@@ -284,8 +291,9 @@ class DraftGenerator:
                     [
                         f"- {o.invoice_number or '(no invoice number)'}: "
                         f"{o.currency or request.context.party.currency or request.context.base_currency} "
-                        f"{o.amount_due:,.2f} "
+                        f"{(o.net_amount_due_after_credit_native if o.net_amount_due_after_credit_native is not None else o.amount_due):,.2f} "
                         f"({self._days_overdue(o)} days overdue)"
+                        f"{self._format_credit_adjustment_suffix(o)}"
                         f"{self._format_verified_procurement_suffix(o)}"
                         for o in sorted_obligations
                     ]
@@ -615,6 +623,20 @@ class DraftGenerator:
         if days is None:
             days = getattr(obligation, "days_past_due", 0)
         return int(days or 0)
+
+    @staticmethod
+    def _format_credit_adjustment_suffix(obligation) -> str:
+        amount = getattr(obligation, "allocated_credit_amount_native", None)
+        if amount is None or float(amount or 0) <= 0:
+            return ""
+        count = getattr(obligation, "credit_note_count", None) or 1
+        net = getattr(obligation, "net_amount_due_after_credit_native", None)
+        suffix = f" — credit applied: {float(amount):,.2f}"
+        if net is not None:
+            suffix += f"; net invoice balance {float(net):,.2f}"
+        if count:
+            suffix += f" ({int(count)} credit note{'s' if int(count) != 1 else ''})"
+        return suffix
 
     @staticmethod
     def _format_verified_procurement_suffix(obligation) -> str:
