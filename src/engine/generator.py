@@ -236,9 +236,12 @@ class DraftGenerator:
             request.context.schema_version == 4
             and not request.skip_invoice_table
             and not request.closure_mode
-            and "unapplied_credit_fully_covers_overdue" in (request.context.credit_review_flags or [])
+            and "unapplied_credit_fully_covers_overdue"
+            in (request.context.credit_review_flags or [])
         ):
-            raise ValueError("Credit review required: unapplied credit fully covers recovery-eligible overdue")
+            raise ValueError(
+                "Credit review required: unapplied credit fully covers recovery-eligible overdue"
+            )
         if (
             request.context.schema_version == 4
             and not candidate_obligations

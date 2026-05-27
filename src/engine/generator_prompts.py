@@ -191,9 +191,13 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
     if credit_positions or invoice_credit_adjustments:
         credit_lines = []
         for position in credit_positions:
-            currency = getattr(position, "currency_code", None) or getattr(request.context.party, "currency", "")
+            currency = getattr(position, "currency_code", None) or getattr(
+                request.context.party, "currency", ""
+            )
             unapplied = float(getattr(position, "unapplied_credit_amount_native", 0.0) or 0.0)
-            overdue = float(getattr(position, "recovery_eligible_overdue_amount_native", 0.0) or 0.0)
+            overdue = float(
+                getattr(position, "recovery_eligible_overdue_amount_native", 0.0) or 0.0
+            )
             net = float(getattr(position, "net_recovery_eligible_overdue_native", 0.0) or 0.0)
             if unapplied > 0 or overdue > 0:
                 credit_lines.append(
@@ -201,8 +205,12 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                     f"unapplied credit notes {unapplied:,.2f}; net requiring payment/allocation {net:,.2f}"
                 )
         for adjustment in invoice_credit_adjustments:
-            invoice = getattr(adjustment, "invoice_number", None) or getattr(adjustment, "obligation_id", "")
-            currency = getattr(adjustment, "currency_code", None) or getattr(request.context.party, "currency", "")
+            invoice = getattr(adjustment, "invoice_number", None) or getattr(
+                adjustment, "obligation_id", ""
+            )
+            currency = getattr(adjustment, "currency_code", None) or getattr(
+                request.context.party, "currency", ""
+            )
             allocated = float(getattr(adjustment, "allocated_credit_amount_native", 0.0) or 0.0)
             net = getattr(adjustment, "invoice_amount_due_after_credit_native", None)
             credit_lines.append(
