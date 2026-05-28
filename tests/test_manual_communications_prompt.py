@@ -91,6 +91,27 @@ def _phone_touch(notes: str, *, sent_at: datetime | None = None) -> TouchHistory
     )
 
 
+def _invoice_linked_touch(notes: str) -> TouchHistory:
+    return TouchHistory(
+        sent_at=datetime(2026, 5, 15, 10, 30, tzinfo=timezone.utc),
+        touch_type="manual_log",
+        channel="phone",
+        direction="outbound",
+        manual_notes=notes,
+        manual_purpose="query",
+        manual_obligations=[
+            {
+                "obligation_id": "obl-1",
+                "invoice_number": "INV-123",
+                "amount_due": 500.0,
+                "currency": "USD",
+                "is_source_queried": True,
+            }
+        ],
+        logged_by_user_name="Sarah Operator",
+    )
+
+
 def _email_touch() -> TouchHistory:
     return TouchHistory(
         sent_at=datetime(2026, 5, 14, 9, 0, tzinfo=timezone.utc),
@@ -134,6 +155,17 @@ class TestManualTouchpointsPromptSection:
         sections = build_extra_sections(request, None)
         joined = "".join(sections)
         assert "**Recent Manual Touchpoints:**" not in joined
+
+    def test_invoice_linked_manual_touch_renders_invoice_scope(self):
+        request = _make_request(
+            recent_touches=[_invoice_linked_touch("Customer disputed price on INV-123.")]
+        )
+        sections = build_extra_sections(request, None)
+        joined = "".join(sections)
+        assert "query" in joined
+        assert "invoices: INV-123" in joined
+        assert "Customer disputed price" in joined
+        assert "Do NOT chase queried invoices as normal collection items" in joined
 
     def test_section_renders_oldest_first(self):
         """Chronological order so the most recent touch is the last thing

@@ -563,8 +563,29 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             sent_at = getattr(touch, "sent_at", None)
             sent_at_str = sent_at.strftime("%Y-%m-%d") if sent_at else "unknown date"
             operator = getattr(touch, "logged_by_user_name", None) or "an operator"
+            purpose = (getattr(touch, "manual_purpose", None) or "general").replace("_", " ")
             notes = (getattr(touch, "manual_notes", None) or "").strip()
-            line = f"- {sent_at_str} ({channel.capitalize()}, {direction}, logged by {operator})"
+            linked_obligations = getattr(touch, "manual_obligations", None) or []
+            invoice_refs = []
+            for obligation in linked_obligations:
+                invoice = None
+                if isinstance(obligation, dict):
+                    invoice = obligation.get("invoice_number") or obligation.get("obligation_id")
+                else:
+                    invoice = getattr(obligation, "invoice_number", None) or getattr(
+                        obligation, "obligation_id", None
+                    )
+                if invoice:
+                    invoice_refs.append(str(invoice))
+            invoice_suffix = (
+                f"; invoices: {', '.join(invoice_refs[:8])}" if invoice_refs else "; account-level"
+            )
+            if len(invoice_refs) > 8:
+                invoice_suffix += f" +{len(invoice_refs) - 8} more"
+            line = (
+                f"- {sent_at_str} ({channel.capitalize()}, {direction}, {purpose}, "
+                f"logged by {operator}{invoice_suffix})"
+            )
             if notes:
                 # Trim notes to keep the prompt window manageable; full text stays
                 # in Silver. 800 chars is roughly the length of a detailed call
@@ -576,10 +597,12 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             "\n\n**Recent Manual Touchpoints:**\n"
             + "\n".join(manual_lines)
             + "\n\nThese are operator-logged off-channel conversations (phone calls, SMS, "
-            "letters, etc.). If a recent manual touchpoint is relevant — especially payment "
-            "commitments made on a call — acknowledge it explicitly and reference promised "
-            "dates / amounts verbatim from the operator's notes. Do NOT escalate tone if a "
-            "verbal commitment is in flight."
+            "letters, etc.). Account-level notes apply to the debtor generally; invoice-linked "
+            "notes apply only to the listed invoices. If a recent manual touchpoint is relevant "
+            "— especially a query update, payment commitment, or remittance note — acknowledge "
+            "it explicitly and reference promised dates / amounts verbatim from the operator's "
+            "notes. Do NOT chase queried invoices as normal collection items, and do NOT escalate "
+            "tone if a verbal commitment is in flight."
         )
 
     remittance_lines = []

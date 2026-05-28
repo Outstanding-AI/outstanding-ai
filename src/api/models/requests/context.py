@@ -212,6 +212,8 @@ class TouchHistory(BaseModel):
     )
     direction: Optional[str] = None  # 'inbound' | 'outbound'
     manual_notes: Optional[str] = None
+    manual_purpose: Optional[str] = None  # 'general' | 'query' | 'chase'
+    manual_obligations: list[dict[str, Any]] = Field(default_factory=list)
     logged_by_user_name: Optional[str] = None
 
 
