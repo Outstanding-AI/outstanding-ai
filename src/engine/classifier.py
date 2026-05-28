@@ -232,7 +232,10 @@ class EmailClassifier:
             tokens_used=tokens_used,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            forbidden_content_detected=result.forbidden_content_detected or [],
+            forbidden_content_detected=[
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+                for item in (result.forbidden_content_detected or [])
+            ],
             guardrail_validation=guardrail_validation,
             provider=response.provider,
             model=response.model,

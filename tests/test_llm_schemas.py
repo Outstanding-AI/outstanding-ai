@@ -52,3 +52,11 @@ def test_intent_details_reject_shared_invoice_refs_after_normalization():
                 },
             ],
         )
+
+
+def test_forbidden_content_findings_are_strict_for_structured_outputs():
+    schema = ClassificationLLMResponse.model_json_schema()
+    finding_ref = schema["properties"]["forbidden_content_detected"]["items"]["$ref"]
+    finding_name = finding_ref.rsplit("/", 1)[-1]
+
+    assert schema["$defs"][finding_name]["additionalProperties"] is False

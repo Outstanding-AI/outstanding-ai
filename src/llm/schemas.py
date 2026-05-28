@@ -8,7 +8,7 @@ clear error messages when the LLM returns malformed data.
 import re
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.config.constants import CLASSIFICATION_CATEGORIES
 
@@ -112,6 +112,21 @@ class IntentDetailLLM(BaseModel):
     )
 
 
+class ForbiddenContentFinding(BaseModel):
+    """Strict item schema for structured-output forbidden-content findings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    category: Literal[
+        "bank_payment_details",
+        "legal_statute_quotation",
+        "unauthorized_offer_claim",
+        "external_url",
+        "prompt_injection_attempt",
+    ]
+    excerpt: str = Field(default="", max_length=200)
+
+
 class ClassificationLLMResponse(BaseModel):
     """
     Expected response structure from classification LLM calls.
@@ -151,7 +166,7 @@ class ClassificationLLMResponse(BaseModel):
         "secondary_intents in the same order. Optional — consumers fall back to the "
         "flat extracted_data when absent.",
     )
-    forbidden_content_detected: list[dict] = Field(
+    forbidden_content_detected: list[ForbiddenContentFinding] = Field(
         default_factory=list,
         description="Forbidden-content patterns detected in the inbound email body.",
     )
