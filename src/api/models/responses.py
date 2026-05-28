@@ -20,6 +20,10 @@ class ExtractedData(BaseModel):
     dispute_reason: Optional[str] = None
     invoice_refs: Optional[List[str]] = None
     disputed_amount: Optional[float] = None
+    # PAYMENT_TIMING_DISPUTE
+    claimed_due_date: Optional[date] = None
+    claimed_payment_date: Optional[date] = None
+    payment_timing_reason: Optional[str] = None
     # ALREADY_PAID
     claimed_amount: Optional[float] = None
     claimed_date: Optional[date] = None

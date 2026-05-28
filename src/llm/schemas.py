@@ -20,6 +20,7 @@ MATERIAL_SCOPE_INTENTS = frozenset(
         "HARDSHIP",
         "PARTIAL_PAYMENT_NOTIFICATION",
         "PAYMENT_CONFIRMATION",
+        "PAYMENT_TIMING_DISPUTE",
         "PLAN_REQUEST",
         "PROMISE_TO_PAY",
         "REMITTANCE_ADVICE",
@@ -50,6 +51,10 @@ class LLMExtractedData(BaseModel):
     dispute_reason: Optional[str] = None
     invoice_refs: Optional[list[str]] = None
     disputed_amount: Optional[float] = None
+    # PAYMENT_TIMING_DISPUTE
+    claimed_due_date: Optional[str] = None
+    claimed_payment_date: Optional[str] = None
+    payment_timing_reason: Optional[str] = None
     # ALREADY_PAID
     claimed_amount: Optional[float] = None
     claimed_date: Optional[str] = None

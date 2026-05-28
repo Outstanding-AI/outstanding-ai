@@ -141,3 +141,20 @@ class TestPromptDocumentsNewFields:
             "account_wide",
         ):
             assert field in section, f"REMITTANCE_ADVICE extraction missing {field}"
+
+    def test_prompt_documents_payment_timing_dispute(self):
+        prompt = self._read_prompt()
+        assert "PAYMENT_TIMING_DISPUTE" in prompt
+        assert "not due until" in prompt
+        marker = "- **PAYMENT_TIMING_DISPUTE**:"
+        idx = prompt.find(marker)
+        assert idx > 0, "prompt must document PAYMENT_TIMING_DISPUTE extraction"
+        section = prompt[idx : prompt.find("\n", idx)]
+        for field in (
+            "claimed_due_date",
+            "claimed_payment_date",
+            "payment_timing_reason",
+            "invoice_refs",
+            "account_wide",
+        ):
+            assert field in section, f"PAYMENT_TIMING_DISPUTE extraction missing {field}"

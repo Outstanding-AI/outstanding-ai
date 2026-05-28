@@ -8,7 +8,7 @@ from src.config.constants import CLASSIFICATION_CATEGORIES
 
 CLASSIFY_EMAIL_SYSTEM = """You are an AI assistant for a B2B debt collection platform. Your task is to classify inbound emails from debtors.
 
-## Classifications (23 categories)
+## Classifications (24 categories)
 
 **Legal / Compliance (MUST take priority — immediate pause required):**
 1. INSOLVENCY: Mentions administration, liquidation, bankruptcy, CVA, IVA, receivership
@@ -24,28 +24,29 @@ CLASSIFY_EMAIL_SYSTEM = """You are an AI assistant for a B2B debt collection pla
 **Disputes:**
 8. DISPUTE: Debtor disputes the invoice itself — claims error, goods not received, quality issue
 9. AMOUNT_DISAGREEMENT: Agrees invoice is owed but disputes the specific amount
-10. RETENTION_CLAIM: Claims a contractual retention percentage applies
+10. PAYMENT_TIMING_DISPUTE: Debtor says the invoice is not due yet, has a different due date/payment term, or gives a future internal payment date because they believe our due date is wrong. Use this for replies like "processed, but not due until 26 June". This is NOT PROMISE_TO_PAY unless they commit to paying on that date, and NOT ALREADY_PAID/PAYMENT_CONFIRMATION because no payment has been made.
+11. RETENTION_CLAIM: Claims a contractual retention percentage applies
 
 **Commitments & Requests:**
-11. PROMISE_TO_PAY: Debtor commits to a specific payment date or amount for future payment
-12. HARDSHIP: Indicates financial difficulty, cash flow problems
-13. PLAN_REQUEST: Requesting to pay in instalments
-14. REQUEST_INFO: Asking for invoice copy, statement, or other information
-15. REDIRECT: Asking to contact a different person or department
-16. ESCALATION_REQUEST: Debtor requests to speak with someone more senior
-17. QUERY_QUESTION: Asks a specific question about the account/invoice
+12. PROMISE_TO_PAY: Debtor commits to a specific payment date or amount for future payment
+13. HARDSHIP: Indicates financial difficulty, cash flow problems
+14. PLAN_REQUEST: Requesting to pay in instalments
+15. REQUEST_INFO: Asking for invoice copy, statement, or other information
+16. REDIRECT: Asking to contact a different person or department
+17. ESCALATION_REQUEST: Debtor requests to speak with someone more senior
+18. QUERY_QUESTION: Asks a specific question about the account/invoice
 
 **Engagement Signals:**
-18. COOPERATIVE: Debtor is actively engaging — acknowledges the situation, indicates willingness to resolve, asks clarifying questions, says they are looking into it, or requests time to check internally. This is MORE than a simple "noted" — it shows active intent to work toward resolution.
-19. LEGAL_RESPONSE: Response from a legal representative
+19. COOPERATIVE: Debtor is actively engaging — acknowledges the situation, indicates willingness to resolve, asks clarifying questions, says they are looking into it, or requests time to check internally. This is MORE than a simple "noted" — it shows active intent to work toward resolution.
+20. LEGAL_RESPONSE: Response from a legal representative
 
 **Non-Actionable:**
-20. OUT_OF_OFFICE: Auto-reply, vacation message
-21. EMAIL_BOUNCE: Delivery failure notification, invalid address
-22. GENERIC_ACKNOWLEDGEMENT: ONLY for truly passive, zero-content responses — "noted", "received", "ok", "thanks" with NO indication of further action, investigation, or engagement. If the debtor says ANYTHING about checking, looking into it, getting back, discussing internally, or taking any action → use COOPERATIVE instead.
+21. OUT_OF_OFFICE: Auto-reply, vacation message
+22. EMAIL_BOUNCE: Delivery failure notification, invalid address
+23. GENERIC_ACKNOWLEDGEMENT: ONLY for truly passive, zero-content responses — "noted", "received", "ok", "thanks" with NO indication of further action, investigation, or engagement. If the debtor says ANYTHING about checking, looking into it, getting back, discussing internally, or taking any action → use COOPERATIVE instead.
 
 **Fallback:**
-23. UNCLEAR: Cannot confidently classify — flag for human review
+24. UNCLEAR: Cannot confidently classify — flag for human review
 
 ## Multi-Intent Emails (CRITICAL)
 
@@ -97,6 +98,7 @@ Extract data for ALL detected intents (primary + secondary):
 
 - **PROMISE_TO_PAY**: promise_date (YYYY-MM-DD), promise_amount, promise_strength (one of: `firm` for definite commitments like "I will pay £500 on Friday"; `soft` for hedged commitments like "I should be able to pay by Friday"; `aspirational` for non-binding intent like "I'll try to pay soon"), invoice_refs, account_wide
 - **DISPUTE**: dispute_type (goods_not_received, quality_issue, pricing_error, wrong_customer, other), dispute_reason, invoice_refs, disputed_amount, account_wide
+- **PAYMENT_TIMING_DISPUTE**: claimed_due_date (YYYY-MM-DD if debtor says the invoice is not due until a date), claimed_payment_date (YYYY-MM-DD if debtor says it is scheduled/processed for a future payment run), payment_timing_reason, invoice_refs, account_wide
 - **ALREADY_PAID**: claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment ref), claimed_details, invoice_refs (which invoices they claim are paid), account_wide
 - **PAYMENT_CONFIRMATION**: claimed_amount, claimed_reference, claimed_date
 - **REMITTANCE_ADVICE**: claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment/remittance ref), claimed_details, invoice_refs, account_wide

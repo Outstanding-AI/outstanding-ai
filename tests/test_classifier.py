@@ -117,6 +117,40 @@ class TestEmailClassifier:
             assert result.extracted_data.dispute_reason == "goods_not_received"
 
     @pytest.mark.asyncio
+    async def test_classify_payment_timing_dispute(self, classifier, sample_classify_request):
+        """Due-date claims are captured separately from promises/payment claims."""
+        from datetime import date
+
+        sample_classify_request.email.body = (
+            "Invoice 0000007324 has been processed, however it is not due until June 26th."
+        )
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "PAYMENT_TIMING_DISPUTE",
+                "confidence": 0.91,
+                "reasoning": "Debtor says the invoice is not due until a later date.",
+                "extracted_data": {
+                    "claimed_due_date": "2026-06-26",
+                    "payment_timing_reason": "Debtor says the invoice is not due until June 26.",
+                    "invoice_refs": ["0000007324"],
+                },
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            assert result.classification == "PAYMENT_TIMING_DISPUTE"
+            assert result.extracted_data is not None
+            assert result.extracted_data.claimed_due_date == date(2026, 6, 26)
+            assert result.extracted_data.invoice_refs == ["0000007324"]
+
+    @pytest.mark.asyncio
     async def test_classify_unsubscribe_email(self, classifier, sample_classify_request):
         """Test classification of unsubscribe request."""
         sample_classify_request.email.body = (
