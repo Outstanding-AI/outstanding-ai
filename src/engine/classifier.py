@@ -1,7 +1,7 @@
 """
 Email classification engine.
 
-Classify inbound debtor emails into one of 23 categories using a structured
+Classify inbound debtor emails into a controlled set of categories using a structured
 LLM call.  The classifier also extracts structured intent data (promise
 dates, disputed amounts, insolvency details, redirect contacts, etc.) that
 the Django backend uses to drive obligation-level side-effects.
@@ -13,8 +13,9 @@ Categories (grouped by post-classification draft action):
     QUERY_QUESTION, ESCALATION_REQUEST
 
 **Discard only** (no new draft -- case paused or needs review):
-    PROMISE_TO_PAY, DISPUTE, INSOLVENCY, HARDSHIP, UNSUBSCRIBE, HOSTILE,
-    OUT_OF_OFFICE, AMOUNT_DISAGREEMENT, RETENTION_CLAIM, LEGAL_RESPONSE
+    PROMISE_TO_PAY, DISPUTE, DEBTOR_INTERNAL_PROCESSING_BLOCKER, INSOLVENCY,
+    HARDSHIP, UNSUBSCRIBE, HOSTILE, OUT_OF_OFFICE, AMOUNT_DISAGREEMENT,
+    RETENTION_CLAIM, LEGAL_RESPONSE
 
 **No action** (keep existing draft):
     UNCLEAR, GENERIC_ACKNOWLEDGEMENT, PAYMENT_CONFIRMATION,
@@ -299,6 +300,9 @@ def _build_extracted_data(raw) -> ExtractedData | None:
         claimed_due_date=_parse_date(raw.claimed_due_date, "claimed_due_date"),
         claimed_payment_date=_parse_date(raw.claimed_payment_date, "claimed_payment_date"),
         payment_timing_reason=raw.payment_timing_reason,
+        internal_blocker_type=raw.internal_blocker_type,
+        internal_blocker_reason=raw.internal_blocker_reason,
+        internal_blocker_owner_hint=raw.internal_blocker_owner_hint,
         claimed_amount=raw.claimed_amount,
         claimed_date=_parse_date(raw.claimed_date, "claimed_date"),
         claimed_reference=raw.claimed_reference,
@@ -340,6 +344,9 @@ def _format_forwarded_context_for_prompt(context: dict[str, Any] | None) -> str:
             "validated_invoice_refs",
             "unresolved_invoice_refs",
             "same_thread_oai_draft_ids",
+            "forwarded_lineage",
+            "prompt_budget",
+            "evidence_snippets",
             "instruction",
         }
     }

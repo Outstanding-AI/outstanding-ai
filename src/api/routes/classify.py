@@ -1,7 +1,7 @@
 """
 Email classification API endpoint.
 
-POST /classify -- Classify an inbound debtor email into one of 23
+POST /classify -- Classify an inbound debtor email into the controlled
 categories (COOPERATIVE, DISPUTE, PROMISE_TO_PAY, etc.) with confidence
 score, extracted intent data, and optional guardrail validation.
 

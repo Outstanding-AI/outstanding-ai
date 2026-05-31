@@ -158,3 +158,21 @@ class TestPromptDocumentsNewFields:
             "account_wide",
         ):
             assert field in section, f"PAYMENT_TIMING_DISPUTE extraction missing {field}"
+
+    def test_prompt_documents_internal_processing_blocker(self):
+        prompt = self._read_prompt()
+        assert "DEBTOR_INTERNAL_PROCESSING_BLOCKER" in prompt
+        assert "GR" in prompt
+        marker = "- **DEBTOR_INTERNAL_PROCESSING_BLOCKER**:"
+        idx = prompt.find(marker)
+        assert idx > 0, "prompt must document internal blocker extraction"
+        section = prompt[idx : prompt.find("\n", idx)]
+        for field in (
+            "internal_blocker_type",
+            "internal_blocker_reason",
+            "internal_blocker_owner_hint",
+            "claimed_payment_date",
+            "invoice_refs",
+            "account_wide",
+        ):
+            assert field in section, f"internal blocker extraction missing {field}"

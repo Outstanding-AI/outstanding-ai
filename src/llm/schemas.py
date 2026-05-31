@@ -17,6 +17,7 @@ MATERIAL_SCOPE_INTENTS = frozenset(
         "ALREADY_PAID",
         "AMOUNT_DISAGREEMENT",
         "DISPUTE",
+        "DEBTOR_INTERNAL_PROCESSING_BLOCKER",
         "HARDSHIP",
         "PARTIAL_PAYMENT_NOTIFICATION",
         "PAYMENT_CONFIRMATION",
@@ -55,6 +56,20 @@ class LLMExtractedData(BaseModel):
     claimed_due_date: Optional[str] = None
     claimed_payment_date: Optional[str] = None
     payment_timing_reason: Optional[str] = None
+    # DEBTOR_INTERNAL_PROCESSING_BLOCKER
+    internal_blocker_type: Optional[
+        Literal[
+            "goods_receipt_missing",
+            "po_issue",
+            "approval_pending",
+            "payment_run_pending",
+            "portal_processing",
+            "internal_review",
+            "other",
+        ]
+    ] = None
+    internal_blocker_reason: Optional[str] = None
+    internal_blocker_owner_hint: Optional[str] = None
     # ALREADY_PAID
     claimed_amount: Optional[float] = None
     claimed_date: Optional[str] = None

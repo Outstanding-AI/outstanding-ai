@@ -225,11 +225,12 @@ class TestEmailClassifier:
 
         mock_response = _make_llm_response(
             {
-                "classification": "DISPUTE",
+                "classification": "DEBTOR_INTERNAL_PROCESSING_BLOCKER",
                 "confidence": 0.89,
                 "reasoning": "Forwarded debtor-side context says goods receipt is missing for invoice 0000007324.",
                 "extracted_data": {
-                    "dispute_reason": "goods_receipt_missing",
+                    "internal_blocker_type": "goods_receipt_missing",
+                    "internal_blocker_reason": "GR is missing for invoice 0000007324.",
                     "invoice_refs": ["0000007324"],
                 },
             }
@@ -252,8 +253,115 @@ class TestEmailClassifier:
                 "Do not treat quoted historical collection emails as new debtor commitments"
                 in user_prompt
             )
-            assert result.classification == "DISPUTE"
+            assert "DEBTOR_INTERNAL_PROCESSING_BLOCKER" in user_prompt
+            assert result.classification == "DEBTOR_INTERNAL_PROCESSING_BLOCKER"
+            assert result.extracted_data.internal_blocker_type == "goods_receipt_missing"
             assert result.extracted_data.invoice_refs == ["0000007324"]
+
+    @pytest.mark.asyncio
+    async def test_classify_internal_blocker_with_intent_details(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.subject = "FW: Invoices 0000007324 and 0000007330"
+        sample_classify_request.email.body = (
+            "Invoice 0000007324 is missing GR. Invoice 0000007330 will be paid Friday."
+        )
+        sample_classify_request.email.forwarded_context = {
+            "source_type": "debtor_internal_routing_context",
+            "validated_invoice_refs": ["0000007324", "0000007330"],
+            "forwarded_lineage": {"segment_count": 1, "segments": []},
+            "prompt_budget": {"body_reduced": False},
+            "instruction": "Extract facts from debtor-provided forwarded content.",
+        }
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "DEBTOR_INTERNAL_PROCESSING_BLOCKER",
+                "confidence": 0.9,
+                "reasoning": "One invoice is blocked internally and another has a payment commitment.",
+                "secondary_intents": ["PROMISE_TO_PAY"],
+                "extracted_data": {
+                    "internal_blocker_type": "goods_receipt_missing",
+                    "internal_blocker_reason": "GR missing.",
+                    "invoice_refs": ["0000007324"],
+                    "account_wide": False,
+                },
+                "intent_details": [
+                    {
+                        "intent": "DEBTOR_INTERNAL_PROCESSING_BLOCKER",
+                        "extracted_data": {
+                            "internal_blocker_type": "goods_receipt_missing",
+                            "internal_blocker_reason": "GR missing.",
+                            "invoice_refs": ["0000007324"],
+                        },
+                    },
+                    {
+                        "intent": "PROMISE_TO_PAY",
+                        "extracted_data": {
+                            "promise_date": "2026-06-05",
+                            "invoice_refs": ["0000007330"],
+                        },
+                    },
+                ],
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            assert result.classification == "DEBTOR_INTERNAL_PROCESSING_BLOCKER"
+            assert result.secondary_intents == ["PROMISE_TO_PAY"]
+            assert result.intent_details is not None
+            assert (
+                result.intent_details[0].extracted_data.internal_blocker_type
+                == "goods_receipt_missing"
+            )
+
+    @pytest.mark.asyncio
+    async def test_classify_internal_release_timing_as_blocker(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.subject = "RE: Regarding your outstanding invoice"
+        sample_classify_request.email.body = "This is expected to release next Friday."
+        sample_classify_request.email.forwarded_context = {
+            "source_type": "debtor_internal_routing_context",
+            "internal_routing_cues": ["release_timing"],
+            "validated_invoice_refs": [],
+            "same_thread_oai_draft_ids": ["draft-1"],
+            "forwarded_lineage": {"segment_count": 1, "segments": []},
+            "prompt_budget": {"body_reduced": False},
+            "instruction": "Extract facts from debtor-provided internal release timing.",
+        }
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "DEBTOR_INTERNAL_PROCESSING_BLOCKER",
+                "confidence": 0.86,
+                "reasoning": "Debtor says the invoice is expected to release through an internal payment run.",
+                "extracted_data": {
+                    "internal_blocker_type": "payment_run_pending",
+                    "internal_blocker_reason": "Invoice is expected to release next Friday.",
+                    "account_wide": False,
+                },
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
+            assert "expected to release next Friday" in user_prompt
+            assert "rather than COOPERATIVE" in user_prompt
+            assert result.classification == "DEBTOR_INTERNAL_PROCESSING_BLOCKER"
+            assert result.extracted_data.internal_blocker_type == "payment_run_pending"
 
     @pytest.mark.asyncio
     async def test_classify_accepts_direct_reply_source_context(
