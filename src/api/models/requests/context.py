@@ -71,6 +71,13 @@ def _normalize_lane_context(
         "reminder_cadence_days_for_level",
         "max_days_for_level",
         "outstanding_amount",
+        "protocol_due_at",
+        "not_before_at",
+        "is_forecast",
+        "generation_policy_mode",
+        "lookahead_window_start",
+        "lookahead_window_end",
+        "planned_send_at",
     ):
         if normalized.get(field_name) is None and lane.get(field_name) is not None:
             normalized[field_name] = lane.get(field_name)
@@ -300,6 +307,13 @@ class LaneContextInfo(BaseModel):
     protocol_selected_day: Optional[int] = None
     protocol_selected_level: Optional[int] = None
     protocol_actual_sender_level: Optional[int] = None
+    protocol_due_at: Optional[str] = None
+    not_before_at: Optional[str] = None
+    is_forecast: Optional[bool] = None
+    generation_policy_mode: Optional[str] = None
+    lookahead_window_start: Optional[str] = None
+    lookahead_window_end: Optional[str] = None
+    planned_send_at: Optional[str] = None
 
 
 class IndustryInfo(BaseModel):
@@ -435,6 +449,10 @@ class CaseContext(CaseContextV2):
     lane_broken_promises_count: Optional[int] = None
     lane_last_tone_used: Optional[str] = None
     lane_contexts: List[LaneContextInfo] = []
+    protocol_due_at: Optional[str] = None
+    not_before_at: Optional[str] = None
+    is_scheduled_prep: Optional[bool] = None
+    planned_send_at: Optional[str] = None
     mode: Optional[str] = Field(
         default=None,
         pattern=r"^(single_lane|multi_lane)$",

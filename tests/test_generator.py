@@ -303,6 +303,32 @@ class TestDraftGenerator:
         assert "Other lanes for the same debtor may exist" in prompt_ctx.user_prompt
         assert "Tone: always friendly_reminder at Level 0" not in prompt_ctx.user_prompt
 
+    def test_prompt_renders_scheduled_prep_context_without_debtor_visible_instruction(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.context.schema_version = 4
+        sample_generate_draft_request.context.collection_basis = "overdue"
+        sample_generate_draft_request.context.collection_lane_id = "lane-123"
+        sample_generate_draft_request.context.lane = {
+            "collection_lane_id": "lane-123",
+            "current_level": 1,
+            "scheduled_touch_index": 1,
+            "max_touches_for_level": 2,
+            "invoice_refs": ["INV-12345"],
+            "outstanding_amount": 1500.0,
+            "protocol_due_at": "2026-06-05T00:00:00",
+            "not_before_at": "2026-06-05T00:00:00",
+            "planned_send_at": "2026-06-05T00:00:00",
+            "is_forecast": True,
+            "generation_policy_mode": "scheduled_prep",
+        }
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+
+        assert "**Scheduled Prep Context (internal, do not mention):**" in prompt_ctx.user_prompt
+        assert "Planned Send Timing: 2026-06-05T00:00:00" in prompt_ctx.user_prompt
+        assert "Do not mention scheduling windows" in prompt_ctx.user_prompt
+
     @pytest.mark.asyncio
     async def test_collection_draft_prompt_and_response_keep_full_invoice_scope(
         self, generator, sample_generate_draft_request

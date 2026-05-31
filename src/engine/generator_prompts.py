@@ -292,6 +292,12 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 "\n\n**Protocol Decision (deterministic, do not override):**\n"
                 + "\n".join(protocol_lines)
             )
+        schedule_lines = _build_scheduled_prep_lines(lane_state, request)
+        if schedule_lines:
+            sections.append(
+                "\n\n**Scheduled Prep Context (internal, do not mention):**\n"
+                + "\n".join(schedule_lines)
+            )
     elif request.context.lane_contexts:
         logger.warning(
             "LaneContextInfo.invoice_refs and outstanding_amount are deprecated; "
@@ -767,4 +773,63 @@ def _build_protocol_decision_lines(lane_state, request) -> list[str]:
             "- Instruction: follow these protocol facts exactly. They are deterministic product decisions, "
             "not suggestions for the model to reinterpret."
         )
+    return lines
+
+
+def _build_scheduled_prep_lines(lane_state, request) -> list[str]:
+    """Render scheduler timing facts without exposing product internals."""
+    values = {}
+    if isinstance(lane_state, dict):
+        values.update(
+            {
+                "protocol_due_at": lane_state.get("protocol_due_at"),
+                "not_before_at": lane_state.get("not_before_at"),
+                "planned_send_at": lane_state.get("planned_send_at"),
+                "is_forecast": lane_state.get("is_forecast"),
+                "generation_policy_mode": lane_state.get("generation_policy_mode"),
+            }
+        )
+
+    for context in getattr(request.context, "lane_contexts", []) or []:
+        for field in (
+            "protocol_due_at",
+            "not_before_at",
+            "planned_send_at",
+            "is_forecast",
+            "generation_policy_mode",
+        ):
+            value = getattr(context, field, None)
+            if values.get(field) in (None, "") and value not in (None, ""):
+                values[field] = value
+
+    for field in ("protocol_due_at", "not_before_at", "planned_send_at", "is_scheduled_prep"):
+        value = getattr(request.context, field, None)
+        if values.get(field) in (None, "") and value not in (None, ""):
+            values[field] = value
+
+    if values.get("generation_policy_mode") != "scheduled_prep" and not values.get(
+        "is_scheduled_prep"
+    ):
+        return []
+
+    lines = []
+    planned_send_at = (
+        values.get("planned_send_at")
+        or values.get("not_before_at")
+        or values.get("protocol_due_at")
+    )
+    if planned_send_at:
+        lines.append(f"- Planned Send Timing: {_safe_prompt_value(planned_send_at)}")
+    if values.get("not_before_at"):
+        lines.append(
+            f"- Do Not Imply This Touch Occurred Before: {_safe_prompt_value(values['not_before_at'])}"
+        )
+    if values.get("is_forecast"):
+        lines.append(
+            "- Forecast Slot: yes; this draft is prepared early for an upcoming protocol-due action."
+        )
+    lines.append(
+        "- Instruction: use the planned send timing only for temporal wording. Do not mention scheduling windows, "
+        "forecasting, internal policy, or any 'send after' instruction to the debtor."
+    )
     return lines
