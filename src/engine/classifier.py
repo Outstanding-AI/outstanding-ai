@@ -337,6 +337,9 @@ def _format_forwarded_context_for_prompt(context: dict[str, Any] | None) -> str:
             "forward_header_fields",
             "internal_routing_cues",
             "matched_oai_draft_id",
+            "validated_invoice_refs",
+            "unresolved_invoice_refs",
+            "same_thread_oai_draft_ids",
             "instruction",
         }
     }

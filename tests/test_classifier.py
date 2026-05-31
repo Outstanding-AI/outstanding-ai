@@ -217,6 +217,9 @@ class TestEmailClassifier:
             "source_type": "debtor_internal_forward",
             "detection_methods": ["subject_fw_prefix", "original_message_delimiter"],
             "internal_routing_cues": ["goods_receipt_blocker"],
+            "validated_invoice_refs": ["0000007324"],
+            "unresolved_invoice_refs": [],
+            "same_thread_oai_draft_ids": ["draft-1"],
             "instruction": "Extract facts from debtor-provided forwarded content.",
         }
 
@@ -243,12 +246,50 @@ class TestEmailClassifier:
             assert "**Trusted Forward/Internal Context:**" in user_prompt
             assert "debtor_internal_forward" in user_prompt
             assert "goods_receipt_blocker" in user_prompt
+            assert "validated_invoice_refs" in user_prompt
+            assert "same_thread_oai_draft_ids" in user_prompt
             assert (
                 "Do not treat quoted historical collection emails as new debtor commitments"
                 in user_prompt
             )
             assert result.classification == "DISPUTE"
             assert result.extracted_data.invoice_refs == ["0000007324"]
+
+    @pytest.mark.asyncio
+    async def test_classify_accepts_direct_reply_source_context(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.body = "Invoice 0000007324 is not due until the 26th."
+        sample_classify_request.email.forwarded_context = {
+            "source_type": "direct_debtor_reply",
+            "detection_methods": [],
+            "validated_invoice_refs": ["0000007324"],
+            "instruction": "Classify the current debtor reply.",
+        }
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "PAYMENT_TIMING_DISPUTE",
+                "confidence": 0.92,
+                "reasoning": "Debtor says invoice is not due yet.",
+                "extracted_data": {
+                    "claimed_due_date": "2026-06-26",
+                    "invoice_refs": ["0000007324"],
+                },
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
+            assert "direct_debtor_reply" in user_prompt
+            assert "classify the current email normally" in user_prompt
+            assert result.classification == "PAYMENT_TIMING_DISPUTE"
 
     @pytest.mark.asyncio
     async def test_classify_unsubscribe_email(self, classifier, sample_classify_request):
