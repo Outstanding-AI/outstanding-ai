@@ -163,6 +163,7 @@ class TestPromptDocumentsNewFields:
         prompt = self._read_prompt()
         assert "DEBTOR_INTERNAL_PROCESSING_BLOCKER" in prompt
         assert "GR" in prompt
+        assert "standalone purchase order number" in prompt
         marker = "- **DEBTOR_INTERNAL_PROCESSING_BLOCKER**:"
         idx = prompt.find(marker)
         assert idx > 0, "prompt must document internal blocker extraction"
