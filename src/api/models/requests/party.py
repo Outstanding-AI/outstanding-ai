@@ -12,7 +12,7 @@ keep validating cleanly because the V3-only fields are all Optional.
 
 import warnings
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 from solvix_contracts.ai.context.v3 import BehaviorInfoV3, PartyInfoV3
@@ -26,6 +26,7 @@ class EmailContent(BaseModel):
     from_address: str = Field(..., min_length=1, max_length=320)  # RFC 5321 max email length
     from_name: Optional[str] = Field(None, max_length=200)
     received_at: Optional[datetime] = None
+    forwarded_context: Optional[dict[str, Any]] = None
 
 
 class PartyInfo(PartyInfoV3):

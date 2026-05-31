@@ -29,6 +29,7 @@ delivery -- they serve as a quality signal for downstream consumers.
 import json
 import logging
 from datetime import date
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -126,6 +127,7 @@ class EmailClassifier:
             is_verified=request.context.party.is_verified,
             party_source=request.context.party.source,
             industry_context=industry_context,
+            forwarded_context=_format_forwarded_context_for_prompt(request.email.forwarded_context),
             from_name=request.email.from_name or "Unknown",
             from_address=request.email.from_address,
             subject=sanitize_delimiter_tags(request.email.subject),
@@ -317,3 +319,25 @@ def _build_extracted_data(raw) -> ExtractedData | None:
 
 # Singleton instance used by the /classify route handler.
 classifier = EmailClassifier()
+
+
+def _format_forwarded_context_for_prompt(context: dict[str, Any] | None) -> str:
+    """Render trusted ingestion-derived forward metadata without raw body text."""
+
+    if not context:
+        return "None detected."
+    safe_context = {
+        key: value
+        for key, value in context.items()
+        if key
+        in {
+            "source_type",
+            "detection_methods",
+            "body_forward_markers",
+            "forward_header_fields",
+            "internal_routing_cues",
+            "matched_oai_draft_id",
+            "instruction",
+        }
+    }
+    return sanitize_delimiter_tags(json.dumps(safe_context, sort_keys=True, default=str))
