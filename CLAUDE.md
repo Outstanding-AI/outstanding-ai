@@ -10,6 +10,10 @@ Stateless AI microservice powering intelligent debt collection workflows.
 
 > **Python runtime for operations**: when running AI Engine scripts, generated query tooling, or ad hoc helpers that import application code, use the AI runtime version, Python 3.12. Do not use macOS/system Python for app imports; AWS-CLI-only shell commands are the exception.
 
+## MCP Workflow
+
+After reading workspace `AGENTS.md`, read `/Users/bijitdeka23/Downloads/Solvix_repo/docs/MCP_DEVELOPMENT_WORKFLOW.md` before using MCP tools for local service health, logs, Solvix-specific verification recipes, sync graphs, analysis components, Postgres, MinIO, AWS, Grafana/Loki, or PostHog.
+
 ## Directory Structure
 
 ```
