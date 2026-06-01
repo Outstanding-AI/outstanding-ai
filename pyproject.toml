@@ -62,4 +62,4 @@ build-backend = "hatchling.build"
 packages = ["src"]
 
 [tool.uv.sources]
-solvix-contracts = { git = "https://github.com/Outstanding-AI/outstanding-backend.git", tag = "contracts-v0.12.20", subdirectory = "contracts" }
+solvix-contracts = { git = "https://github.com/Outstanding-AI/outstanding-backend.git", rev = "85a09ca28c6a6d7d4f5ef4f28582f06779365070", subdirectory = "contracts" }
