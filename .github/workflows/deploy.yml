@@ -63,8 +63,7 @@ jobs:
           AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
           git config --global http.https://github.com/Outstanding-AI/.extraheader \
             "AUTHORIZATION: basic ${AUTH}"
-          git ls-remote \
-            "https://x-access-token:${TOKEN}@github.com/Outstanding-AI/outstanding-backend.git" \
+          git ls-remote https://github.com/Outstanding-AI/outstanding-backend.git \
             refs/tags/contracts-v0.12.21 >/dev/null
       - run: uv sync --frozen --extra dev
       - run: pip install pre-commit
@@ -184,8 +183,10 @@ jobs:
         env:
           TOKEN: ${{ steps.contracts-token.outputs.token }}
         run: |
-          git ls-remote \
-            "https://x-access-token:${TOKEN}@github.com/Outstanding-AI/outstanding-backend.git" \
+          AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          git config --global http.https://github.com/Outstanding-AI/.extraheader \
+            "AUTHORIZATION: basic ${AUTH}"
+          git ls-remote https://github.com/Outstanding-AI/outstanding-backend.git \
             refs/tags/contracts-v0.12.21 >/dev/null
 
       - name: Configure AWS credentials (OIDC)

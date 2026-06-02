@@ -41,9 +41,10 @@ USER appuser
 RUN --mount=type=cache,target=/home/appuser/.cache/uv,uid=1000 \
     --mount=type=secret,id=contracts_read_token,uid=1000,required=true \
     token="$(cat /run/secrets/contracts_read_token)" \
+    && auth="$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')" \
     && GIT_CONFIG_COUNT=1 \
-    GIT_CONFIG_KEY_0="url.https://x-access-token:${token}@github.com/Outstanding-AI/.insteadOf" \
-    GIT_CONFIG_VALUE_0="https://github.com/Outstanding-AI/" \
+    GIT_CONFIG_KEY_0="http.https://github.com/Outstanding-AI/.extraheader" \
+    GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
     uv sync --no-dev --frozen
 
 # Copy runtime config (non-secret WIF descriptor)
