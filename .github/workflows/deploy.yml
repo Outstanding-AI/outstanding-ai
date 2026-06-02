@@ -43,7 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with: { fetch-depth: 1 }
+        with:
+          fetch-depth: 1
+          persist-credentials: false
       - uses: actions/setup-python@v6
         with: { python-version: '3.12' }
       - uses: astral-sh/setup-uv@v8.1.0
@@ -60,6 +62,7 @@ jobs:
         env:
           TOKEN: ${{ steps.contracts-token.outputs.token }}
         run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
           if [ -z "${TOKEN:-}" ]; then
             echo "::error::Contracts GitHub App token was not created. Check CONTRACTS_CLIENT_ID, CONTRACTS_APP_PRIVATE_KEY, and app access to Outstanding-AI/outstanding-backend."
             exit 1
@@ -170,7 +173,9 @@ jobs:
       CONTAINER_NAME: ai-engine
     steps:
       - uses: actions/checkout@v5
-        with: { fetch-depth: 1 }
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       - uses: docker/setup-buildx-action@v4
 

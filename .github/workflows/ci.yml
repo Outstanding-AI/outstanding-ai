@@ -28,6 +28,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@v8.1.0
         with:
@@ -47,6 +48,7 @@ jobs:
         env:
           TOKEN: ${{ steps.contracts-token.outputs.token }}
         run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
           if [ -z "${TOKEN:-}" ]; then
             echo "::error::Contracts GitHub App token was not created. Check CONTRACTS_CLIENT_ID, CONTRACTS_APP_PRIVATE_KEY, and app access to Outstanding-AI/outstanding-backend."
             exit 1
