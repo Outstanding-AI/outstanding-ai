@@ -47,6 +47,10 @@ jobs:
         env:
           TOKEN: ${{ steps.contracts-token.outputs.token }}
         run: |
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::Contracts GitHub App token was not created. Check CONTRACTS_CLIENT_ID, CONTRACTS_APP_PRIVATE_KEY, and app access to Outstanding-AI/outstanding-backend."
+            exit 1
+          fi
           AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
           git config --global http.https://github.com/Outstanding-AI/.extraheader \
             "AUTHORIZATION: basic ${AUTH}"

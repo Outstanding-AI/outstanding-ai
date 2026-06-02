@@ -41,6 +41,7 @@ USER appuser
 RUN --mount=type=cache,target=/home/appuser/.cache/uv,uid=1000 \
     --mount=type=secret,id=contracts_read_token,uid=1000,required=true \
     token="$(cat /run/secrets/contracts_read_token)" \
+    && if [ -z "$token" ]; then echo "contracts_read_token BuildKit secret is required" >&2; exit 1; fi \
     && auth="$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')" \
     && GIT_CONFIG_COUNT=1 \
     GIT_CONFIG_KEY_0="http.https://github.com/Outstanding-AI/.extraheader" \
