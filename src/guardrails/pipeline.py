@@ -31,6 +31,7 @@ from .forbidden_content import ForbiddenContentDetector
 from .identity_scope import IdentityScopeGuardrail
 from .lane_scope import LaneScopeGuardrail
 from .numerical import NumericalConsistencyGuardrail
+from .overdue_terminology import OverdueTerminologyGuardrail
 from .placeholder import PlaceholderValidationGuardrail
 from .policy_grounding import PolicyGroundingGuardrail
 from .semantic_coherence import SemanticCoherenceGuardrail
@@ -103,6 +104,7 @@ class GuardrailPipeline:
             NumericalConsistencyGuardrail(),
             LaneScopeGuardrail(),
             IdentityScopeGuardrail(),
+            OverdueTerminologyGuardrail(),
             PolicyGroundingGuardrail(),
             ForbiddenContentDetector(),
             ToneClampingGuardrail(),  # Confirms a runtime-selected tone was provided

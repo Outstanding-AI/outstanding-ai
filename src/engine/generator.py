@@ -53,7 +53,7 @@ from .generator_prompts import build_extra_sections, format_sender_persona
 logger = logging.getLogger(__name__)
 
 DRAFT_PROMPT_TEMPLATE_ID = "draft_generation"
-DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v2"
+DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v3"
 GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 
@@ -514,6 +514,7 @@ class DraftGenerator:
             guardrail_result = guardrail_pipeline.validate(
                 output=result.body,
                 context=request.context,
+                subject=result.subject,
                 skip_invoice_table=request.skip_invoice_table,
                 trigger_classification=request.trigger_classification,
                 closure_mode=request.closure_mode,

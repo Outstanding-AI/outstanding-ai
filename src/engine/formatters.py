@@ -104,7 +104,7 @@ def format_invoice_table(context) -> str:
         Formatted multi-line string of invoice details.
     """
     if not context.obligations:
-        return "No outstanding invoices on record."
+        return "No sendable overdue invoices on record."
 
     lines = []
     for o in context.obligations:

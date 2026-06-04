@@ -86,6 +86,12 @@ def get_retry_prompt_addition(pipeline_result: GuardrailPipelineResult, **kwargs
                 )
             elif result.guardrail_name == "lane_scope":
                 additions.append("- Only mention invoices and totals from the current lane cohort.")
+            elif result.guardrail_name == "overdue_terminology":
+                additions.append(
+                    "- This is an overdue-scope collection draft. Use 'overdue invoice(s)' "
+                    "or 'overdue balance' in the subject/body. Do NOT use 'outstanding "
+                    "invoice(s)', 'outstanding balance', or similar debtor-facing wording."
+                )
             elif result.guardrail_name == "policy_grounding":
                 additions.append(
                     "- Remove any discount, settlement, statutory-interest, or legal-escalation language unless authorized."

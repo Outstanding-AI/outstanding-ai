@@ -7,6 +7,7 @@ from .forbidden_content import ForbiddenContentDetector
 from .identity_scope import IdentityScopeGuardrail
 from .lane_scope import LaneScopeGuardrail
 from .numerical import NumericalConsistencyGuardrail
+from .overdue_terminology import OverdueTerminologyGuardrail
 from .pipeline import GuardrailPipeline, guardrail_pipeline
 from .policy_grounding import PolicyGroundingGuardrail
 from .semantic_coherence import SemanticCoherenceGuardrail
@@ -23,6 +24,7 @@ __all__ = [
     "NumericalConsistencyGuardrail",
     "IdentityScopeGuardrail",
     "LaneScopeGuardrail",
+    "OverdueTerminologyGuardrail",
     "PolicyGroundingGuardrail",
     "SemanticCoherenceGuardrail",
     "ForbiddenContentDetector",

@@ -205,6 +205,7 @@ class TestDraftGenerator:
         assert "- INV-1:" in user_prompt
         assert "- INV-2:" not in user_prompt
         assert "INV-3: excluded" in user_prompt
+        assert guardrail_kwargs["subject"] == "Invoice follow-up"
         assert guardrail_kwargs["candidate_invoice_refs"] == ["INV-1"]
         assert result.invoices_referenced == ["INV-1"]
         assert result.ai_audit is not None
@@ -476,7 +477,7 @@ class TestGuardrailRetrySemantics:
         mock_response = _make_llm_response(
             {
                 "subject": "Follow-up",
-                "body": "<p>Please settle the outstanding balance.</p>",
+                "body": "<p>Please settle the overdue balance.</p>",
                 "invoices_referenced": [],
             }
         )
@@ -517,7 +518,7 @@ class TestGuardrailRetrySemantics:
         mock_response = _make_llm_response(
             {
                 "subject": "Follow-up",
-                "body": "<p>Please settle the outstanding balance.</p>",
+                "body": "<p>Please settle the overdue balance.</p>",
                 "invoices_referenced": [],
             }
         )
