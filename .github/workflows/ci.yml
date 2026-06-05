@@ -57,7 +57,7 @@ jobs:
           git config --global http.https://github.com/Outstanding-AI/.extraheader \
             "AUTHORIZATION: basic ${AUTH}"
           git ls-remote https://github.com/Outstanding-AI/outstanding-backend.git \
-            refs/tags/contracts-v0.12.21 >/dev/null
+            refs/tags/contracts-v0.12.22 >/dev/null
 
       - run: uv sync --frozen --extra dev
 
