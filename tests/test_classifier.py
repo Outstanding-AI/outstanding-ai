@@ -1,6 +1,7 @@
 """Unit tests for EmailClassifier."""
 
 import json
+from datetime import date
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -249,10 +250,8 @@ class TestEmailClassifier:
             assert "goods_receipt_blocker" in user_prompt
             assert "validated_invoice_refs" in user_prompt
             assert "same_thread_oai_draft_ids" in user_prompt
-            assert (
-                "Do not treat quoted historical collection emails as new debtor commitments"
-                in user_prompt
-            )
+            assert "historic debtor replies" in user_prompt
+            assert "new debtor commitments" in user_prompt
             assert "DEBTOR_INTERNAL_PROCESSING_BLOCKER" in user_prompt
             assert result.classification == "DEBTOR_INTERNAL_PROCESSING_BLOCKER"
             assert result.extracted_data.internal_blocker_type == "goods_receipt_missing"
@@ -362,6 +361,93 @@ class TestEmailClassifier:
             assert "rather than COOPERATIVE" in user_prompt
             assert result.classification == "DEBTOR_INTERNAL_PROCESSING_BLOCKER"
             assert result.extracted_data.internal_blocker_type == "payment_run_pending"
+
+    @pytest.mark.asyncio
+    async def test_classify_current_payment_commitment_over_quoted_history(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.subject = (
+            "RE: Overdue Invoice from ESWL-Americas - 0000007324"
+        )
+        sample_classify_request.email.body = (
+            "[Structured classifier input. Full body remains available via Bronze/Silver content pointers and body hashes.]\n"
+            "[Newest debtor-authored reply]\n"
+            "Invoice approved and funds will be issued on July 7 th.\n\n"
+            "[Quoted/forwarded/internal context summaries]\n"
+            "- Segment 1: role=quoted_operator_or_system_message; subject=RE: Overdue Invoice from ESWL-Americas - 0000007324\n"
+            "  excerpt: Kindly confirm the reason for the posting delay.\n"
+            "- Segment 2: role=historic_debtor_reply; subject=RE: Overdue Invoice from ESWL-Americas - 0000007324\n"
+            "  excerpt: Invoice has been processed; however, it is not due until June 26 th."
+        )
+        sample_classify_request.email.forwarded_context = {
+            "source_type": "debtor_internal_forward",
+            "current_reply": {
+                "source_role": "current_debtor_reply",
+                "body_excerpt": "Invoice approved and funds will be issued on July 7 th.",
+                "detected_cues": [
+                    "payment_scheduled_commitment",
+                    "approval_confirmed",
+                ],
+            },
+            "validated_invoice_refs": ["0000007324"],
+            "same_thread_oai_draft_ids": ["draft-1"],
+            "forwarded_lineage": {
+                "segment_count": 2,
+                "segments": [
+                    {
+                        "source_role": "quoted_operator_or_system_message",
+                        "body_excerpt": "Kindly confirm the reason for the posting delay.",
+                    },
+                    {
+                        "source_role": "historic_debtor_reply",
+                        "body_excerpt": "Invoice has been processed; however, it is not due until June 26 th.",
+                    },
+                ],
+            },
+            "prompt_budget": {"body_structured": True, "body_reduced": False},
+            "instruction": "Classify the newest debtor-authored reply first.",
+        }
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "PROMISE_TO_PAY",
+                "confidence": 0.94,
+                "reasoning": "The newest debtor reply says the invoice is approved and funds will be issued on July 7.",
+                "extracted_data": {
+                    "promise_date": "2026-07-07",
+                    "promise_strength": "firm",
+                    "invoice_refs": ["0000007324"],
+                    "account_wide": False,
+                },
+                "intent_details": [
+                    {
+                        "intent": "PROMISE_TO_PAY",
+                        "extracted_data": {
+                            "promise_date": "2026-07-07",
+                            "promise_strength": "firm",
+                            "invoice_refs": ["0000007324"],
+                            "account_wide": False,
+                        },
+                    }
+                ],
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
+            assert "first-class current state signal" in user_prompt
+            assert "current_reply" in user_prompt
+            assert "historic debtor replies" in user_prompt
+            assert "funds/payment will be issued" in user_prompt
+            assert result.classification == "PROMISE_TO_PAY"
+            assert result.extracted_data.promise_date == date(2026, 7, 7)
+            assert result.extracted_data.invoice_refs == ["0000007324"]
 
     @pytest.mark.asyncio
     async def test_classify_accepts_direct_reply_source_context(
