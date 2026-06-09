@@ -75,6 +75,12 @@ Many debtor emails contain MULTIPLE intents across different invoices. For examp
    - For mixed replies, every material intent must have its own
      `intent_details[*].extracted_data`; never copy invoice references from
      one intent to another just because they appear in the same email.
+   - If the same invoice has debtor-side internal processing language and a
+     future release/payment-run date, keep it as
+     DEBTOR_INTERNAL_PROCESSING_BLOCKER and put the date in
+     `claimed_payment_date`; do not add a separate PROMISE_TO_PAY intent for
+     that same invoice unless the debtor clearly makes a direct payment
+     commitment independent of the blocker.
 3. Also populate the top-level flat `extracted_data` with the PRIMARY
    intent's extraction — this is kept for backward compatibility with
    consumers that haven't upgraded to `intent_details` yet.

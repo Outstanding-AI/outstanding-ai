@@ -34,6 +34,20 @@ def _normalize_invoice_ref(value: object) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
 
+def _dedupe_preserve_order(values: list[str] | None) -> list[str] | None:
+    if not values:
+        return values
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for value in values:
+        normalized = _normalize_invoice_ref(value)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(value)
+    return cleaned
+
+
 class LLMExtractedData(BaseModel):
     """Data extracted from email content by the LLM."""
 
@@ -207,27 +221,63 @@ class ClassificationLLMResponse(BaseModel):
             raise ValueError("intent_details[0].intent must match classification")
 
         seen_invoice_refs: dict[str, str] = {}
+        retained_details: list[IntentDetailLLM] = []
+        retained_secondary_intents: list[str] = []
         for index, detail in enumerate(self.intent_details):
             intent = str(detail.intent or "").upper()
+            detail.intent = intent
             if intent not in CLASSIFICATION_CATEGORIES:
                 raise ValueError(f"Invalid intent_details[{index}].intent '{detail.intent}'")
             if index > 0 and intent in MATERIAL_SCOPE_INTENTS and detail.extracted_data is None:
                 raise ValueError(
                     f"intent_details[{index}].extracted_data is required for material intent {intent}"
                 )
-            if not detail.extracted_data or not detail.extracted_data.invoice_refs:
+            if not detail.extracted_data:
+                retained_details.append(detail)
+                if index > 0:
+                    retained_secondary_intents.append(intent)
                 continue
-            for raw_ref in detail.extracted_data.invoice_refs:
+
+            detail.extracted_data.invoice_refs = _dedupe_preserve_order(
+                detail.extracted_data.invoice_refs
+            )
+            retained_refs: list[str] = []
+            dropped_duplicate_scope = False
+            for raw_ref in detail.extracted_data.invoice_refs or []:
                 invoice_ref = _normalize_invoice_ref(raw_ref)
                 if not invoice_ref:
                     continue
                 previous_intent = seen_invoice_refs.get(invoice_ref)
                 if previous_intent and previous_intent != intent:
-                    raise ValueError(
-                        f"invoice_ref {invoice_ref} appears in multiple intent_details "
-                        f"({previous_intent}, {intent})"
-                    )
+                    dropped_duplicate_scope = True
+                    continue
                 seen_invoice_refs[invoice_ref] = intent
+                retained_refs.append(raw_ref)
+
+            detail.extracted_data.invoice_refs = retained_refs or None
+            if (
+                index > 0
+                and intent in MATERIAL_SCOPE_INTENTS
+                and dropped_duplicate_scope
+                and not retained_refs
+                and not detail.extracted_data.account_wide
+            ):
+                # The same invoice cannot safely drive two material side-effects.
+                # Keep the first/primary interpretation and drop the now-unscoped
+                # secondary intent rather than rejecting the whole LLM response.
+                continue
+
+            retained_details.append(detail)
+            if index > 0:
+                retained_secondary_intents.append(intent)
+
+        self.intent_details = retained_details
+        if self.secondary_intents is not None:
+            self.secondary_intents = [
+                str(intent).upper()
+                for intent in retained_secondary_intents
+                if str(intent).upper() in CLASSIFICATION_CATEGORIES
+            ]
         return self
 
 
