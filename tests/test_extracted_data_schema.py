@@ -19,6 +19,8 @@ Pins the two new fields:
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from src.api.models.responses import ExtractedData as ResponseExtractedData
@@ -177,3 +179,57 @@ class TestPromptDocumentsNewFields:
             "account_wide",
         ):
             assert field in section, f"internal blocker extraction missing {field}"
+
+
+class TestRelativeDateNormalization:
+    def test_promise_date_uses_reference_date_for_next_weekday(self):
+        raw = LLMExtractedData(promise_date="next Friday", promise_strength="soft")
+
+        built = _build_extracted_data(
+            raw,
+            reference_date=date(2026, 5, 26),
+            intent="PROMISE_TO_PAY",
+        )
+
+        assert built is not None
+        assert built.promise_date == date(2026, 5, 29)
+
+    def test_promise_date_falls_back_to_current_reply_text(self):
+        raw = LLMExtractedData(promise_strength="soft")
+
+        built = _build_extracted_data(
+            raw,
+            reference_date=date(2026, 5, 26),
+            source_text="This is expected to release next Friday.",
+            intent="PROMISE_TO_PAY",
+        )
+
+        assert built is not None
+        assert built.promise_date == date(2026, 5, 29)
+
+    def test_remittance_claimed_date_resolves_tomorrow(self):
+        raw = LLMExtractedData(claimed_date="tomorrow", claimed_reference="PAY-1")
+
+        built = _build_extracted_data(
+            raw,
+            reference_date=date(2026, 5, 26),
+            intent="REMITTANCE_ADVICE",
+        )
+
+        assert built is not None
+        assert built.claimed_date == date(2026, 5, 27)
+
+    def test_internal_blocker_claimed_payment_date_resolves_by_weekday(self):
+        raw = LLMExtractedData(
+            internal_blocker_type="payment_run_pending",
+            claimed_payment_date="by Friday",
+        )
+
+        built = _build_extracted_data(
+            raw,
+            reference_date=date(2026, 5, 26),
+            intent="DEBTOR_INTERNAL_PROCESSING_BLOCKER",
+        )
+
+        assert built is not None
+        assert built.claimed_payment_date == date(2026, 5, 29)

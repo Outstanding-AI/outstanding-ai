@@ -1,7 +1,7 @@
 """Unit tests for EmailClassifier."""
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -326,6 +326,9 @@ class TestEmailClassifier:
     ):
         sample_classify_request.email.subject = "RE: Regarding your outstanding invoice"
         sample_classify_request.email.body = "This is expected to release next Friday."
+        sample_classify_request.email.received_at = datetime(
+            2026, 6, 2, 10, 15, tzinfo=timezone.utc
+        )
         sample_classify_request.email.forwarded_context = {
             "source_type": "debtor_internal_routing_context",
             "internal_routing_cues": ["release_timing", "payment_scheduled_commitment"],
@@ -342,7 +345,7 @@ class TestEmailClassifier:
                 "confidence": 0.86,
                 "reasoning": "Debtor says payment is expected to release next Friday.",
                 "extracted_data": {
-                    "promise_date": "2026-06-05",
+                    "promise_date": "next Friday",
                     "promise_strength": "soft",
                     "account_wide": False,
                 },
@@ -358,9 +361,56 @@ class TestEmailClassifier:
 
             user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
             assert "expected to release next Friday" in user_prompt
+            assert "Relative Date Reference: 2026-06-02" in user_prompt
             assert 'promise_strength="soft"' in user_prompt
             assert result.classification == "PROMISE_TO_PAY"
+            assert result.extracted_data.promise_date == date(2026, 6, 5)
             assert result.extracted_data.promise_strength == "soft"
+
+    @pytest.mark.asyncio
+    async def test_classify_expected_release_infers_missing_promise_date_from_received_at(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.subject = "RE: Regarding your outstanding invoice"
+        sample_classify_request.email.body = "This is expected to release next Friday."
+        sample_classify_request.email.received_at = datetime(
+            2026, 5, 26, 10, 15, tzinfo=timezone.utc
+        )
+        sample_classify_request.email.forwarded_context = {
+            "source_type": "debtor_internal_routing_context",
+            "current_reply": {"body_excerpt": "This is expected to release next Friday."},
+            "internal_routing_cues": ["release_timing", "payment_scheduled_commitment"],
+            "validated_invoice_refs": ["INV-100"],
+            "same_thread_oai_draft_ids": ["draft-1"],
+            "forwarded_lineage": {"segment_count": 1, "segments": []},
+            "prompt_budget": {"body_reduced": False},
+            "instruction": "Extract facts from debtor-provided internal release timing.",
+        }
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "PROMISE_TO_PAY",
+                "confidence": 0.84,
+                "reasoning": "Debtor gives a soft payment release date.",
+                "extracted_data": {
+                    "promise_strength": "soft",
+                    "invoice_refs": ["INV-100"],
+                    "account_wide": False,
+                },
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
+            assert "Received At: 2026-05-26T10:15:00+00:00" in user_prompt
+            assert result.classification == "PROMISE_TO_PAY"
+            assert result.extracted_data.promise_date == date(2026, 5, 29)
 
     @pytest.mark.asyncio
     async def test_classify_invoice_processed_as_internal_processing_not_payment_confirmation(

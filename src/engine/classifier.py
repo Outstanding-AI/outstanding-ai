@@ -29,7 +29,8 @@ delivery -- they serve as a quality signal for downstream consumers.
 
 import json
 import logging
-from datetime import date
+import re
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from pydantic import ValidationError
@@ -58,6 +59,23 @@ logger = logging.getLogger(__name__)
 CLASSIFICATION_PROMPT_TEMPLATE_ID = "classification"
 CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "silver_application_v1"
 CLASSIFICATION_GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
+
+_WEEKDAY_INDEX = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+_WEEKDAY_PATTERN = "|".join(_WEEKDAY_INDEX)
+_NEXT_WEEKDAY_RE = re.compile(rf"\bnext\s+({_WEEKDAY_PATTERN})\b", re.IGNORECASE)
+_THIS_WEEKDAY_RE = re.compile(rf"\bthis\s+({_WEEKDAY_PATTERN})\b", re.IGNORECASE)
+_ANCHORED_WEEKDAY_RE = re.compile(
+    rf"\b(?:by|on|before|until)\s+({_WEEKDAY_PATTERN})\b",
+    re.IGNORECASE,
+)
 
 
 class EmailClassifier:
@@ -108,6 +126,10 @@ class EmailClassifier:
         # obligation so it can match invoice references in the email body
         # and detect per-invoice intents (e.g., "we paid INV-1234").
         invoice_table = format_invoice_table(request.context)
+        reference_date = _classification_reference_date(request)
+        received_at_display = (
+            request.email.received_at.isoformat() if request.email.received_at else "not supplied"
+        )
 
         # Build user prompt with context
         user_prompt = CLASSIFY_EMAIL_USER.format(
@@ -129,6 +151,8 @@ class EmailClassifier:
             party_source=request.context.party.source,
             industry_context=industry_context,
             forwarded_context=_format_forwarded_context_for_prompt(request.email.forwarded_context),
+            received_at=received_at_display,
+            reference_date=reference_date.isoformat(),
             from_name=request.email.from_name or "Unknown",
             from_address=request.email.from_address,
             subject=sanitize_delimiter_tags(request.email.subject),
@@ -160,14 +184,26 @@ class EmailClassifier:
                 details={"validation_errors": e.errors()},
             )
 
+        relative_date_source = _relative_date_source_text(request)
+
         # Parse extracted data — flat (legacy) + per-intent (PR4)
-        extracted = _build_extracted_data(result.extracted_data)
+        extracted = _build_extracted_data(
+            result.extracted_data,
+            reference_date=reference_date,
+            source_text=relative_date_source,
+            intent=result.classification,
+        )
 
         intent_details: list[IntentDetail] | None = None
         if result.intent_details:
             parsed_details: list[IntentDetail] = []
             for detail in result.intent_details:
-                detail_extracted = _build_extracted_data(detail.extracted_data)
+                detail_extracted = _build_extracted_data(
+                    detail.extracted_data,
+                    reference_date=reference_date,
+                    source_text=relative_date_source,
+                    intent=detail.intent,
+                )
                 parsed_details.append(
                     IntentDetail(intent=detail.intent, extracted_data=detail_extracted)
                 )
@@ -264,7 +300,13 @@ class EmailClassifier:
         )
 
 
-def _build_extracted_data(raw) -> ExtractedData | None:
+def _build_extracted_data(
+    raw,
+    *,
+    reference_date: date | None = None,
+    source_text: str | None = None,
+    intent: str | None = None,
+) -> ExtractedData | None:
     """Convert an ``LLMExtractedData`` (string dates) to ``ExtractedData`` (date objects).
 
     Returns ``None`` if ``raw`` is ``None`` or every field is ``None`` — keeps
@@ -280,17 +322,34 @@ def _build_extracted_data(raw) -> ExtractedData | None:
     if not any(v is not None for v in raw.model_dump().values()):
         return None
 
+    normalized_intent = str(intent or "").upper()
+
     def _parse_date(value, field_name: str):
         if not value:
             return None
+        if isinstance(value, date):
+            return value
         try:
-            return date.fromisoformat(value)
+            return date.fromisoformat(str(value))
         except ValueError:
+            resolved = _resolve_relative_date(str(value), reference_date)
+            if resolved:
+                return resolved
             logger.warning("Could not parse %s: %s", field_name, value)
             return None
 
+    def _parse_date_with_source_fallback(value, field_name: str, allowed_intents: set[str]):
+        parsed = _parse_date(value, field_name)
+        if parsed or normalized_intent not in allowed_intents:
+            return parsed
+        return _resolve_relative_date(source_text, reference_date)
+
     return ExtractedData(
-        promise_date=_parse_date(raw.promise_date, "promise_date"),
+        promise_date=_parse_date_with_source_fallback(
+            raw.promise_date,
+            "promise_date",
+            {"PROMISE_TO_PAY"},
+        ),
         promise_amount=raw.promise_amount,
         promise_strength=raw.promise_strength,
         dispute_type=raw.dispute_type,
@@ -298,13 +357,26 @@ def _build_extracted_data(raw) -> ExtractedData | None:
         invoice_refs=raw.invoice_refs,
         disputed_amount=raw.disputed_amount,
         claimed_due_date=_parse_date(raw.claimed_due_date, "claimed_due_date"),
-        claimed_payment_date=_parse_date(raw.claimed_payment_date, "claimed_payment_date"),
+        claimed_payment_date=_parse_date_with_source_fallback(
+            raw.claimed_payment_date,
+            "claimed_payment_date",
+            {"PAYMENT_TIMING_DISPUTE", "DEBTOR_INTERNAL_PROCESSING_BLOCKER"},
+        ),
         payment_timing_reason=raw.payment_timing_reason,
         internal_blocker_type=raw.internal_blocker_type,
         internal_blocker_reason=raw.internal_blocker_reason,
         internal_blocker_owner_hint=raw.internal_blocker_owner_hint,
         claimed_amount=raw.claimed_amount,
-        claimed_date=_parse_date(raw.claimed_date, "claimed_date"),
+        claimed_date=_parse_date_with_source_fallback(
+            raw.claimed_date,
+            "claimed_date",
+            {
+                "ALREADY_PAID",
+                "PAYMENT_CONFIRMATION",
+                "REMITTANCE_ADVICE",
+                "PARTIAL_PAYMENT_NOTIFICATION",
+            },
+        ),
         claimed_reference=raw.claimed_reference,
         claimed_details=raw.claimed_details,
         insolvency_type=raw.insolvency_type,
@@ -312,13 +384,81 @@ def _build_extracted_data(raw) -> ExtractedData | None:
         administrator_name=raw.administrator_name,
         administrator_email=raw.administrator_email,
         reference_number=raw.reference_number,
-        return_date=_parse_date(raw.return_date, "return_date"),
+        return_date=_parse_date_with_source_fallback(
+            raw.return_date,
+            "return_date",
+            {"OUT_OF_OFFICE"},
+        ),
         redirect_name=raw.redirect_name,
         redirect_contact=raw.redirect_contact,
         redirect_email=raw.redirect_email,
         bounced_email=raw.bounced_email,
         account_wide=raw.account_wide,
     )
+
+
+def _classification_reference_date(request: ClassifyRequest) -> date:
+    if request.email.received_at:
+        return request.email.received_at.astimezone(timezone.utc).date()
+
+    cutoff = getattr(request.context, "application_decision_cutoff", None)
+    if isinstance(cutoff, datetime):
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
+        return cutoff.astimezone(timezone.utc).date()
+    if isinstance(cutoff, date):
+        return cutoff
+    if isinstance(cutoff, str):
+        try:
+            return datetime.fromisoformat(cutoff.replace("Z", "+00:00")).date()
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc).date()
+
+
+def _relative_date_source_text(request: ClassifyRequest) -> str:
+    context = request.email.forwarded_context or {}
+    current_reply = context.get("current_reply") if isinstance(context, dict) else None
+    if isinstance(current_reply, dict) and current_reply.get("body_excerpt"):
+        return str(current_reply["body_excerpt"])
+    return request.email.body
+
+
+def _resolve_relative_date(text: str | None, reference_date: date | None) -> date | None:
+    if not text or not reference_date:
+        return None
+    lowered = str(text).lower()
+    if re.search(r"\btoday\b", lowered):
+        return reference_date
+    if re.search(r"\btomorrow\b", lowered):
+        return reference_date + timedelta(days=1)
+    if re.search(r"\byesterday\b", lowered):
+        return reference_date - timedelta(days=1)
+    if re.search(r"\bend\s+of\s+(?:the\s+)?month\b", lowered):
+        next_month = (reference_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+        return next_month - timedelta(days=1)
+
+    match = _NEXT_WEEKDAY_RE.search(lowered)
+    if match:
+        return _next_weekday(reference_date, _WEEKDAY_INDEX[match.group(1).lower()])
+
+    match = _THIS_WEEKDAY_RE.search(lowered) or _ANCHORED_WEEKDAY_RE.search(lowered)
+    if match:
+        return _next_weekday(
+            reference_date,
+            _WEEKDAY_INDEX[match.group(1).lower()],
+            include_today=True,
+        )
+    return None
+
+
+def _next_weekday(
+    reference_date: date, target_weekday: int, *, include_today: bool = False
+) -> date:
+    days_ahead = (target_weekday - reference_date.weekday()) % 7
+    if days_ahead == 0 and not include_today:
+        days_ahead = 7
+    return reference_date + timedelta(days=days_ahead)
 
 
 # Singleton instance used by the /classify route handler.
