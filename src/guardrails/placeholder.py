@@ -8,11 +8,8 @@ This is the cheapest guardrail (pure regex, zero LLM calls) and runs
 first in the pipeline.  CRITICAL severity -- any non-whitelisted
 placeholder blocks the draft.
 
-Allowed placeholders (handled programmatically by Django post-generation):
+Allowed placeholders:
     ``{INVOICE_TABLE}``  -- replaced by ``InvoiceTableBuilder``
-    ``[SENDER_NAME]``    -- replaced by ``_store_draft()``
-    ``[SENDER_TITLE]``   -- replaced by ``_store_draft()``
-    ``[SENDER_COMPANY]`` -- replaced by ``_store_draft()``
 
 Context-aware behaviour:
     - Standard drafts: ``{INVOICE_TABLE}`` is expected and allowed.
@@ -112,11 +109,12 @@ class PlaceholderValidationGuardrail(BaseGuardrail):
                     f"where invoice table is suppressed. Remove it."
                 )
             else:
+                allowed_text = ", ".join(sorted(allowed)) or "none"
                 msg = (
-                    f"Draft contains {len(found_placeholders)} hallucinated placeholder(s): "
+                    f"Draft contains {len(found_placeholders)} unresolved placeholder(s): "
                     f"{', '.join(sorted(found_placeholders))}. "
-                    f"Only allowed: {', '.join(sorted(allowed))}. "
-                    f"Use actual values from context instead of inventing placeholders."
+                    f"Only allowed: {allowed_text}. "
+                    "Use actual values from context, or omit unavailable signature fields."
                 )
 
             return [

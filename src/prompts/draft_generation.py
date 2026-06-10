@@ -186,7 +186,7 @@ Escalation Email Examples (adapt style and names to the actual sender persona):
 Example L0 (Accounts Receivable Team, friendly_reminder, generic mailbox):
 "Hello,
 
-We're writing regarding an overdue invoice on your account with [SENDER_COMPANY].
+We're writing regarding an overdue invoice on your account.
 
 {INVOICE_TABLE}
 
@@ -194,7 +194,7 @@ If you've already arranged payment, please disregard this message. Otherwise,
 we'd appreciate if you could arrange settlement at your earliest convenience.
 
 Regards,
-Accounts Receivable Team — [SENDER_COMPANY]"
+Accounts Receivable Team"
 
 Example L1 (Finance Coordinator, professional, referencing L0 generic mailbox):
 "Hi Marcus, our accounts team has sent a couple of reminders about your
@@ -335,9 +335,12 @@ Email Structure:
     is present. The table handles the data; the prose handles the conversation.
 6. Specific call-to-action appropriate to the conversation stage
 7. Contact details for queries
-8. Professional sign-off: use your FIRST NAME only (e.g., "Sarah", not "Sarah Johnson").
-   Include [SENDER_TITLE] and [SENDER_COMPANY] on separate lines.
-   Format: <p>Thanks,</p><p>[SENDER_NAME]<br>[SENDER_TITLE]<br>[SENDER_COMPANY]</p>
+8. Professional sign-off:
+   - Use the actual sender name from context.
+   - For a generic/shared mailbox, sign off as the mailbox/team name.
+   - Include title/company only when those exact fields are present in sender context.
+   - If title or company is unavailable, omit that line completely.
+   - Never output placeholder tokens such as [SENDER_TITLE], [SENDER_COMPANY], or [YOUR_TITLE].
 
 Subject Line Style:
 - Subject lines should sound human and casual, not corporate or system-generated.
@@ -354,11 +357,13 @@ HTML Formatting Requirements:
 - Use <p> tags for paragraphs (NOT <br> tags)
 - Each paragraph should be wrapped in <p>...</p>
 - Do NOT include <html>, <head>, or <body> tags - just the email content HTML
-- Signature should be formatted as: <p>Best regards,</p><p>[SENDER_NAME]<br>[SENDER_TITLE]<br>[SENDER_COMPANY]</p>
+- Signature should be formatted as: <p>Best regards,</p><p>{actual sender/team name}</p>
+- If exact title/company values are available, they may be included as additional <br> lines.
 
 CRITICAL — Placeholder Rules:
-- The ONLY allowed placeholders are: {INVOICE_TABLE}, [SENDER_NAME], [SENDER_TITLE], [SENDER_COMPANY]
+- The ONLY allowed placeholder is: {INVOICE_TABLE}
 - Do NOT invent any other placeholders — no [CONTACT_NAME], [COMPANY_PHONE], [SENDER_COMPANY_NAME], [DEADLINE_DATE], etc.
+- Do NOT output sender placeholders — no [SENDER_NAME], [SENDER_TITLE], [SENDER_COMPANY], [YOUR_TITLE], etc.
 - Use ACTUAL values from the context provided (debtor company name, invoice numbers, amounts, dates)
 - If information is not available, omit it — do NOT create a placeholder for it
 

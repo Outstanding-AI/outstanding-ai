@@ -44,9 +44,6 @@ CLASSIFICATION_CATEGORIES = frozenset(
 ALLOWED_PLACEHOLDERS = frozenset(
     {
         "{INVOICE_TABLE}",
-        "[SENDER_NAME]",
-        "[SENDER_TITLE]",
-        "[SENDER_COMPANY]",
     }
 )
 

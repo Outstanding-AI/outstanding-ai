@@ -28,8 +28,8 @@ def format_sender_persona(request) -> str:
 
     Returns:
         Multi-line string describing the sender persona for LLM
-        prompt injection.  Falls back to name/title placeholders
-        when no persona profile is available.
+        prompt injection. Omits unavailable sender fields rather than
+        creating placeholders for the model to fill.
     """
     company = request.sender_company or ""
     persona = request.sender_persona
@@ -51,10 +51,18 @@ def format_sender_persona(request) -> str:
 
     if not persona or not persona.communication_style:
         # No persona — use name/title/company if available
-        name = request.sender_name or "[SENDER_NAME]"
-        title = request.sender_title or "[SENDER_TITLE]"
-        company_line = f", Company: {company}" if company else ""
-        return f"Name: {name}, Title: {title}{company_line} (no persona profile — use neutral professional voice)"
+        name = request.sender_name or "Collections Team"
+        parts = [f"Name: {name}"]
+        if request.sender_title:
+            parts.append(f"Title: {request.sender_title}")
+        if company:
+            parts.append(f"Company: {company}")
+        parts.append(
+            "No persona profile — use a neutral professional voice. "
+            "For the sign-off, include only the sender fields listed above; "
+            "omit any unavailable title or company."
+        )
+        return ", ".join(parts)
 
     lines = [
         f"- Name: {request.sender_name or persona.name}",

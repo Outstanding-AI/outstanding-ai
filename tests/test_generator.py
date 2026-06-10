@@ -8,6 +8,7 @@ import pytest
 from src.api.models.requests import CaseContext, GenerateDraftRequest, ObligationInfo, PartyInfo
 from src.api.models.responses import GenerateDraftResponse
 from src.engine.generator import DraftGenerator
+from src.engine.generator_prompts import format_sender_persona
 from src.llm.base import LLMResponse
 
 
@@ -28,6 +29,18 @@ class TestDraftGenerator:
     def generator(self):
         """Create generator instance."""
         return DraftGenerator()
+
+    def test_sender_persona_omits_missing_title_and_company(self, sample_generate_draft_request):
+        sample_generate_draft_request.sender_name = "Accounts USA"
+        sample_generate_draft_request.sender_title = None
+        sample_generate_draft_request.sender_company = None
+        sample_generate_draft_request.sender_persona = None
+
+        rendered = format_sender_persona(sample_generate_draft_request)
+
+        assert "Accounts USA" in rendered
+        assert "[SENDER_TITLE]" not in rendered
+        assert "[SENDER_COMPANY]" not in rendered
 
     @pytest.mark.asyncio
     async def test_generate_draft_referencing_invoices(
