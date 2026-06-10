@@ -75,3 +75,18 @@ def test_forbidden_content_findings_are_strict_for_structured_outputs():
     finding_name = finding_ref.rsplit("/", 1)[-1]
 
     assert schema["$defs"][finding_name]["additionalProperties"] is False
+
+
+def test_forbidden_content_excerpt_is_truncated_before_validation():
+    response = ClassificationLLMResponse(
+        classification="UNCLEAR",
+        confidence=0.5,
+        forbidden_content_detected=[
+            {
+                "category": "external_url",
+                "excerpt": "x" * 260,
+            }
+        ],
+    )
+
+    assert len(response.forbidden_content_detected[0].excerpt) == 200

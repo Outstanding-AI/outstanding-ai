@@ -155,6 +155,11 @@ class ForbiddenContentFinding(BaseModel):
     ]
     excerpt: str = Field(default="", max_length=200)
 
+    @field_validator("excerpt", mode="before")
+    @classmethod
+    def truncate_excerpt(cls, value: object) -> str:
+        return str(value or "")[:200]
+
 
 class ClassificationLLMResponse(BaseModel):
     """
