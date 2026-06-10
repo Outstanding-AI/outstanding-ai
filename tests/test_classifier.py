@@ -413,7 +413,7 @@ class TestEmailClassifier:
             assert result.extracted_data.promise_date == date(2026, 5, 29)
 
     @pytest.mark.asyncio
-    async def test_classify_invoice_processed_as_internal_processing_not_payment_confirmation(
+    async def test_classify_invoice_processed_as_cooperative_not_internal_blocker(
         self, classifier, sample_classify_request
     ):
         sample_classify_request.email.subject = "RE: Regarding your outstanding invoice"
@@ -430,12 +430,10 @@ class TestEmailClassifier:
 
         mock_response = _make_llm_response(
             {
-                "classification": "DEBTOR_INTERNAL_PROCESSING_BLOCKER",
+                "classification": "COOPERATIVE",
                 "confidence": 0.82,
-                "reasoning": "Debtor says the invoice was processed internally, but does not claim payment was sent.",
+                "reasoning": "Debtor is engaging and says the invoice was processed, but gives no payment date and no blocker.",
                 "extracted_data": {
-                    "internal_blocker_type": "internal_review",
-                    "internal_blocker_reason": "Invoice was processed internally without payment confirmation.",
                     "invoice_refs": ["0000007324"],
                     "account_wide": False,
                 },
@@ -451,9 +449,96 @@ class TestEmailClassifier:
 
             user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
             assert "I just processed the invoice" in user_prompt
-            assert "if the newest debtor text only says the invoice was processed" in user_prompt
-            assert result.classification == "DEBTOR_INTERNAL_PROCESSING_BLOCKER"
-            assert result.extracted_data.internal_blocker_type == "internal_review"
+            assert 'simple "I just processed the invoice"' in user_prompt
+            assert result.classification == "COOPERATIVE"
+            assert result.extracted_data.invoice_refs == ["0000007324"]
+
+    @pytest.mark.asyncio
+    async def test_classify_thank_you_over_quoted_processing_as_acknowledgement(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.subject = "RE: Regarding your outstanding invoice"
+        sample_classify_request.email.body = (
+            "[Newest debtor-authored reply]\n"
+            "Thank You\n\n"
+            "[Quoted/forwarded/internal context summaries]\n"
+            "- Prior debtor text: I just processed the invoice."
+        )
+        sample_classify_request.email.forwarded_context = {
+            "source_type": "debtor_internal_routing_context",
+            "current_reply": {"body_excerpt": "Thank You"},
+            "validated_invoice_refs": ["0000007324"],
+            "same_thread_oai_draft_ids": ["draft-1"],
+            "forwarded_lineage": {"segment_count": 2, "segments": []},
+            "prompt_budget": {"body_reduced": True},
+        }
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "GENERIC_ACKNOWLEDGEMENT",
+                "confidence": 0.88,
+                "reasoning": "Newest debtor-authored text is only thanks; quoted processing history is not a new blocker.",
+                "extracted_data": {
+                    "invoice_refs": ["0000007324"],
+                    "account_wide": False,
+                },
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
+            assert (
+                "Do not treat quoted historical collection emails or historic debtor replies"
+                in user_prompt
+            )
+            assert "thank you" in user_prompt.lower()
+            assert result.classification == "GENERIC_ACKNOWLEDGEMENT"
+
+    @pytest.mark.asyncio
+    async def test_classify_assist_without_specific_blocker_as_cooperative(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.subject = "RE: Regarding your outstanding invoice"
+        sample_classify_request.email.body = (
+            "Can you assist? I have not seen anything about this past due invoice until now."
+        )
+        sample_classify_request.email.forwarded_context = {
+            "source_type": "debtor_internal_routing_context",
+            "internal_routing_cues": ["internal_check_requested"],
+            "validated_invoice_refs": ["0000007453"],
+            "same_thread_oai_draft_ids": ["draft-1"],
+            "forwarded_lineage": {"segment_count": 1, "segments": []},
+            "prompt_budget": {"body_reduced": False},
+        }
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "COOPERATIVE",
+                "confidence": 0.8,
+                "reasoning": "Debtor is asking internally for assistance, but no concrete blocker or payment commitment is stated.",
+                "extracted_data": {
+                    "invoice_refs": ["0000007453"],
+                    "account_wide": False,
+                },
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
+            assert "I have not seen this until now" in user_prompt
+            assert result.classification == "COOPERATIVE"
 
     @pytest.mark.asyncio
     async def test_classify_current_payment_commitment_over_quoted_history(
