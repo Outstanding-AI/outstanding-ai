@@ -321,14 +321,14 @@ class TestEmailClassifier:
             )
 
     @pytest.mark.asyncio
-    async def test_classify_internal_release_timing_as_blocker(
+    async def test_classify_expected_release_timing_as_soft_promise(
         self, classifier, sample_classify_request
     ):
         sample_classify_request.email.subject = "RE: Regarding your outstanding invoice"
         sample_classify_request.email.body = "This is expected to release next Friday."
         sample_classify_request.email.forwarded_context = {
             "source_type": "debtor_internal_routing_context",
-            "internal_routing_cues": ["release_timing"],
+            "internal_routing_cues": ["release_timing", "payment_scheduled_commitment"],
             "validated_invoice_refs": [],
             "same_thread_oai_draft_ids": ["draft-1"],
             "forwarded_lineage": {"segment_count": 1, "segments": []},
@@ -338,12 +338,12 @@ class TestEmailClassifier:
 
         mock_response = _make_llm_response(
             {
-                "classification": "DEBTOR_INTERNAL_PROCESSING_BLOCKER",
+                "classification": "PROMISE_TO_PAY",
                 "confidence": 0.86,
-                "reasoning": "Debtor says the invoice is expected to release through an internal payment run.",
+                "reasoning": "Debtor says payment is expected to release next Friday.",
                 "extracted_data": {
-                    "internal_blocker_type": "payment_run_pending",
-                    "internal_blocker_reason": "Invoice is expected to release next Friday.",
+                    "promise_date": "2026-06-05",
+                    "promise_strength": "soft",
                     "account_wide": False,
                 },
             }
@@ -358,9 +358,52 @@ class TestEmailClassifier:
 
             user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
             assert "expected to release next Friday" in user_prompt
-            assert "rather than COOPERATIVE" in user_prompt
+            assert 'promise_strength="soft"' in user_prompt
+            assert result.classification == "PROMISE_TO_PAY"
+            assert result.extracted_data.promise_strength == "soft"
+
+    @pytest.mark.asyncio
+    async def test_classify_invoice_processed_as_internal_processing_not_payment_confirmation(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.subject = "RE: Regarding your outstanding invoice"
+        sample_classify_request.email.body = "I just processed the invoice."
+        sample_classify_request.email.forwarded_context = {
+            "source_type": "debtor_internal_routing_context",
+            "internal_routing_cues": ["processing_update"],
+            "validated_invoice_refs": ["0000007324"],
+            "same_thread_oai_draft_ids": ["draft-1"],
+            "forwarded_lineage": {"segment_count": 1, "segments": []},
+            "prompt_budget": {"body_reduced": False},
+            "instruction": "Extract facts from debtor-provided internal processing update.",
+        }
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "DEBTOR_INTERNAL_PROCESSING_BLOCKER",
+                "confidence": 0.82,
+                "reasoning": "Debtor says the invoice was processed internally, but does not claim payment was sent.",
+                "extracted_data": {
+                    "internal_blocker_type": "internal_review",
+                    "internal_blocker_reason": "Invoice was processed internally without payment confirmation.",
+                    "invoice_refs": ["0000007324"],
+                    "account_wide": False,
+                },
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
+            assert "I just processed the invoice" in user_prompt
+            assert "if the newest debtor text only says the invoice was processed" in user_prompt
             assert result.classification == "DEBTOR_INTERNAL_PROCESSING_BLOCKER"
-            assert result.extracted_data.internal_blocker_type == "payment_run_pending"
+            assert result.extracted_data.internal_blocker_type == "internal_review"
 
     @pytest.mark.asyncio
     async def test_classify_current_payment_commitment_over_quoted_history(
