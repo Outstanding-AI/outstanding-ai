@@ -10,6 +10,7 @@ from src.api.models.responses import GenerateDraftResponse
 from src.engine.generator import DraftGenerator
 from src.engine.generator_prompts import format_sender_persona
 from src.llm.base import LLMResponse
+from src.prompts.draft_generation import GENERATE_DRAFT_SYSTEM
 
 
 def _make_llm_response(content: dict, tokens: int = 100) -> LLMResponse:
@@ -41,6 +42,42 @@ class TestDraftGenerator:
         assert "Accounts USA" in rendered
         assert "[SENDER_TITLE]" not in rendered
         assert "[SENDER_COMPANY]" not in rendered
+
+    def test_reply_prompt_uses_actual_inbound_respondent_and_company(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.context.party.name = "Integra Technical Services Ltd"
+        sample_generate_draft_request.context.debtor_contact = {
+            "email": "bryana@example.com",
+            "name": "Bryana Reviewer",
+            "first_name": "Bryana",
+            "company_name": "Integra Technical Services Ltd",
+            "recipient_source": "inbound_reply_sender",
+        }
+        sample_generate_draft_request.skip_invoice_table = True
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+
+        assert "- Company: Integra Technical Services Ltd" in prompt_ctx.user_prompt
+        assert "- Contact Person: Bryana" in prompt_ctx.user_prompt
+        assert "Never address a reply draft to a default account contact" in GENERATE_DRAFT_SYSTEM
+
+    def test_reply_prompt_keeps_group_mailbox_display_name(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.context.party.name = "SUBSEA 7 (US) LLC"
+        sample_generate_draft_request.context.debtor_contact = {
+            "email": "subsea7.gomaccountspayable@subsea7.com",
+            "name": "Subsea7 GoM Accounts Payable",
+            "company_name": "SUBSEA 7 (US) LLC",
+            "recipient_source": "inbound_reply_sender",
+        }
+        sample_generate_draft_request.skip_invoice_table = True
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+
+        assert "- Company: SUBSEA 7 (US) LLC" in prompt_ctx.user_prompt
+        assert "- Contact Person: Subsea7 GoM Accounts Payable" in prompt_ctx.user_prompt
 
     @pytest.mark.asyncio
     async def test_generate_draft_referencing_invoices(

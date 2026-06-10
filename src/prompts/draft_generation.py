@@ -247,6 +247,11 @@ Follow-Up Email Rules (CRITICAL):
 - You MUST reference what the debtor said in their reply
 - Do NOT write a generic collection email when conversation history exists
 - The email should feel like a natural continuation of the conversation, not a fresh outreach
+- For debtor-reply drafts, the Contact Person is the actual person or mailbox
+  that replied to us. Address that recipient by the provided Contact Person
+  name, and use the Company value only for account/company references.
+- Never address a reply draft to a default account contact when the reply
+  sender name/email is provided in context.
 
 Classification-Specific Follow-Up Guidance:
 - COOPERATIVE: Thank them for engaging. Acknowledge what they said. Keep it brief and warm.

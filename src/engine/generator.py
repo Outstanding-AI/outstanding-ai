@@ -356,9 +356,16 @@ class DraftGenerator:
         contact_name = ""
         if request.context.debtor_contact:
             dc = request.context.debtor_contact
-            contact_name = dc.get("first_name") or (
-                dc.get("name", "").split()[0] if dc.get("name") else ""
-            )
+            if (
+                dc.get("recipient_source") == "inbound_reply_sender"
+                and dc.get("name")
+                and not dc.get("first_name")
+            ):
+                contact_name = dc.get("name", "")
+            else:
+                contact_name = dc.get("first_name") or (
+                    dc.get("name", "").split()[0] if dc.get("name") else ""
+                )
 
         # Build base user prompt
         base_user_prompt = GENERATE_DRAFT_USER.format(
