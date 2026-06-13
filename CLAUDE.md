@@ -4,7 +4,7 @@ Stateless AI microservice powering intelligent debt collection workflows.
 
 ## Project Identity
 
-- **Purpose**: Email classification (23 categories), draft generation (5 tones), persona management. Gate evaluation lives in the Django backend (`services/gate_checker.py`); the AI Engine no longer evaluates gates.
+- **Purpose**: Email classification (25 categories), draft generation (5 tones), persona management. Gate evaluation lives in the Django backend (`services/gate_checker.py`); the AI Engine no longer evaluates gates.
 - **Stack**: FastAPI + Vertex AI (`google-genai`) primary / OpenAI fallback / Anthropic optional
 - **Port**: 8001
 
@@ -36,7 +36,7 @@ solvix-ai/
 │   │   ├── generator_prompts.py # Prompt builders for draft generation
 │   │   ├── formatters.py    # Shared formatting utilities
 │   │   └── persona.py       # Persona generation/refinement
-│   ├── guardrails/          # 7 parallel validators (includes ToneClampingGuardrail)
+│   ├── guardrails/          # 12 registered validators (6-worker ThreadPoolExecutor)
 │   ├── llm/                 # Provider factory + implementations
 │   ├── prompts/             # LLM prompt templates
 │   ├── evals/               # LLM evaluation framework (batch.py, metrics.py, realtime.py)
@@ -52,8 +52,8 @@ Domain knowledge loads automatically via `.claude/rules/` when working on matchi
 | Rule | Paths | Content |
 |------|-------|---------|
 | `llm-providers.md` | src/llm/**, src/config/** | Provider hierarchy, model config, fallback chain |
-| `guardrails.md` | src/guardrails/** | 7 validators (includes ToneClampingGuardrail), severity, follow-up exception |
-| `classification.md` | src/engine/classifier.py | 23 categories, extraction, multi-intent |
+| `guardrails.md` | src/guardrails/** | 12 validators (includes ToneClampingGuardrail), severity, follow-up exception |
+| `classification.md` | src/engine/classifier.py | 25 categories, extraction, multi-intent |
 | `generation.md` | src/engine/generator.py, src/engine/generator_prompts.py, src/engine/formatters.py | Tones, greeting, conciseness, voice rules |
 | `api-routes.md` | src/api/** | Endpoints, schemas, middleware |
 | `docs-reference.md` | docs/** | Index to API reference and cross-repo contracts |
@@ -134,7 +134,7 @@ AI does not write the data lake directly, but generated drafts and classificatio
 - `GenerateDraftRequest` carries `collection_lane.tone_ladder: list[str]` as the deterministic per-touch ladder for the current level.
 - Backend picks the exact `tone` from that ladder using `scheduled_touch_index` and passes that concrete tone to the AI request.
 - AI does not choose a different tone. It uses `scheduled_touch_index`, `max_touches_for_level`, `last_reply_classification`, suppression history, `days_since_last_touch`, and `lane_history[]` to vary urgency/content framing while staying inside the backend-selected tone.
-- `ToneClampingGuardrail` (7th guardrail, HIGH severity) is **active** (May 2026 — was previously a no-op despite the docstring). It inspects the LLM body:
+- `ToneClampingGuardrail` (HIGH severity) is **active** (May 2026 — was previously a no-op despite the docstring). It inspects the LLM body:
   - `acknowledgement` tone: fails on collection-pressure phrases (`please pay`, `make payment`, `final notice`, `legal action`, `legal proceedings`, `account suspension`, `within 7 days`, etc.) AND requires at least one acknowledgement cue (`thank`, `received`, `acknowledge`, `confirm`, `receipt`).
   - `friendly_reminder` / `concerned_inquiry`: fail on escalation-pressure phrases (`legal action`, `legal proceedings`, `final notice`, `account suspension`).
   - **Residual caveat (known limitation, not a bug)**: substring matching is naïve and does NOT strip quoted reply history. The helper `_strip_quoted_reply_text` removes `<blockquote>` HTML and `>`-prefixed lines, but a reply that quotes a prior firm chase via other markup (e.g., inline italics, `--- Original Message ---` separators) could still surface trigger phrases inside the quoted block and false-fail. Treat this as a high-precision / lower-recall safety net, not a fully robust quoted-history parser.
@@ -246,7 +246,7 @@ Non-obvious gotchas — violating these breaks production first-sync draft gener
 4. **`is_fallback: bool` on `LLMResponse`.** Factory sets `response.model_copy(update={"is_fallback": True})` on the fallback path; surfaces in logs as `used_fallback=true`.
 5. **Provider error logs use `exc_info=True`** plus `extra={"caller", "error_type", "structured"}`. CloudWatch now shows the actual exception class + stack instead of "Vertex provider error" on its own.
 6. **Logging formatter injects sentinels.** `src/main.py` registers `_DefaultExtrasFilter` that sets `caller/error_type/error` to `"-"` when the LogRecord lacks them — the formatter stays stable across both tagged and untagged records.
-7. **Guardrail thread pool is 6 workers for 7 guardrails.** `src/guardrails/executor.py` `_guardrail_executor = ThreadPoolExecutor(max_workers=6)`. The CRITICAL guardrail runs first serially (fail-fast), then the remaining 6 fill the pool in parallel. Old 7-worker comment was wrong and the 7-thread config amplified the cross-loop primitive contention described in #1.
+7. **Guardrail thread pool is 6 workers for 12 guardrails.** `src/guardrails/executor.py` `_guardrail_executor = ThreadPoolExecutor(max_workers=6)`. Guardrails are sorted by severity (CRITICAL first, then HIGH, then MEDIUM); the pipeline runs CRITICAL serially first (fail-fast), then the remaining fill the 6-worker pool in parallel.
 8. **Entity guardrail event-loop hygiene.** Worker runs `asyncio.new_event_loop()` + `set_event_loop(loop)`; `finally` MUST call `asyncio.set_event_loop(None)` before `loop.close()` so the next guardrail on the same worker thread doesn't pick up a dead loop via `get_event_loop()`.
 9. **Entity prompt must separate debtor from sender identity.** `ENTITY_VALIDATION_PROMPT` lists EXPECTED DEBTOR ENTITIES and ALLOWED SENDER ENTITIES separately. The generator threads `sender_company`, `sender_name`, `sender_mailbox_name` into the guardrail `kwargs`. Without this split the guardrail flags valid drafts that mention the sender company in sign-offs (e.g. "your account with ESWL") as hallucinated unrelated companies.
 10. **No application-level output-token caps.** Do not pass `max_tokens` / `max_output_tokens` in guardrail, draft, classification, or fallback calls. Rely on provider-native limits plus retry/defer behavior; explicit app caps caused `LengthFinishReasonError` and empty Vertex payload failures during first-sync draft generation.

@@ -26,15 +26,20 @@ Concept → file navigation index.
 
 | Concept | File |
 |---------|------|
-| Pipeline orchestrator | `src/guardrails/pipeline.py` (orchestration), `executor.py` (execution), `feedback.py` (feedback) |
+| Pipeline orchestrator | `src/guardrails/pipeline.py` (12 registered guardrails, 6-worker ThreadPoolExecutor), `executor.py` (execution), `feedback.py` (feedback) |
 | Base validator | `src/guardrails/base.py` |
 | Placeholder detection | `src/guardrails/placeholder.py` |
 | Factual grounding | `src/guardrails/factual_grounding.py` |
 | Numerical consistency | `src/guardrails/numerical.py` |
-| Entity verification | `src/guardrails/entity.py` |
+| Lane scope | `src/guardrails/lane_scope.py` |
+| Identity scope (renamed from entity) | `src/guardrails/identity_scope.py` |
+| Overdue terminology | `src/guardrails/overdue_terminology.py` |
+| Policy grounding | `src/guardrails/policy_grounding.py` |
+| Forbidden content | `src/guardrails/forbidden_content.py` |
+| Tone clamping | `src/guardrails/tone_clamping.py` |
+| Semantic coherence | `src/guardrails/semantic_coherence.py` |
 | Temporal consistency | `src/guardrails/temporal.py` |
 | Contextual coherence | `src/guardrails/contextual.py` |
-| Tone clamping (v2) | `src/guardrails/tone_clamping.py` |
 
 ## LLM Providers
 
