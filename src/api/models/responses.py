@@ -38,6 +38,15 @@ class ExtractedData(BaseModel):
     ] = None
     internal_blocker_reason: Optional[str] = None
     internal_blocker_owner_hint: Optional[str] = None
+    # Document / workflow references extracted from debtor-authored text or
+    # debtor-provided internal forwards.
+    po_refs: Optional[List[str]] = None
+    grn_refs: Optional[List[str]] = None
+    sales_order_refs: Optional[List[str]] = None
+    purchase_order_refs: Optional[List[str]] = None
+    document_refs: Optional[List[str]] = None
+    approval_owner_hint: Optional[str] = None
+    dependency_status: Optional[Literal["pending", "satisfied", "unknown"]] = None
     # ALREADY_PAID
     claimed_amount: Optional[float] = None
     claimed_date: Optional[date] = None

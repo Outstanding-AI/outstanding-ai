@@ -84,6 +84,16 @@ class LLMExtractedData(BaseModel):
     ] = None
     internal_blocker_reason: Optional[str] = None
     internal_blocker_owner_hint: Optional[str] = None
+    # Document / workflow references extracted from debtor-authored text or
+    # debtor-provided internal forwards. These are evidence fields only; the
+    # workflow resolver still validates them against same-tenant party data.
+    po_refs: Optional[list[str]] = None
+    grn_refs: Optional[list[str]] = None
+    sales_order_refs: Optional[list[str]] = None
+    purchase_order_refs: Optional[list[str]] = None
+    document_refs: Optional[list[str]] = None
+    approval_owner_hint: Optional[str] = None
+    dependency_status: Optional[Literal["pending", "satisfied", "unknown"]] = None
     # ALREADY_PAID
     claimed_amount: Optional[float] = None
     claimed_date: Optional[str] = None

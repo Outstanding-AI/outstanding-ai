@@ -118,7 +118,7 @@ Extract data for ALL detected intents (primary + secondary):
 - **PROMISE_TO_PAY**: promise_date (YYYY-MM-DD), promise_amount, promise_strength (one of: `firm` for definite commitments like "I will pay £500 on Friday"; `soft` for hedged commitments like "I should be able to pay by Friday"; `aspirational` for non-binding intent like "I'll try to pay soon"), invoice_refs, account_wide
 - **DISPUTE**: dispute_type (goods_not_received, quality_issue, pricing_error, wrong_customer, other), dispute_reason, invoice_refs, disputed_amount, account_wide
 - **PAYMENT_TIMING_DISPUTE**: claimed_due_date (YYYY-MM-DD if debtor says the invoice is not due until a date), claimed_payment_date (YYYY-MM-DD if debtor says it is scheduled/processed for a future payment run), payment_timing_reason, invoice_refs, account_wide
-- **DEBTOR_INTERNAL_PROCESSING_BLOCKER**: internal_blocker_type (one of: goods_receipt_missing, po_issue, approval_pending, payment_run_pending, portal_processing, internal_review, other), internal_blocker_reason, internal_blocker_owner_hint, claimed_payment_date (YYYY-MM-DD if they give an expected payment run/release date), invoice_refs, account_wide
+- **DEBTOR_INTERNAL_PROCESSING_BLOCKER**: internal_blocker_type (one of: goods_receipt_missing, po_issue, approval_pending, payment_run_pending, portal_processing, internal_review, other), internal_blocker_reason, internal_blocker_owner_hint, approval_owner_hint, dependency_status (pending, satisfied, unknown), claimed_payment_date (YYYY-MM-DD if they give an expected payment run/release date), invoice_refs, po_refs, grn_refs, sales_order_refs, purchase_order_refs, document_refs, account_wide
 - **ALREADY_PAID**: claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment ref), claimed_details, invoice_refs (which invoices they claim are paid), account_wide
 - **PAYMENT_CONFIRMATION**: claimed_amount, claimed_reference, claimed_date
 - **REMITTANCE_ADVICE**: claimed_amount, claimed_date (YYYY-MM-DD), claimed_reference (payment/remittance ref), claimed_details, invoice_refs, account_wide
@@ -131,6 +131,31 @@ Extract data for ALL detected intents (primary + secondary):
 - **EMAIL_BOUNCE**: bounced_email (the failed recipient address — extract from "Original-Recipient", "Final-Recipient", "To:" of the bounce body, or any "delivery failed for X@Y" text), bounce_reason (in dispute_reason field)
 - **ESCALATION_REQUEST**: redirect_name (if specified)
 - **PARTIAL_PAYMENT_NOTIFICATION**: claimed_amount, claimed_reference, invoice_refs
+
+## Document / Dependency Extraction Rules
+
+For any material intent, especially DEBTOR_INTERNAL_PROCESSING_BLOCKER,
+PAYMENT_TIMING_DISPUTE, PROMISE_TO_PAY, REQUEST_INFO, and DISPUTE:
+- Extract document references only from debtor-authored text or debtor-provided
+  forwarded/internal context. Do not copy our quoted chase email references
+  unless the debtor's newest reply clearly relies on them.
+- `po_refs`: customer purchase order numbers mentioned as PO/P.O./purchase order.
+- `grn_refs`: GR, GRN, goods receipt, or receipt-posting references.
+- `sales_order_refs`: sales order / SO references.
+- `purchase_order_refs`: supplier/internal purchase order references when the
+  text explicitly identifies them as purchase orders.
+- `document_refs`: any other relevant document references such as portal case,
+  approval workflow, remittance, ticket, receipt, or attachment identifiers.
+- A PO number by itself is NOT a blocker. Classify as blocker only when the
+  newest debtor-authored text says the missing/invalid/mismatched PO, missing
+  GR/GRN, pending approval, portal processing, or internal review is blocking
+  payment.
+- If the newest debtor-authored text says the invoice is approved and funds
+  will be issued/released/paid on a future date, classify as PROMISE_TO_PAY,
+  not DEBTOR_INTERNAL_PROCESSING_BLOCKER. Set `dependency_status="satisfied"`
+  only if the reply explicitly says the blocker/approval has been satisfied.
+- If the reply merely says an invoice copy/remittance/PDF is attached and gives
+  no blocker, do not infer a blocker from the attachment.
 
 ## Industry Context Usage
 When industry context is provided, use it to better interpret the email:
