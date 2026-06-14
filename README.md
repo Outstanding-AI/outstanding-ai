@@ -20,7 +20,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 - **Service Authentication**: Bearer token auth for service-to-service calls
 - **Rate Limiting**: Per-tenant rate limits via `X-Tenant-ID` header (falls back to IP for direct callers)
 - **Robust JSON Parsing**: Multi-strategy JSON extraction from LLM responses (handles markdown blocks, trailing commas, etc.)
-- **Versioned Context Contract**: Backend requests carry `schema_version`. The service accepts only the canonical `CaseContext` v2 contract — v1 (legacy Sage-keyed) has been retired (`schema_version: Literal[2]` only) per `solvix-contracts==0.2.0`.
+- **Versioned Context Contract**: Backend requests carry `schema_version`. The service accepts only the canonical `CaseContext` v2 contract — v1 (legacy Sage-keyed) has been retired (`schema_version: Literal[2]` only) under the current `solvix-contracts` pin.
 
 ## Architecture
 
@@ -89,7 +89,7 @@ make dev
 
 ### Shared Contracts Dependency
 
-`solvix-contracts` is installed from the backend repo tag `contracts-v0.8.0`. For normal local development, authenticate git once and install through uv:
+`solvix-contracts` is installed from the backend repo tag pinned in `pyproject.toml` and `uv.lock` (`contracts-v0.12.25` as of 2026-06-14). For normal local development, authenticate git once and install through uv:
 
 ```bash
 gh auth setup-git
