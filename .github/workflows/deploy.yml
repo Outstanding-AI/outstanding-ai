@@ -171,6 +171,8 @@ jobs:
       ECS_SERVICE: ai-engine
       TASK_FAMILY: outstandingai-ai-engine
       CONTAINER_NAME: ai-engine
+      AI_CLASS_SPECS: "large:2048:4096 xlarge:4096:8192"
+      ECS_CREATE_CLASS_SERVICES: ${{ vars.ECS_CREATE_CLASS_SERVICES || 'true' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -219,7 +221,22 @@ jobs:
           echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
           echo "image=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
+      - name: Check whether immutable image tag already exists
+        id: image_exists
+        run: |
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="${{ steps.meta.outputs.image_tag }}" \
+            >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Image tag ${{ steps.meta.outputs.image_tag }} already exists; reusing it for this deploy."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Image tag ${{ steps.meta.outputs.image_tag }} does not exist; building and pushing it."
+          fi
+
       - name: Build and push (SHA only — no :latest; ECR is IMMUTABLE)
+        if: steps.image_exists.outputs.exists != 'true'
         # platforms: linux/amd64 matches task-def cpuArchitecture=X86_64 in
         # infra/ecs-task-ai.json. Without this, an arm64 runner would produce
         # an image that Fargate rejects with 'exec format error'.
@@ -288,3 +305,128 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
           wait-for-minutes: 10
+
+      - name: Deploy AI Engine class task definitions
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_FAMILY" \
+            --query taskDefinition \
+            > /tmp/ai-base-task-definition.json
+
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0]' \
+            > /tmp/ai-base-service.json
+
+          for SPEC in $AI_CLASS_SPECS; do
+            IFS=: read -r WORKER_CLASS CPU MEMORY <<< "$SPEC"
+            TASK_FAMILY_CLASS="${TASK_FAMILY}-${WORKER_CLASS}"
+            SERVICE_CLASS="${ECS_SERVICE}-${WORKER_CLASS}"
+            TASK_JSON="/tmp/${TASK_FAMILY_CLASS}.json"
+            SERVICE_JSON="/tmp/${SERVICE_CLASS}.json"
+
+            python3 - "$WORKER_CLASS" "$CPU" "$MEMORY" "$TASK_JSON" <<'PY'
+          import copy
+          import json
+          import sys
+
+          worker_class, cpu, memory, output_path = sys.argv[1:]
+          base = json.load(open("/tmp/ai-base-task-definition.json"))
+          allowed = {
+              "family",
+              "taskRoleArn",
+              "executionRoleArn",
+              "networkMode",
+              "containerDefinitions",
+              "volumes",
+              "placementConstraints",
+              "requiresCompatibilities",
+              "cpu",
+              "memory",
+              "runtimePlatform",
+              "ephemeralStorage",
+              "proxyConfiguration",
+              "inferenceAccelerators",
+              "pidMode",
+              "ipcMode",
+          }
+          payload = {key: copy.deepcopy(base[key]) for key in allowed if key in base}
+          payload["family"] = f"{base['family']}-{worker_class}"
+          payload["cpu"] = cpu
+          payload["memory"] = memory
+          for container in payload["containerDefinitions"]:
+              env = [item for item in container.get("environment", []) if item.get("name") != "AI_ENGINE_CLASS"]
+              env.append({"name": "AI_ENGINE_CLASS", "value": worker_class})
+              container["environment"] = sorted(env, key=lambda item: item["name"])
+              log_config = container.get("logConfiguration") or {}
+              options = log_config.get("options") or {}
+              if options.get("awslogs-stream-prefix"):
+                  options["awslogs-stream-prefix"] = f"ai-{worker_class}"
+                  log_config["options"] = options
+                  container["logConfiguration"] = log_config
+          json.dump(payload, open(output_path, "w"))
+          PY
+
+            NEW_TASK_DEF=$(aws ecs register-task-definition \
+              --cli-input-json "file://${TASK_JSON}" \
+              --query 'taskDefinition.taskDefinitionArn' \
+              --output text)
+
+            SERVICE_COUNT=$(aws ecs describe-services \
+              --cluster "$ECS_CLUSTER" \
+              --services "$SERVICE_CLASS" \
+              --query 'length(services)' \
+              --output text)
+            if [ "$SERVICE_COUNT" = "1" ]; then
+              aws ecs update-service \
+                --cluster "$ECS_CLUSTER" \
+                --service "$SERVICE_CLASS" \
+                --task-definition "$NEW_TASK_DEF" \
+                --desired-count 0 \
+                --query 'service.{service:serviceName,taskDefinition:taskDefinition,desired:desiredCount}' \
+                --output json
+            elif [ "$ECS_CREATE_CLASS_SERVICES" = "true" ]; then
+              python3 - "$SERVICE_CLASS" "$NEW_TASK_DEF" "$SERVICE_JSON" <<'PY'
+          import copy
+          import json
+          import sys
+
+          service_name, task_definition, output_path = sys.argv[1:]
+          base = json.load(open("/tmp/ai-base-service.json"))
+          payload = {
+              "cluster": base["clusterArn"],
+              "serviceName": service_name,
+              "taskDefinition": task_definition,
+              "desiredCount": 0,
+              "enableECSManagedTags": base.get("enableECSManagedTags", True),
+          }
+          for key in [
+              "capacityProviderStrategy",
+              "deploymentConfiguration",
+              "enableExecuteCommand",
+              "healthCheckGracePeriodSeconds",
+              "launchType",
+              "networkConfiguration",
+              "placementConstraints",
+              "placementStrategy",
+              "platformVersion",
+              "propagateTags",
+              "schedulingStrategy",
+              "serviceRegistries",
+          ]:
+              value = base.get(key)
+              if value not in (None, [], {}):
+                  payload[key] = copy.deepcopy(value)
+          if payload.get("capacityProviderStrategy"):
+              payload.pop("launchType", None)
+          json.dump(payload, open(output_path, "w"))
+          PY
+              aws ecs create-service \
+                --cli-input-json "file://${SERVICE_JSON}" \
+                --query 'service.{service:serviceName,taskDefinition:taskDefinition,desired:desiredCount}' \
+                --output json
+            else
+              echo "AI class service ${SERVICE_CLASS} not provisioned; registered ${NEW_TASK_DEF} only"
+            fi
+          done
