@@ -281,6 +281,34 @@ def test_hydrate_candidate_preserves_source_query_blocks() -> None:
     assert context.sendable_obligation_ids == []
 
 
+def test_hydrate_candidate_excludes_stale_lane_snapshot_when_obligation_is_closed() -> None:
+    reader = _FakeReader()
+    reader.obligations[0].update(
+        {
+            "amount_due": 0.0,
+            "amount_due_base": 0.0,
+            "obligation_is_open": False,
+            "is_outstanding": True,
+            "is_overdue": True,
+            "days_overdue": 73,
+            "state": "closed",
+        }
+    )
+
+    context = CaseContextHydrator("tenant-1", reader).hydrate_candidate(_candidate())
+
+    assert context.obligations == []
+    assert context.sendable_obligation_ids == []
+    assert context.lane["invoice_refs"] == []
+
+    obligation_sql = reader.execute_calls[2][0]
+    assert "COALESCE(o.amount_due, 0) > 0" in obligation_sql
+    assert "COALESCE(o.is_open, o.amount_due > 0, FALSE) = TRUE" in obligation_sql
+    assert "COALESCE(li.is_outstanding" not in obligation_sql
+    assert "COALESCE(\n                    li.is_overdue" not in obligation_sql
+    assert "COALESCE(\n                    li.days_overdue" not in obligation_sql
+
+
 def test_hydrate_candidate_fails_closed_when_party_missing() -> None:
     reader = _FakeReader()
     reader.party = None

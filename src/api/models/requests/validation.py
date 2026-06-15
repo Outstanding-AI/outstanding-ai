@@ -230,6 +230,8 @@ def _is_sendable_candidate(obligation, context: CaseContext) -> bool:
     source_query_raw = str(getattr(obligation, "source_query_raw", None) or "").strip()
     if getattr(obligation, "is_source_disputed", False) or source_query_raw:
         return False
+    if context.uses_current_datalake_contract() and not _has_positive_amount_due(obligation):
+        return False
     if getattr(obligation, "is_sendable", None) is False:
         return False
     if getattr(obligation, "is_chase_eligible", None) is False:
@@ -248,6 +250,14 @@ def _is_sendable_candidate(obligation, context: CaseContext) -> bool:
                 return False
 
     return True
+
+
+def _has_positive_amount_due(obligation) -> bool:
+    amount_due = getattr(obligation, "amount_due", None)
+    try:
+        return float(amount_due or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 # EvaluateGatesRequest + EvaluateGatesBatchRequest removed 2026-04-26 alongside

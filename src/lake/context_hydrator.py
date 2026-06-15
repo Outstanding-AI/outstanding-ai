@@ -545,6 +545,8 @@ class CaseContextHydrator:
         rows = self._fetch_lane_obligations(lane_ids)
         grouped: dict[str, list[ObligationInfo]] = defaultdict(list)
         for row in rows:
+            if not self._row_has_current_open_balance(row):
+                continue
             lane_key = str(row.get("lane_id") or (lane_ids[0] if len(lane_ids) == 1 else "") or "")
             if not lane_key:
                 continue
@@ -578,6 +580,7 @@ class CaseContextHydrator:
                 o.document_allocated_value * COALESCE(o.exchange_rate, 1.0) AS allocated_amount_base,
                 o.amount_due,
                 o.amount_due * COALESCE(o.exchange_rate, 1.0) AS amount_due_base,
+                COALESCE(o.is_open, o.amount_due > 0, FALSE) AS obligation_is_open,
                 COALESCE(
                     NULLIF(o.currency_code, ''),
                     NULLIF(o.currency, ''),
@@ -611,22 +614,20 @@ class CaseContextHydrator:
                     NULLIF(o.currency, ''),
                     'GBP'
                 ) AS document_currency_code,
-                COALESCE(li.is_outstanding, o.amount_due > 0) AS is_outstanding,
-                COALESCE(
-                    li.is_overdue,
-                    CASE
-                        WHEN o.due_date IS NULL THEN FALSE
-                        ELSE date_diff('day', CAST(o.due_date AS DATE), CURRENT_DATE) > 0
-                    END
+                (
+                    COALESCE(o.is_open, o.amount_due > 0, FALSE)
+                    AND COALESCE(o.amount_due, 0) > 0
+                ) AS is_outstanding,
+                (
+                    COALESCE(o.is_open, o.amount_due > 0, FALSE)
+                    AND COALESCE(o.amount_due, 0) > 0
+                    AND o.due_date IS NOT NULL
+                    AND date_diff('day', CAST(o.due_date AS DATE), CURRENT_DATE) > 0
                 ) AS is_overdue,
-                COALESCE(
-                    li.days_overdue,
-                    CASE
-                        WHEN o.due_date IS NULL THEN 0
-                        ELSE GREATEST(date_diff('day', CAST(o.due_date AS DATE), CURRENT_DATE), 0)
-                    END,
-                    0
-                ) AS days_overdue,
+                CASE
+                    WHEN o.due_date IS NULL THEN 0
+                    ELSE GREATEST(date_diff('day', CAST(o.due_date AS DATE), CURRENT_DATE), 0)
+                END AS days_overdue,
                 COALESCE(li.effective_grace_days, 0) AS effective_grace_days,
                 COALESCE(
                     li.is_source_disputed,
@@ -646,12 +647,27 @@ class CaseContextHydrator:
               ON li.obligation_id = o.id
              AND li.tenant_id = o.tenant_id
             WHERE COALESCE(li.lane_invoice_status, 'open') = %s
+              AND COALESCE(o.amount_due, 0) > 0
+              AND COALESCE(o.is_open, o.amount_due > 0, FALSE) = TRUE
             ORDER BY li.lane_id, days_overdue DESC NULLS LAST, invoice_number
             """
         return self.reader.execute(
             sql,
             [self.tenant_id, tuple(lane_ids), self.tenant_id, "open"],
         )
+
+    @staticmethod
+    def _row_has_current_open_balance(row: dict[str, Any]) -> bool:
+        try:
+            amount_due = float(row.get("amount_due") or 0)
+        except (TypeError, ValueError):
+            return False
+        obligation_is_open = (
+            bool(row.get("obligation_is_open"))
+            if row.get("obligation_is_open") is not None
+            else amount_due > 0
+        )
+        return amount_due > 0 and obligation_is_open
 
     def _load_lane_history(self, lane_id: str) -> list[dict[str, Any]]:
         rows = self._fetch_lane_history([lane_id])
@@ -946,12 +962,14 @@ class CaseContextHydrator:
         is_source_disputed = bool(row.get("is_source_disputed")) or bool(
             row.get("source_query_raw")
         )
-        is_outstanding = (
-            bool(row.get("is_outstanding"))
-            if row.get("is_outstanding") is not None
+        obligation_is_open = (
+            bool(row.get("obligation_is_open"))
+            if row.get("obligation_is_open") is not None
             else amount_due > 0
         )
-        is_overdue = (
+        has_current_balance = amount_due > 0 and obligation_is_open
+        is_outstanding = has_current_balance
+        is_overdue = has_current_balance and (
             bool(row.get("is_overdue")) if row.get("is_overdue") is not None else days_overdue > 0
         )
         is_chase_eligible = is_outstanding and is_overdue and not is_source_disputed

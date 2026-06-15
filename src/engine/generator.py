@@ -606,6 +606,8 @@ class DraftGenerator:
                 continue
             if self._has_source_dispute(obligation):
                 continue
+            if current_contract and not self._has_positive_amount_due(obligation):
+                continue
             if getattr(obligation, "is_sendable", None) is False:
                 continue
             if getattr(obligation, "is_chase_eligible", None) is False:
@@ -620,6 +622,14 @@ class DraftGenerator:
     def _has_source_dispute(obligation) -> bool:
         source_query_raw = str(getattr(obligation, "source_query_raw", None) or "").strip()
         return bool(getattr(obligation, "is_source_disputed", False) or source_query_raw)
+
+    @staticmethod
+    def _has_positive_amount_due(obligation) -> bool:
+        amount_due = getattr(obligation, "amount_due", None)
+        try:
+            return float(amount_due or 0) > 0
+        except (TypeError, ValueError):
+            return False
 
     @staticmethod
     def _is_overdue(obligation) -> bool:
