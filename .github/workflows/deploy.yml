@@ -99,6 +99,7 @@ jobs:
       ECS_SERVICE: ai-engine
       TASK_FAMILY: outstandingai-ai-engine
       ECR_REPOSITORY: outstandingai/ai-engine
+      AI_CLASS_SPECS: "large:2048:4096 xlarge:4096:8192"
     steps:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v6
@@ -152,7 +153,136 @@ jobs:
           aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
             --task-definition "$TASK_FAMILY" --query 'service.taskDefinition' --output text
           echo "ecs:UpdateService OK"
-          echo "Smoke test passed — OIDC + IAM read + IAM write + ECR write all verified"
+          echo "Base ECS write path OK"
+
+      - name: Verify AI class service create/update perms
+        # This intentionally exercises the same control-plane path as the real
+        # class deploy. If ai-engine-large/xlarge are missing, the smoke test
+        # creates them with desiredCount=0; otherwise it updates them to the
+        # freshly registered class task definition. No AI task is started.
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_FAMILY" \
+            --query taskDefinition \
+            > /tmp/ai-base-task-definition.json
+
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0]' \
+            > /tmp/ai-base-service.json
+
+          for SPEC in $AI_CLASS_SPECS; do
+            IFS=: read -r WORKER_CLASS CPU MEMORY <<< "$SPEC"
+            TASK_FAMILY_CLASS="${TASK_FAMILY}-${WORKER_CLASS}"
+            SERVICE_CLASS="${ECS_SERVICE}-${WORKER_CLASS}"
+            TASK_JSON="/tmp/${TASK_FAMILY_CLASS}.json"
+            SERVICE_JSON="/tmp/${SERVICE_CLASS}.json"
+
+            python3 - "$WORKER_CLASS" "$CPU" "$MEMORY" "$TASK_JSON" <<'PY'
+          import copy
+          import json
+          import sys
+
+          worker_class, cpu, memory, output_path = sys.argv[1:]
+          base = json.load(open("/tmp/ai-base-task-definition.json"))
+          allowed = {
+              "family",
+              "taskRoleArn",
+              "executionRoleArn",
+              "networkMode",
+              "containerDefinitions",
+              "volumes",
+              "placementConstraints",
+              "requiresCompatibilities",
+              "cpu",
+              "memory",
+              "runtimePlatform",
+              "ephemeralStorage",
+              "proxyConfiguration",
+              "inferenceAccelerators",
+              "pidMode",
+              "ipcMode",
+          }
+          payload = {key: copy.deepcopy(base[key]) for key in allowed if key in base}
+          payload["family"] = f"{base['family']}-{worker_class}"
+          payload["cpu"] = cpu
+          payload["memory"] = memory
+          for container in payload["containerDefinitions"]:
+              env = [item for item in container.get("environment", []) if item.get("name") != "AI_ENGINE_CLASS"]
+              env.append({"name": "AI_ENGINE_CLASS", "value": worker_class})
+              container["environment"] = sorted(env, key=lambda item: item["name"])
+              log_config = container.get("logConfiguration") or {}
+              options = log_config.get("options") or {}
+              if options.get("awslogs-stream-prefix"):
+                  options["awslogs-stream-prefix"] = f"ai-smoke-{worker_class}"
+                  log_config["options"] = options
+                  container["logConfiguration"] = log_config
+          json.dump(payload, open(output_path, "w"))
+          PY
+
+            NEW_TASK_DEF=$(aws ecs register-task-definition \
+              --cli-input-json "file://${TASK_JSON}" \
+              --query 'taskDefinition.taskDefinitionArn' \
+              --output text)
+
+            SERVICE_COUNT=$(aws ecs describe-services \
+              --cluster "$ECS_CLUSTER" \
+              --services "$SERVICE_CLASS" \
+              --query 'length(services)' \
+              --output text)
+            if [ "$SERVICE_COUNT" = "1" ]; then
+              aws ecs update-service \
+                --cluster "$ECS_CLUSTER" \
+                --service "$SERVICE_CLASS" \
+                --task-definition "$NEW_TASK_DEF" \
+                --desired-count 0 \
+                --query 'service.{service:serviceName,taskDefinition:taskDefinition,desired:desiredCount}' \
+                --output json
+            else
+              python3 - "$SERVICE_CLASS" "$NEW_TASK_DEF" "$SERVICE_JSON" <<'PY'
+          import copy
+          import json
+          import sys
+
+          service_name, task_definition, output_path = sys.argv[1:]
+          base = json.load(open("/tmp/ai-base-service.json"))
+          payload = {
+              "cluster": base["clusterArn"],
+              "serviceName": service_name,
+              "taskDefinition": task_definition,
+              "desiredCount": 0,
+              "enableECSManagedTags": base.get("enableECSManagedTags", True),
+          }
+          for key in [
+              "capacityProviderStrategy",
+              "deploymentConfiguration",
+              "enableExecuteCommand",
+              "healthCheckGracePeriodSeconds",
+              "launchType",
+              "networkConfiguration",
+              "placementConstraints",
+              "placementStrategy",
+              "platformVersion",
+              "propagateTags",
+              "schedulingStrategy",
+              "serviceRegistries",
+          ]:
+              value = base.get(key)
+              if value not in (None, [], {}):
+                  payload[key] = copy.deepcopy(value)
+          if payload.get("capacityProviderStrategy"):
+              payload.pop("launchType", None)
+          json.dump(payload, open(output_path, "w"))
+          PY
+              aws ecs create-service \
+                --cli-input-json "file://${SERVICE_JSON}" \
+                --query 'service.{service:serviceName,taskDefinition:taskDefinition,desired:desiredCount}' \
+                --output json
+            fi
+          done
+
+          echo "Smoke test passed — OIDC + ECR write + base ECS write + AI class service create/update verified"
 
   # Gate on push events only. In PR-1 there is no push trigger, so
   # github.event_name is always 'workflow_dispatch' and this job never runs —
