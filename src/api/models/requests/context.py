@@ -270,6 +270,7 @@ class CommunicationTrackingInfo(BaseModel):
     tracking_status: Optional[str] = None
     tracking_reason: Optional[str] = None
     send_confirmation_state: Optional[str] = None
+    sent_proof_type: Optional[str] = None
     reply_anchor_email: Optional[str] = None
     is_ai_tracked_thread: Optional[bool] = None
 

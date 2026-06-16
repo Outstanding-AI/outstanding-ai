@@ -57,6 +57,7 @@ COLLECTION_LANES_CURRENT = "silver_app_collection_lanes_current"
 COLLECTION_LANE_INVOICES_CURRENT = "silver_app_collection_lane_invoices_current"
 COLLECTION_LANE_HISTORY_CURRENT = "silver_app_collection_lane_history_current"
 SENT_DRAFT_ANALYSIS_EVENTS_CURRENT = "sent_draft_analysis_events_current"
+DRAFT_PROVIDER_LIFECYCLE_EVENTS_CURRENT = "draft_provider_lifecycle_events_current"
 DRAFTS_CURRENT = "silver_app_drafts_current"
 PARTY_COLLECTION_STATE_CURRENT = "party_collection_state_events_current"
 PARTY_COMM_STATE_CURRENT = "party_comm_state_events_current"
@@ -795,9 +796,16 @@ class CaseContextHydrator:
             JOIN {_current_projection(SENT_DRAFT_ANALYSIS_EVENTS_CURRENT, "a")}
               ON a.tenant_id = d.tenant_id
              AND a.draft_id = d.draft_id
+            JOIN {_current_projection(DRAFT_PROVIDER_LIFECYCLE_EVENTS_CURRENT, "dle")}
+              ON dle.tenant_id = d.tenant_id
+             AND dle.draft_id = d.draft_id
+             AND dle.event_type = 'sent_confirmed'
+             AND dle.proof_type IN ('graph_sent_items_exact_oai', 'message_trace', 'purview_send_as')
             ORDER BY d.party_id, COALESCE(d.sent_at, a.event_time, a.valid_from) DESC NULLS LAST
             """
-        return self.reader.execute(sql, [self.tenant_id, tuple(party_ids), self.tenant_id])
+        return self.reader.execute(
+            sql, [self.tenant_id, tuple(party_ids), self.tenant_id, self.tenant_id]
+        )
 
     @staticmethod
     def _format_actual_sent_scope_row(row: dict[str, Any]) -> dict[str, Any]:

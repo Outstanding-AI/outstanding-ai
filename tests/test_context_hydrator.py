@@ -210,7 +210,7 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     history_call = reader.execute_calls[4]
     assert history_call[1] == ["tenant-1", ("lane-1",)]
     actual_sent_call = reader.execute_calls[5]
-    assert actual_sent_call[1] == ["tenant-1", ("party-1",), "tenant-1"]
+    assert actual_sent_call[1] == ["tenant-1", ("party-1",), "tenant-1", "tenant-1"]
 
     all_sql = "\n".join(
         [sql for sql, _ in reader.execute_one_calls] + [sql for sql, _ in reader.execute_calls]

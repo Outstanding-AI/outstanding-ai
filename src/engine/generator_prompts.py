@@ -105,9 +105,17 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
     """
     sections = []
     tracking = getattr(request.context, "communication_tracking", None)
+    strict_sent_proof_type = getattr(tracking, "sent_proof_type", None) if tracking else None
     allow_thread_continuity = not tracking or (
         tracking.tracking_status == "tracked"
-        and tracking.send_confirmation_state in (None, "confirmed")
+        and (
+            tracking.send_confirmation_state is None
+            or (
+                tracking.send_confirmation_state == "confirmed"
+                and strict_sent_proof_type
+                in {"graph_sent_items_exact_oai", "message_trace", "purview_send_as"}
+            )
+        )
     )
     candidate_obligations = candidate_obligations or []
 
