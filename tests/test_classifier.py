@@ -628,6 +628,76 @@ class TestEmailClassifier:
             assert result.extracted_data.invoice_refs == ["0000007324"]
 
     @pytest.mark.asyncio
+    async def test_classify_shifted_payment_commitment_uses_newest_reply(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.body = (
+            "Further to our earlier note, invoice 0000007862 will now be paid on 19 June."
+        )
+        sample_classify_request.email.forwarded_context = {
+            "source_type": "direct_debtor_reply",
+            "current_reply": {
+                "source_role": "current_debtor_reply",
+                "body_excerpt": (
+                    "Further to our earlier note, invoice 0000007862 will now be paid on 19 June."
+                ),
+            },
+            "validated_invoice_refs": ["0000007862"],
+            "forwarded_lineage": {
+                "segment_count": 1,
+                "segments": [
+                    {
+                        "source_role": "historic_debtor_reply",
+                        "body_excerpt": "We will pay invoice 0000007862 on 12 June.",
+                    }
+                ],
+            },
+            "instruction": "Classify the newest debtor-authored reply first.",
+        }
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "PROMISE_TO_PAY",
+                "confidence": 0.95,
+                "reasoning": "The newest debtor reply shifts the commitment to 19 June.",
+                "extracted_data": {
+                    "promise_date": "2026-06-19",
+                    "promise_strength": "firm",
+                    "invoice_refs": ["0000007862"],
+                    "account_wide": False,
+                },
+                "intent_details": [
+                    {
+                        "intent": "PROMISE_TO_PAY",
+                        "extracted_data": {
+                            "promise_date": "2026-06-19",
+                            "promise_strength": "firm",
+                            "invoice_refs": ["0000007862"],
+                            "account_wide": False,
+                        },
+                    }
+                ],
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            user_prompt = mock_complete.await_args_list[0].kwargs["user_prompt"]
+            assert "newest debtor-authored reply first" in user_prompt
+            assert (
+                "Do not treat quoted historical collection emails or historic debtor replies as new"
+                in user_prompt
+            )
+            assert result.classification == "PROMISE_TO_PAY"
+            assert result.extracted_data.promise_date == date(2026, 6, 19)
+            assert result.extracted_data.invoice_refs == ["0000007862"]
+
+    @pytest.mark.asyncio
     async def test_classify_accepts_direct_reply_source_context(
         self, classifier, sample_classify_request
     ):
