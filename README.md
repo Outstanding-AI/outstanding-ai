@@ -89,7 +89,7 @@ make dev
 
 ### Shared Contracts Dependency
 
-`solvix-contracts` is installed from the backend repo tag pinned in `pyproject.toml` and `uv.lock` (`contracts-v0.12.25` as of 2026-06-14). For normal local development, authenticate git once and install through uv:
+`solvix-contracts` is installed from the backend repo tag pinned in `pyproject.toml` and `uv.lock` (`contracts-v0.12.26` as of 2026-06-16). For normal local development, authenticate git once and install through uv:
 
 ```bash
 gh auth setup-git

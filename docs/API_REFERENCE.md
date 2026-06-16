@@ -2,7 +2,7 @@
 
 Stateless FastAPI microservice (`title="Outstanding AI Engine"`, `version=0.1.0`, default port **8001**, Python >= 3.12). Called exclusively by the Django backend over HTTP (with circuit breaker). Verified against source.
 
-- Contracts pin: `solvix-contracts==0.12.25` (`pyproject.toml`). Request models extend the contracts case-context bases (`CaseContextV2`, `PartyInfoV3`, `BehaviorInfoV3`, `ObligationInfoV3` + V3 history blocks).
+- Contracts pin: `solvix-contracts==0.12.26` (`pyproject.toml`). Request models extend the contracts case-context bases (`CaseContextV2`, `PartyInfoV3`, `BehaviorInfoV3`, `ObligationInfoV3` + V3 history blocks).
 - Repo-local Pydantic response schemas in the **backend** mirror (`Solvix/services/ai_engine/schemas.py`) are warn-only — they never block.
 
 _Last updated: 2026-06-14._
