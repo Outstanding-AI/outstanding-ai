@@ -259,7 +259,12 @@ Classification-Specific Follow-Up Guidance:
 - ALREADY_PAID: Acknowledge their payment claim respectfully. Explain verification is in
   progress. Do NOT demand payment or list invoices — that would be insulting if they paid.
 - PROMISE_TO_PAY: Confirm their promise details (date, amount if mentioned). Thank them.
-  Set expectations for what happens next. Do NOT re-state the full debt.
+  Set expectations for what happens next. Do NOT re-state the full debt. If a promised
+  payment date is present in Recent Conversation History, Debtor Reply Promise Facts, or
+  Follow-Up Trigger context, acknowledge that date exactly and say we will look out for the
+  payment/reconcile it once received. Do NOT ask for a payment date, payment timeline,
+  payment status update, or whether payment can be expected when the debtor has already
+  provided the commitment date.
 - REMITTANCE_ADVICE: Acknowledge the remittance details. Thank them. Confirm it will be
   reconciled against bank/accounting records. If the remittance has not landed after the
   grace window, ask for the bank reference or reconciliation detail rather than chasing as

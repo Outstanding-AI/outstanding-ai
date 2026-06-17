@@ -34,6 +34,7 @@ from .numerical import NumericalConsistencyGuardrail
 from .overdue_terminology import OverdueTerminologyGuardrail
 from .placeholder import PlaceholderValidationGuardrail
 from .policy_grounding import PolicyGroundingGuardrail
+from .promise_reply import PromiseReplyGuardrail
 from .semantic_coherence import SemanticCoherenceGuardrail
 from .temporal import TemporalConsistencyGuardrail
 
@@ -104,6 +105,7 @@ class GuardrailPipeline:
             NumericalConsistencyGuardrail(),
             LaneScopeGuardrail(),
             IdentityScopeGuardrail(),
+            PromiseReplyGuardrail(),
             OverdueTerminologyGuardrail(),
             PolicyGroundingGuardrail(),
             ForbiddenContentDetector(),

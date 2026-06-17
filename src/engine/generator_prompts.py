@@ -12,11 +12,91 @@ from src.prompts._sanitize import sanitize_delimiter_tags
 
 logger = logging.getLogger(__name__)
 
+_PROMISE_TERMINAL_OUTCOMES = {
+    "broken",
+    "cancelled",
+    "canceled",
+    "clear",
+    "cleared",
+    "expired",
+    "expired_unfulfilled",
+    "fulfilled",
+    "kept",
+    "paid",
+    "settled",
+}
+
 
 def _safe_prompt_value(value, *, max_length: int = 240) -> str:
     text = sanitize_delimiter_tags(str(value or ""))
     text = " ".join(text.split())
     return text[:max_length]
+
+
+def _as_dict(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if hasattr(value, "dict"):
+        return value.dict()
+    return {}
+
+
+def _extract_debtor_reply_promise_facts(request) -> list[dict]:
+    """Return promise facts from the current debtor reply and active promise state."""
+    facts: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def add_fact(*, source: str, promise_date, amount=None, invoice_refs=None, excerpt=None):
+        if not promise_date:
+            return
+        date_text = _safe_prompt_value(promise_date, max_length=32)
+        amount_text = _safe_prompt_value(amount, max_length=64) if amount not in (None, "") else ""
+        refs = invoice_refs if isinstance(invoice_refs, list) else []
+        ref_text = ", ".join(_safe_prompt_value(ref, max_length=64) for ref in refs if ref)
+        key = (source, date_text, ref_text)
+        if key in seen:
+            return
+        seen.add(key)
+        facts.append(
+            {
+                "source": source,
+                "promise_date": date_text,
+                "promise_amount": amount_text,
+                "invoice_refs": ref_text,
+                "excerpt": _safe_prompt_value(excerpt, max_length=260) if excerpt else "",
+            }
+        )
+
+    recent_msgs = request.context.lane_recent_messages or request.context.recent_messages or []
+    for msg in recent_msgs:
+        if not isinstance(msg, dict):
+            continue
+        classification = str(msg.get("classification") or "").upper()
+        direction = str(msg.get("direction") or "").lower()
+        has_promise = classification == "PROMISE_TO_PAY" or bool(msg.get("promise_date"))
+        if direction == "inbound" and has_promise:
+            add_fact(
+                source="current debtor reply",
+                promise_date=msg.get("promise_date"),
+                amount=msg.get("promise_amount"),
+                invoice_refs=msg.get("invoice_refs"),
+                excerpt=msg.get("body_snippet"),
+            )
+
+    for promise in getattr(request.context, "promises", []) or []:
+        data = _as_dict(promise)
+        outcome = str(data.get("outcome") or "pending").lower()
+        if outcome in _PROMISE_TERMINAL_OUTCOMES:
+            continue
+        add_fact(
+            source="active promise record",
+            promise_date=data.get("promise_date"),
+            amount=data.get("promise_amount"),
+        )
+
+    return facts
 
 
 def format_sender_persona(request) -> str:
@@ -565,6 +645,28 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                     "reply that is not explicitly present in context."
                 )
             sections.append(header + "\n".join(msg_lines) + footer)
+
+    promise_facts = _extract_debtor_reply_promise_facts(request)
+    if promise_facts:
+        fact_lines = []
+        for fact in promise_facts:
+            line = f"- Source: {fact['source']}; promised payment date: {fact['promise_date']}"
+            if fact["promise_amount"]:
+                line += f"; promised amount: {fact['promise_amount']}"
+            if fact["invoice_refs"]:
+                line += f"; invoices: {fact['invoice_refs']}"
+            if fact["excerpt"]:
+                line += f'\n  Debtor wording: "{fact["excerpt"]}"'
+            fact_lines.append(line)
+        sections.append(
+            "\n\n**Debtor Reply Promise Facts:**\n"
+            + "\n".join(fact_lines)
+            + "\n\nInstruction: this is a commitment acknowledgement. Acknowledge the promised "
+            "date exactly, thank the debtor, and say we will look out for the payment and "
+            "reconcile it once received. Do NOT ask for a payment date, payment timeline, "
+            "payment status update, or whether payment can be expected when the promised "
+            "date above is already known."
+        )
 
     # Recent manual touchpoints (phone / SMS / letter / in-person / voicemail / other).
     # The metric-isolation discriminator ``touch_type`` is the source of truth for the

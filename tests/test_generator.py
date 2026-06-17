@@ -79,6 +79,32 @@ class TestDraftGenerator:
         assert "- Company: SUBSEA 7 (US) LLC" in prompt_ctx.user_prompt
         assert "- Contact Person: Subsea7 GoM Accounts Payable" in prompt_ctx.user_prompt
 
+    def test_promise_reply_prompt_surfaces_known_payment_date(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.context.party.name = "SUBSEA 7 (US) LLC"
+        sample_generate_draft_request.skip_invoice_table = True
+        sample_generate_draft_request.trigger_classification = "PROMISE_TO_PAY"
+        sample_generate_draft_request.context.lane_mail_mode = "reply_ack"
+        sample_generate_draft_request.context.recent_messages = [
+            {
+                "direction": "inbound",
+                "classification": "PROMISE_TO_PAY",
+                "sent_at": "2026-06-09T15:55:00Z",
+                "subject": "RE: Overdue Invoice from ESWL-Americas - 0000007324",
+                "body_snippet": "Invoice approved and funds will be issued on July 7 th.",
+                "promise_date": "2026-07-07",
+                "invoice_refs": ["0000007324"],
+            }
+        ]
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+
+        assert "**Debtor Reply Promise Facts:**" in prompt_ctx.user_prompt
+        assert "promised payment date: 2026-07-07" in prompt_ctx.user_prompt
+        assert "Do NOT ask for a payment date" in prompt_ctx.user_prompt
+        assert "payment status update" in prompt_ctx.user_prompt
+
     @pytest.mark.asyncio
     async def test_generate_draft_referencing_invoices(
         self, generator, sample_generate_draft_request
