@@ -279,6 +279,15 @@ class CaseContextHydrator:
         lane_context = {
             "collection_lane_id": str(lane["id"]),
             "lane_id": str(lane["id"]),
+            "collection_case_id": candidate.collection_case_id or lane.get("collection_case_id"),
+            "threading_strategy": candidate.threading_strategy
+            or lane.get("threading_strategy")
+            or (
+                "single_active_debtor_thread"
+                if (candidate.collection_case_id or lane.get("collection_case_id"))
+                else None
+            ),
+            "threading_mode": candidate.threading_mode,
             "entry_level": lane.get("entry_level"),
             "current_level": current_level,
             "status": lane.get("status"),
@@ -321,6 +330,31 @@ class CaseContextHydrator:
             relationship_tier=party.get("relationship_tier") or "standard",
             unsubscribe_requested=bool(party.get("unsubscribe_requested")),
             collection_lane_id=str(lane["id"]),
+            collection_case_id=candidate.collection_case_id or lane.get("collection_case_id"),
+            threading_strategy=candidate.threading_strategy
+            or lane_context.get("threading_strategy")
+            or "invoice_cohort_thread",
+            threading_mode=candidate.threading_mode
+            or lane_context.get("threading_mode")
+            or (
+                "case_continuation"
+                if (candidate.collection_case_id or lane.get("collection_case_id"))
+                else "cohort_thread"
+            ),
+            case_lane_contexts=lane_contexts,
+            active_thread_subject=None,
+            held_commitments=[
+                {"obligation_id": str(obligation_id), "hold_reasons": list(reasons or [])}
+                for obligation_id, reasons in (
+                    lane_context.get("blocked_reasons_by_obligation_id") or {}
+                ).items()
+                if any(
+                    str(reason) in {"promised", "payment_verification", "payment_plan"}
+                    for reason in (reasons or [])
+                )
+            ],
+            broken_commitments=[],
+            manual_intervention_summary=None,
             lane=lane_context,
             lane_history=history,
             actual_sent_scope_history=actual_sent_scope_history,

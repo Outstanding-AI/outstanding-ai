@@ -41,6 +41,11 @@ class _FakeReader:
         }
         self.lane: dict[str, Any] | None = {
             "id": "lane-1",
+            "collection_case_id": "case-1",
+            "threading_strategy": "single_active_debtor_thread",
+            "threading_mode": "case_continuation",
+            "active_thread_id": "thread-1",
+            "active_conversation_id": "conv-1",
             "entry_level": 1,
             "current_level": 2,
             "status": "open",
@@ -155,6 +160,11 @@ def _candidate() -> DraftCandidate:
     return DraftCandidate(
         party_id="party-1",
         lane_id="lane-1",
+        collection_case_id="case-1",
+        threading_strategy="single_active_debtor_thread",
+        threading_mode="case_continuation",
+        active_thread_id="thread-1",
+        active_conversation_id="conv-1",
         sync_run_id="sync-1",
         candidate_id="candidate-1",
     )
@@ -182,6 +192,12 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert context.obligations[0].is_sendable is True
     assert context.obligations[0].is_overdue is True
     assert context.collection_lane_id == "lane-1"
+    assert context.collection_case_id == "case-1"
+    assert context.threading_strategy == "single_active_debtor_thread"
+    assert context.threading_mode == "case_continuation"
+    assert context.case_lane_contexts
+    assert context.case_lane_contexts[0]["lane_id"] == "lane-1"
+    assert context.active_thread_subject is None
     assert context.lane["invoice_refs"] == ["INV-1"]
     assert context.lane["tone_ladder"] == ["firm", "final_notice"]
     assert context.lane_contexts[0].lane_id == "lane-1"

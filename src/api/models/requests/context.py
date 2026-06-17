@@ -367,6 +367,14 @@ class CaseContext(CaseContextV2):
     invoice_credit_adjustments: List[InvoiceCreditAdjustmentInfo] = []
     credit_review_flags: List[str] = []
     net_recovery_eligible_by_currency: dict[str, float] = Field(default_factory=dict)
+    collection_case_id: Optional[str] = None
+    threading_strategy: Optional[str] = None
+    threading_mode: Optional[str] = None
+    case_lane_contexts: List[dict[str, Any]] = Field(default_factory=list)
+    active_thread_subject: Optional[str] = None
+    held_commitments: List[dict[str, Any]] = Field(default_factory=list)
+    broken_commitments: List[dict[str, Any]] = Field(default_factory=list)
+    manual_intervention_summary: Optional[dict[str, Any]] = None
 
     # ------------------------------------------------------------------
     # V3-only top-level fields (Optional so V2 callers omit them safely).

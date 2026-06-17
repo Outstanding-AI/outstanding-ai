@@ -720,13 +720,25 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         sections.append(
             "\n\n**Recent Manual Touchpoints:**\n"
             + "\n".join(manual_lines)
-            + "\n\nThese are operator-logged off-channel conversations (phone calls, SMS, "
-            "letters, etc.). Account-level notes apply to the debtor generally; invoice-linked "
-            "notes apply only to the listed invoices. If a recent manual touchpoint is relevant "
-            "— especially a query update, payment commitment, or remittance note — acknowledge "
-            "it explicitly and reference promised dates / amounts verbatim from the operator's "
-            "notes. Do NOT chase queried invoices as normal collection items, and do NOT escalate "
-            "tone if a verbal commitment is in flight."
+            + "\n\nThese are operator-logged off-channel conversations. Treat them as business "
+            "context for tone and factual continuity, not as proof that AI drove collection. "
+            "Account-level notes apply to the debtor generally; invoice-linked notes apply only "
+            "to the listed invoices. Only treat a manual note as collection-driving when the "
+            "manual-intervention summary explicitly says so. If the effect is unknown, be "
+            "conservative: do not claim AI ownership, do not invent commitments, and avoid "
+            "escalating tone solely from that note. If a recent manual touchpoint includes a "
+            "query update, commitment, or remittance note, reference dates / amounts verbatim. "
+            "Do NOT chase queried invoices as normal collection items, and do NOT escalate tone "
+            "if a live verbal commitment is in flight."
+        )
+
+    manual_intervention_summary = getattr(request.context, "manual_intervention_summary", None)
+    if manual_intervention_summary:
+        sections.append(
+            "\n\n**Manual Intervention Interpretation:**\n"
+            + str(manual_intervention_summary)
+            + "\n\nUse this only to decide whether manual work should change attribution or tone. "
+            "It does not create or settle invoice commitments by itself."
         )
 
     remittance_lines = []
@@ -745,8 +757,10 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         sections.append(
             "\n\n**Remittance Evidence:**\n"
             + "\n".join(remittance_lines)
-            + "\n\nWhen remittance evidence is active, acknowledge it and ask for reconciliation help "
-            "only if needed. Do not write as if the debtor has ignored the invoice."
+            + "\n\nLive remittance evidence means do not chase the invoice as ignored. A broken or "
+            "not-found remittance is scheduled collection context only; it must not be treated as "
+            "an immediate debtor-reply trigger unless this request explicitly has a debtor reply "
+            "classification. Ask for reconciliation help only if needed."
         )
 
     # last_response_snippet is deprecated; recent_messages is the canonical source.
