@@ -734,6 +734,79 @@ class TestEmailClassifier:
             assert result.classification == "PAYMENT_TIMING_DISPUTE"
 
     @pytest.mark.asyncio
+    async def test_classify_accepts_collection_thread_backfill_context(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.subject = "Re: Invoice 0000007324"
+        sample_classify_request.email.body = (
+            "We have remitted invoice 0000007324 and will pay 0000007897 on Friday."
+        )
+        sample_classify_request.context.collection_case_id = "case-sub006"
+        sample_classify_request.context.threading_strategy = "single_active_debtor_thread"
+        sample_classify_request.context.collection_thread_messages = [
+            {
+                "id": "mail-1",
+                "direction": "outbound",
+                "message_time": "2026-06-09T09:00:00Z",
+                "body_snippet": "Following up on invoice 0000007324.",
+                "invoice_states": [
+                    {
+                        "invoice_number": "0000007324",
+                        "as_of_state": "open",
+                        "current_state": "paid",
+                    }
+                ],
+            }
+        ]
+        sample_classify_request.context.collection_thread_invoice_evidence = [
+            {
+                "invoice_number": "0000007324",
+                "as_of_source": "observed_snapshot",
+                "current_state": "paid",
+                "will_be_chased_if_adopted": False,
+            },
+            {
+                "invoice_number": "0000007897",
+                "as_of_source": "current_only",
+                "current_state": "open_overdue",
+                "will_be_chased_if_adopted": True,
+            },
+        ]
+        sample_classify_request.context.collection_thread_commitment_evidence = [
+            {
+                "type": "remittance",
+                "invoice_number": "0000007324",
+                "current_outcome": "remittance_confirmed",
+                "blocks_chasing": False,
+            }
+        ]
+
+        mock_response = _make_llm_response(
+            {
+                "classification": "REMITTANCE_ADVICE",
+                "confidence": 0.9,
+                "reasoning": "Debtor says one invoice was remitted and references another invoice.",
+                "extracted_data": {
+                    "invoice_refs": ["0000007324", "0000007897"],
+                },
+                "intent_details": [
+                    {"intent": "REMITTANCE_ADVICE", "invoice_refs": ["0000007324"]},
+                ],
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+
+            result = await classifier.classify(sample_classify_request)
+
+            assert mock_complete.await_count >= 1
+            assert result.classification == "REMITTANCE_ADVICE"
+            assert result.extracted_data.invoice_refs == ["0000007324", "0000007897"]
+
+    @pytest.mark.asyncio
     async def test_classify_unsubscribe_email(self, classifier, sample_classify_request):
         """Test classification of unsubscribe request."""
         sample_classify_request.email.body = (

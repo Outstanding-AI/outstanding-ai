@@ -55,7 +55,7 @@ Concept → file navigation index.
 
 | Concept | File |
 |---------|------|
-| Classification endpoint | `src/api/routes/classify.py` |
+| Classification endpoint | `src/api/routes/classify.py` — reused by historical collection-thread backfill real-worker audit with the same debtor-reply classifier semantics; backend controls no-cache/no-persist audit mode and token/cost caps |
 | Generation endpoint | `src/api/routes/generate.py` |
 | Persona endpoints | `src/api/routes/persona.py` |
 | Health checks | `src/api/routes/health.py` |
