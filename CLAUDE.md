@@ -234,7 +234,7 @@ If the LLM emits cross-intent invoice leakage or omits per-intent extraction for
 
 **Telemetry**: classify/generate routes log the actual `schema_version` in every event (start/success/error).
 
-**Long-term home**: backend-owned `solvix-contracts` package (`Solvix/contracts/src/solvix_contracts/ai/context.v2`) exports the shared v2 core while AI carries additive v3/v4 transition fields locally. Backend, ETL, and AI are aligned to **`solvix-contracts==0.12.26`**; parity CI at `.github/workflows/contracts-version-parity.yml` should block any joint deploy if the AI pin drifts again.
+**Long-term home**: backend-owned `solvix-contracts` package (`Solvix/contracts/src/solvix_contracts/ai/context.v2`) exports the shared v2 core while AI carries additive v3/v4 transition fields locally. Backend, ETL, and AI are aligned to **`solvix-contracts==0.12.28`**; parity CI at `.github/workflows/contracts-version-parity.yml` should block any joint deploy if the AI pin drifts again.
 
 ## LLM Runtime Invariants (April 2026)
 
