@@ -43,6 +43,52 @@ def _as_dict(value) -> dict:
     return {}
 
 
+def _recent_history_is_inbound_reply_trigger(request, recent_msgs: list[dict]) -> bool:
+    if getattr(request, "trigger_classification", None):
+        return True
+    if not recent_msgs:
+        return False
+    latest = recent_msgs[0] if isinstance(recent_msgs[0], dict) else {}
+    return str(latest.get("direction") or "").lower() == "inbound" and bool(
+        str(latest.get("classification") or "").strip()
+    )
+
+
+def _format_collection_thread_temporal_lines(request) -> list[str]:
+    evidence = getattr(request.context, "collection_thread_invoice_evidence", None) or []
+    lines: list[str] = []
+    for invoice in evidence[:12]:
+        if not isinstance(invoice, dict):
+            invoice = _as_dict(invoice)
+        invoice_number = _safe_prompt_value(
+            invoice.get("invoice_number") or invoice.get("invoice_ref_normalized") or "unknown",
+            max_length=64,
+        )
+        current_state = _safe_prompt_value(invoice.get("current_state") or "unknown", max_length=64)
+        current_amount = invoice.get("current_amount_due")
+        states = invoice.get("message_states") or []
+        state_bits = []
+        for state in states[:3]:
+            if not isinstance(state, dict):
+                state = _as_dict(state)
+            as_of_state = _safe_prompt_value(state.get("as_of_state") or "unknown", max_length=48)
+            source = _safe_prompt_value(state.get("as_of_source") or "unknown", max_length=48)
+            confidence = _safe_prompt_value(
+                state.get("as_of_confidence") or "unknown", max_length=24
+            )
+            state_bits.append(f"{as_of_state} then ({source}, {confidence})")
+        history = "; ".join(state_bits) if state_bits else "no message-time state"
+        chase_flag = "yes" if invoice.get("will_be_chased_if_adopted") else "no"
+        amount_suffix = (
+            f", current amount due {current_amount}" if current_amount not in (None, "") else ""
+        )
+        lines.append(
+            f"- {invoice_number}: {history}; current Sage state={current_state}{amount_suffix}; "
+            f"current chase scope={chase_flag}"
+        )
+    return lines
+
+
 def _extract_debtor_reply_promise_facts(request) -> list[dict]:
     """Return promise facts from the current debtor reply and active promise state."""
     facts: list[dict] = []
@@ -213,6 +259,17 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             "- Upstream has already selected sender, recipient, cadence, grace policy, escalation level, and candidate obligations."
         )
 
+    if getattr(request.context, "collection_case_id", None):
+        sections.append(
+            "\n\n**Collection Case Decision Context:**\n"
+            f"- Collection Case: {request.context.collection_case_id}\n"
+            f"- Threading Strategy: {getattr(request.context, 'threading_strategy', None) or 'unknown'}\n"
+            f"- Threading Mode: {getattr(request.context, 'threading_mode', None) or 'unknown'}\n"
+            f"- Active Thread Subject: {getattr(request.context, 'active_thread_subject', None) or 'unknown'}\n"
+            "- Current Sage/Silver Core obligations are the only demand scope. Historical case thread "
+            "evidence is continuity context only."
+        )
+
     if candidate_obligations:
         candidate_lines = []
         for obligation in candidate_obligations:
@@ -364,11 +421,27 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             )
 
     lane_state = getattr(request.context, "lane", None)
+    threading_strategy = (
+        getattr(request.context, "threading_strategy", None) or "invoice_cohort_thread"
+    )
     if lane_state:
         invoice_refs = ", ".join(lane_state.get("invoice_refs") or []) or "none"
         tone_ladder = ", ".join(lane_state.get("tone_ladder") or []) or "none"
+        if threading_strategy == "single_active_debtor_thread":
+            scope_rule = (
+                "- Scope Rule: continue the single active debtor case thread. The invoice table and "
+                "candidate obligations are the current chase scope for this case. Historical thread "
+                "evidence may explain continuity, but it must not add invoices or amounts to the demand."
+            )
+            title = "Collection Case Scope Context"
+        else:
+            scope_rule = (
+                "- Scope Rule: this email is for this lane/cohort only. Other lanes for the same debtor may exist "
+                "and may be handled by different senders; do not merge or reference them unless listed here."
+            )
+            title = "Collection Lane Context"
         sections.append(
-            "\n\n**Collection Lane Context:**\n"
+            f"\n\n**{title}:**\n"
             f"- Collection Lane: {request.context.collection_lane_id or lane_state.get('collection_lane_id') or 'unknown'}\n"
             f"- Current Level: {lane_state.get('current_level')} (entry level {lane_state.get('entry_level')})\n"
             f"- Mail Mode: {getattr(request.context, 'lane_mail_mode', None) or 'initial'}\n"
@@ -379,8 +452,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             f"- Open Invoices: {invoice_refs}\n"
             f"- Outstanding Amount: {lane_state.get('outstanding_amount')}\n"
             f"- Suppression State: {lane_state.get('suppression_state') or 'none'}\n"
-            "- Scope Rule: this email is for this lane/cohort only. Other lanes for the same debtor may exist "
-            "and may be handled by different senders; do not merge or reference them unless listed here."
+            f"{scope_rule}"
         )
         protocol_lines = _build_protocol_decision_lines(lane_state, request)
         if protocol_lines:
@@ -414,9 +486,14 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 )
             sections.append(
                 "\n\n**Collection Scope Context:**\n"
-                "- Coverage Mode: multiple due recovery lanes are intentionally grouped because they share the "
-                "same debtor, recipient, sender, and protocol level.\n"
-                "- Scope Rule: the invoice table is the authoritative scope for this draft. Include every listed "
+                + (
+                    "- Coverage Mode: single active debtor case. Multiple lane contexts are underlying invoice/cohort "
+                    "state, but this draft continues one debtor case thread.\n"
+                    if threading_strategy == "single_active_debtor_thread"
+                    else "- Coverage Mode: multiple due recovery lanes are intentionally grouped because they share the "
+                    "same debtor, recipient, sender, and protocol level.\n"
+                )
+                + "- Scope Rule: the invoice table is the authoritative scope for this draft. Include every listed "
                 "sendable invoice, but do not claim this is the debtor's complete account if other lanes are not "
                 "listed here.\n"
                 "- Wording Rule: if lanes have different actions or touch indices, describe the request as a "
@@ -440,8 +517,13 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 f"- Tone Ladder: {tone_ladder}\n"
                 f"- Open Invoices: {invoice_refs}\n"
                 f"- Outstanding Amount: {lane.outstanding_amount}\n"
-                "- Scope Rule: this email is for this lane/cohort only. Other lanes for the same debtor may exist "
-                "and may be handled by different senders; do not merge or reference them unless listed here."
+                + (
+                    "- Scope Rule: continue the single active debtor case thread. The invoice table is the current "
+                    "case chase scope; do not add invoices from history.\n"
+                    if threading_strategy == "single_active_debtor_thread"
+                    else "- Scope Rule: this email is for this lane/cohort only. Other lanes for the same debtor may exist "
+                    "and may be handled by different senders; do not merge or reference them unless listed here."
+                )
             )
 
     lane_history = getattr(request.context, "lane_history", None)
@@ -588,7 +670,11 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         )
 
     # Conversation history (recent messages for follow-up context)
-    recent_msgs = request.context.lane_recent_messages or request.context.recent_messages
+    recent_msgs = (
+        request.context.collection_thread_messages
+        or request.context.lane_recent_messages
+        or request.context.recent_messages
+    )
     if recent_msgs:
         msg_lines = []
         for msg in reversed(recent_msgs):  # chronological order
@@ -618,6 +704,21 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 refs = msg["invoice_refs"] if isinstance(msg["invoice_refs"], list) else []
                 if refs:
                     line += f"\n  Invoices referenced: {', '.join(str(r) for r in refs)}"
+            invoice_states = msg.get("invoice_states") if isinstance(msg, dict) else None
+            if isinstance(invoice_states, list) and invoice_states:
+                state_bits = []
+                for state in invoice_states[:4]:
+                    if not isinstance(state, dict):
+                        state = _as_dict(state)
+                    invoice = (
+                        state.get("invoice_number") or state.get("invoice_ref_raw") or "unknown"
+                    )
+                    state_bits.append(
+                        f"{invoice}: {state.get('as_of_state') or 'unknown'} then / "
+                        f"{state.get('current_state') or 'unknown'} now "
+                        f"({state.get('as_of_confidence') or 'unknown'} confidence)"
+                    )
+                line += "\n  Message-time invoice states: " + "; ".join(state_bits)
             # Debtor intent data from classifier
             if msg.get("claimed_amount"):
                 claimed = f"\n  💰 Claimed payment: {msg['claimed_amount']}"
@@ -633,10 +734,17 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             msg_lines.append(line)
         if msg_lines:
             header = "\n\n**Recent Conversation History:**\n"
-            if allow_thread_continuity:
+            is_reply_trigger = _recent_history_is_inbound_reply_trigger(request, recent_msgs)
+            if allow_thread_continuity and is_reply_trigger:
                 footer = (
                     "\n\nThis is a FOLLOW-UP email. You MUST acknowledge the debtor's most recent "
                     "response and build on it. Do NOT write a generic first-contact collection email."
+                )
+            elif allow_thread_continuity:
+                footer = (
+                    '\n\nUse the history above for thread continuity only. Do NOT say "thank you for '
+                    'your reply" or imply the debtor recently responded unless the provided latest '
+                    "message is an explicit inbound debtor reply trigger."
                 )
             else:
                 footer = (
@@ -645,6 +753,16 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                     "reply that is not explicitly present in context."
                 )
             sections.append(header + "\n".join(msg_lines) + footer)
+
+    temporal_lines = _format_collection_thread_temporal_lines(request)
+    if temporal_lines:
+        sections.append(
+            "\n\n**Collection Thread Temporal Evidence:**\n"
+            + "\n".join(temporal_lines)
+            + "\n\nInstruction: use this evidence only to preserve continuity on the debtor case. "
+            "Do not demand payment for any invoice that is not in the current candidate obligations. "
+            "Do not use historical amounts as current demand amounts."
+        )
 
     promise_facts = _extract_debtor_reply_promise_facts(request)
     if promise_facts:

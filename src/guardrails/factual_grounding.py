@@ -33,6 +33,17 @@ CHASE_LANGUAGE_RE = re.compile(
     re.IGNORECASE,
 )
 
+BLOCKING_COLLECTION_STATUSES = {
+    "promised",
+    "remittance_pending",
+    "payment_plan",
+    "disputed",
+    "paid",
+    "closed",
+    "credited",
+    "written_off",
+}
+
 
 def _loose_alnum_pattern(normalized_ref: str) -> str:
     return r"[\W_]*".join(re.escape(ch) for ch in normalized_ref)
@@ -188,21 +199,25 @@ class FactualGroundingGuardrail(BaseGuardrail):
     def _validate_amounts(self, output: str, context: CaseContext, **kwargs) -> GuardrailResult:
         """Validate that monetary amounts in the output match context data.
 
-        Build a set of valid amounts from obligation ``amount_due`` and
-        ``original_amount`` fields, plus the computed total.  For
-        follow-up drafts (``skip_invoice_table=True``), also include
-        amounts from conversation history so the LLM can legitimately
-        echo debtor-mentioned figures.
+        For current datalake draft contexts, build valid demand amounts only
+        from upstream-sendable current obligations. Historical obligations can
+        remain in context for continuity, but their amounts must not ground a
+        payment demand. Legacy contexts keep the older all-obligation behavior.
+        For follow-up drafts (``skip_invoice_table=True``), also include amounts
+        from conversation history so the LLM can legitimately echo
+        debtor-mentioned figures.
 
         Every amount found in prose must exist in the valid set
         (with rounding tolerance of 5.00).
         """
         skip_invoice_table = kwargs.get("skip_invoice_table", False)
 
-        # Build set of valid amounts from obligations
+        obligations_for_amounts = self._obligations_for_current_demand(context)
+
+        # Build set of valid amounts from current demand obligations.
         # Normalize ALL to float to avoid Decimal/int/string comparison issues
         valid_amounts = set()
-        for o in context.obligations:
+        for o in obligations_for_amounts:
             if o.amount_due is not None:
                 valid_amounts.add(round(float(o.amount_due), 2))
             if getattr(o, "amount_due_base", None) is not None:
@@ -221,13 +236,17 @@ class FactualGroundingGuardrail(BaseGuardrail):
                 if value is not None:
                     valid_amounts.add(round(float(value), 2))
 
-        safe_dues = [float(o.amount_due) for o in context.obligations if o.amount_due is not None]
+        safe_dues = [
+            float(o.amount_due) for o in obligations_for_amounts if o.amount_due is not None
+        ]
         total_outstanding = round(sum(safe_dues), 2)
         valid_amounts.add(total_outstanding)
 
         # Add sum of original_amounts as valid (LLM may compute totals from either column)
         safe_originals = [
-            float(o.original_amount) for o in context.obligations if o.original_amount is not None
+            float(o.original_amount)
+            for o in obligations_for_amounts
+            if o.original_amount is not None
         ]
         if safe_originals:
             valid_amounts.add(round(sum(safe_originals), 2))
@@ -265,6 +284,9 @@ class FactualGroundingGuardrail(BaseGuardrail):
             valid_amounts.add(round(a, 0))  # same but explicit
 
         # For follow-up drafts, also extract amounts from conversation history.
+        # Do not add collection_thread_invoice_evidence amounts here: temporal
+        # evidence is continuity context only and must not validate a current
+        # payment demand amount.
         recent_messages = context.lane_recent_messages or context.recent_messages
         if skip_invoice_table and recent_messages:
             conversation_amounts = self._extract_conversation_amounts(recent_messages)
@@ -337,6 +359,46 @@ class FactualGroundingGuardrail(BaseGuardrail):
                 "total_outstanding": total_outstanding,
             },
         )
+
+    def _obligations_for_current_demand(self, context: CaseContext) -> list:
+        """Return obligations whose amounts may ground a current payment ask."""
+        obligations = list(getattr(context, "obligations", None) or [])
+        try:
+            uses_current_contract = bool(context.uses_current_datalake_contract())
+        except AttributeError:
+            uses_current_contract = False
+        if not uses_current_contract:
+            return obligations
+
+        sendable_ids = {
+            str(value) for value in (getattr(context, "sendable_obligation_ids", None) or [])
+        }
+        blocked_ids = {
+            str(value) for value in (getattr(context, "blocked_obligation_ids", None) or [])
+        }
+        selected = []
+        for obligation in obligations:
+            obligation_id = str(getattr(obligation, "id", "") or "")
+            if sendable_ids and obligation_id not in sendable_ids:
+                continue
+            if obligation_id in blocked_ids:
+                continue
+            if getattr(obligation, "is_sendable", None) is False:
+                continue
+            if getattr(obligation, "is_chase_eligible", None) is False:
+                continue
+            status = str(getattr(obligation, "collection_status", None) or "").strip().lower()
+            state = str(getattr(obligation, "state", None) or "").strip().lower()
+            if status in BLOCKING_COLLECTION_STATUSES or state in BLOCKING_COLLECTION_STATUSES:
+                continue
+            amount_due = getattr(obligation, "amount_due", None)
+            try:
+                if float(amount_due or 0) <= 0:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            selected.append(obligation)
+        return selected
 
     def _validate_source_disputes_not_chased(
         self, output: str, context: CaseContext

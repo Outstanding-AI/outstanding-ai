@@ -112,6 +112,40 @@ class _FakeReader:
                 "review_reason_codes_json": '["invoice_scope_changed"]',
             }
         ]
+        self.case_threads = [
+            {
+                "collection_case_id": "case-1",
+                "collection_case_thread_id": "case-thread-1",
+                "conversation_id": "conv-1",
+                "mailbox_email": "salesledger@example.com",
+                "latest_subject": "Overdue invoices",
+                "thread_status": "active",
+                "last_message_at": datetime(2026, 4, 4, 9, 30, tzinfo=timezone.utc),
+            }
+        ]
+        self.temporal_evidence = [
+            {
+                "collection_case_id": "case-1",
+                "collection_case_thread_id": "case-thread-1",
+                "mail_message_id": "mail-1",
+                "message_time": datetime(2026, 4, 2, 9, 45, tzinfo=timezone.utc),
+                "invoice_ref_raw": "INV-PAID",
+                "invoice_ref_normalized": "INVPAID",
+                "invoice_number": "INV-PAID",
+                "obligation_id": "obl-paid",
+                "current_amount_due": 0.0,
+                "current_amount_due_base": 0.0,
+                "current_state": "paid",
+                "current_state_reason": "current_obligation_zero",
+                "as_of_amount_due": 125.0,
+                "as_of_amount_due_base": 125.0,
+                "as_of_state": "open",
+                "as_of_source": "observed_snapshot",
+                "as_of_confidence": "high",
+                "commitment_event_ids_json": "[]",
+                "warnings_json": "[]",
+            }
+        ]
         self.contacts = [
             {
                 "id": "contact-1",
@@ -153,6 +187,10 @@ class _FakeReader:
             return self.history
         if "sent_draft_analysis_events_current" in sql:
             return self.actual_sent_scope
+        if "collection_case_threads_current" in sql:
+            return self.case_threads
+        if "collection_thread_message_invoice_evidence_current" in sql:
+            return self.temporal_evidence
         return []
 
 
@@ -195,9 +233,17 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert context.collection_case_id == "case-1"
     assert context.threading_strategy == "single_active_debtor_thread"
     assert context.threading_mode == "case_continuation"
+    assert context.active_thread_subject == "Overdue invoices"
+    assert context.collection_thread_invoice_evidence[0]["invoice_number"] == "INV-PAID"
+    assert context.collection_thread_invoice_evidence[0]["current_state"] == "paid"
+    assert (
+        context.collection_thread_invoice_evidence[0]["message_states"][0]["as_of_state"] == "open"
+    )
+    assert (
+        context.collection_thread_messages[0]["invoice_states"][0]["invoice_number"] == "INV-PAID"
+    )
     assert context.case_lane_contexts
     assert context.case_lane_contexts[0]["lane_id"] == "lane-1"
-    assert context.active_thread_subject is None
     assert context.lane["invoice_refs"] == ["INV-1"]
     assert context.lane["tone_ladder"] == ["firm", "final_notice"]
     assert context.lane_contexts[0].lane_id == "lane-1"
@@ -210,6 +256,8 @@ def test_hydrate_candidate_builds_existing_case_context_shape() -> None:
     assert "sent_draft_analysis_event:analysis-event-1" in context.input_silver_version_ids
     assert "sent_draft_analysis_hash:analysis-hash-1" in context.input_silver_version_ids
     assert context.sendable_obligation_ids == ["obl-1"]
+    assert [obligation.invoice_number for obligation in context.obligations] == ["INV-1"]
+    assert "INV-PAID" not in [obligation.invoice_number for obligation in context.obligations]
 
     # P3-2: per-id loaders now route through the bulk SELECTs with a
     # single-element ``IN %s`` tuple so the same code paths cover both

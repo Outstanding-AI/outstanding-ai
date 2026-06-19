@@ -103,6 +103,85 @@ class TestFactualGroundingGuardrail:
         assert not amount_result.passed
         assert 9999.99 in amount_result.details.get("invalid_amounts", [])
 
+    def test_temporal_evidence_amount_does_not_validate_current_demand(self, sample_context):
+        """Historical message-time amounts are continuity context, not demand authority."""
+        sample_context.collection_thread_invoice_evidence = [
+            {
+                "invoice_number": "INV-OLD",
+                "current_state": "paid",
+                "message_states": [{"as_of_amount_due": 9999.99, "as_of_state": "open"}],
+            }
+        ]
+
+        results = FactualGroundingGuardrail().validate(
+            "Please pay the current overdue amount of £9,999.99.",
+            sample_context,
+        )
+
+        amount_result = results[1]
+        assert not amount_result.passed
+        assert 9999.99 in amount_result.details.get("invalid_amounts", [])
+
+    def test_closed_current_obligation_amount_does_not_validate_current_demand(self):
+        """Paid/closed current obligations are historical context, not demand authority."""
+        context = CaseContext(
+            schema_version=4,
+            party=PartyInfo(
+                party_id="party-001",
+                external_id="party-ext-001",
+                provider_type="sage_200",
+                customer_code="CUST001",
+                name="Acme Corp",
+                currency="GBP",
+                source="sage_200",
+            ),
+            obligations=[
+                ObligationInfo(
+                    id="obl-open",
+                    external_id="12345",
+                    provider_type="sage_200",
+                    invoice_number="INV-12345",
+                    original_amount=1500.00,
+                    amount_due=1500.00,
+                    due_date="2024-01-01",
+                    days_past_due=30,
+                    state="open",
+                    collection_status="open",
+                    is_overdue=True,
+                    is_sendable=True,
+                    is_chase_eligible=True,
+                ),
+                ObligationInfo(
+                    id="obl-paid",
+                    external_id="12346",
+                    provider_type="sage_200",
+                    invoice_number="INV-12346",
+                    original_amount=2500.00,
+                    amount_due=0.00,
+                    due_date="2024-01-05",
+                    days_past_due=26,
+                    state="paid",
+                    collection_status="paid",
+                    is_overdue=True,
+                    is_sendable=False,
+                    is_chase_eligible=False,
+                ),
+            ],
+            sendable_obligation_ids=["obl-open"],
+            blocked_obligation_ids=["obl-paid"],
+            collection_basis="overdue",
+            chase_basis="overdue",
+        )
+
+        results = FactualGroundingGuardrail().validate(
+            "Please pay the current overdue balance of £2,500.00.",
+            context,
+        )
+
+        amount_result = results[1]
+        assert not amount_result.passed
+        assert 2500.0 in amount_result.details.get("invalid_amounts", [])
+
     def test_individual_amounts_pass(self, sample_context):
         """Test that individual invoice amounts pass validation."""
         guardrail = FactualGroundingGuardrail()

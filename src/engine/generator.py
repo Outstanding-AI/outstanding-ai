@@ -608,6 +608,8 @@ class DraftGenerator:
                 continue
             if current_contract and not self._has_positive_amount_due(obligation):
                 continue
+            if current_contract and self._has_blocking_collection_status(obligation):
+                continue
             if getattr(obligation, "is_sendable", None) is False:
                 continue
             if getattr(obligation, "is_chase_eligible", None) is False:
@@ -630,6 +632,22 @@ class DraftGenerator:
             return float(amount_due or 0) > 0
         except (TypeError, ValueError):
             return False
+
+    @staticmethod
+    def _has_blocking_collection_status(obligation) -> bool:
+        status = str(getattr(obligation, "collection_status", None) or "").strip().lower()
+        state = str(getattr(obligation, "state", None) or "").strip().lower()
+        blocked_statuses = {
+            "promised",
+            "remittance_pending",
+            "payment_plan",
+            "disputed",
+            "paid",
+            "closed",
+            "credited",
+            "written_off",
+        }
+        return status in blocked_statuses or state in blocked_statuses
 
     @staticmethod
     def _is_overdue(obligation) -> bool:

@@ -330,6 +330,98 @@ class TestDraftGenerator:
 
         assert generator._select_candidate_obligations(request) == []
 
+    def test_current_context_blocks_live_commitment_statuses_despite_temporal_evidence(
+        self, generator
+    ):
+        context = CaseContext(
+            schema_version=4,
+            party=PartyInfo(
+                party_id="party-uuid-1",
+                external_id="party-ext-1",
+                provider_type="sage_200",
+                customer_code="C001",
+                name="Acme Ltd",
+                source="sage_200",
+            ),
+            obligations=[
+                ObligationInfo(
+                    id="obl-open",
+                    external_id="open",
+                    provider_type="sage_200",
+                    invoice_number="INV-OPEN",
+                    original_amount=100.0,
+                    amount_due=100.0,
+                    is_overdue=True,
+                    days_overdue=20,
+                    is_sendable=True,
+                    is_chase_eligible=True,
+                    collection_status="open",
+                ),
+                ObligationInfo(
+                    id="obl-promised",
+                    external_id="promised",
+                    provider_type="sage_200",
+                    invoice_number="INV-PROMISED",
+                    original_amount=200.0,
+                    amount_due=200.0,
+                    is_overdue=True,
+                    days_overdue=20,
+                    is_sendable=True,
+                    is_chase_eligible=True,
+                    collection_status="promised",
+                ),
+                ObligationInfo(
+                    id="obl-remit",
+                    external_id="remit",
+                    provider_type="sage_200",
+                    invoice_number="INV-REMIT",
+                    original_amount=300.0,
+                    amount_due=300.0,
+                    is_overdue=True,
+                    days_overdue=20,
+                    is_sendable=True,
+                    is_chase_eligible=True,
+                    collection_status="remittance_pending",
+                ),
+                ObligationInfo(
+                    id="obl-paid",
+                    external_id="paid",
+                    provider_type="sage_200",
+                    invoice_number="INV-PAID",
+                    original_amount=400.0,
+                    amount_due=400.0,
+                    is_overdue=True,
+                    days_overdue=20,
+                    is_sendable=True,
+                    is_chase_eligible=True,
+                    state="paid",
+                ),
+            ],
+            collection_thread_invoice_evidence=[
+                {
+                    "invoice_number": "INV-PAID",
+                    "current_state": "paid",
+                    "message_states": [
+                        {"as_of_state": "open", "as_of_source": "observed_snapshot"}
+                    ],
+                }
+            ],
+            sendable_obligation_ids=["obl-open", "obl-promised", "obl-remit", "obl-paid"],
+            debtor_contact={"email": "ap@example.com", "name": "AP Team"},
+            source_sync_run_id="sync-1",
+            application_run_id="app-1",
+            core_snapshot_watermark="2026-05-01T00:00:00Z",
+            application_snapshot_watermark="2026-05-01T00:10:00Z",
+            application_decision_cutoff="2026-05-01T00:15:00Z",
+            policy_snapshot_id="policy-1",
+            draft_candidate_id="cand-1",
+        )
+        request = GenerateDraftRequest(context=context, tone="professional")
+
+        selected = generator._select_candidate_obligations(request)
+
+        assert [obligation.invoice_number for obligation in selected] == ["INV-OPEN"]
+
     def test_excluded_source_disputed_obligations_are_rendered_safely(self, generator):
         """Backend-filtered source disputes should still be visible as exclusions."""
         context = CaseContext(

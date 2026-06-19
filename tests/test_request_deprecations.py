@@ -163,6 +163,86 @@ def test_build_extra_sections_renders_grouped_lane_scope(sample_generate_draft_r
     assert "INV-NEW" in extra_sections
 
 
+def test_build_extra_sections_renders_single_active_debtor_thread_scope(
+    sample_generate_draft_request,
+):
+    sample_generate_draft_request.context.collection_case_id = "case-1"
+    sample_generate_draft_request.context.threading_strategy = "single_active_debtor_thread"
+    sample_generate_draft_request.context.threading_mode = "case_continuation"
+    sample_generate_draft_request.context.active_thread_subject = "Overdue invoices"
+    sample_generate_draft_request.context.lane = {
+        "collection_lane_id": "lane-1",
+        "current_level": 1,
+        "entry_level": 1,
+        "invoice_refs": ["INV-1"],
+        "outstanding_amount": 100.0,
+    }
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+    )
+
+    assert "**Collection Case Decision Context:**" in extra_sections
+    assert "Threading Strategy: single_active_debtor_thread" in extra_sections
+    assert "continue the single active debtor case thread" in extra_sections
+    assert "must not add invoices or amounts to the demand" in extra_sections
+    assert "Other lanes for the same debtor may exist" not in extra_sections
+
+
+def test_build_extra_sections_legacy_cohort_strategy_keeps_cohort_scope(
+    sample_generate_draft_request,
+):
+    sample_generate_draft_request.context.threading_strategy = "invoice_cohort_thread"
+    sample_generate_draft_request.context.lane = {
+        "collection_lane_id": "lane-1",
+        "current_level": 1,
+        "entry_level": 1,
+        "invoice_refs": ["INV-1"],
+        "outstanding_amount": 100.0,
+    }
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+    )
+
+    assert "this email is for this lane/cohort only" in extra_sections
+    assert "Other lanes for the same debtor may exist" in extra_sections
+
+
+def test_conversation_history_without_inbound_trigger_does_not_force_thank_you(
+    sample_generate_draft_request,
+):
+    sample_generate_draft_request.trigger_classification = None
+    sample_generate_draft_request.context.collection_case_id = "case-1"
+    sample_generate_draft_request.context.collection_thread_messages = [
+        {
+            "direction": "outbound",
+            "sent_at": "2026-06-09T10:00:00Z",
+            "subject": "Overdue invoices",
+            "body_snippet": "Please see the current overdue invoices.",
+            "invoice_states": [
+                {
+                    "invoice_number": "INV-1",
+                    "as_of_state": "open",
+                    "current_state": "open",
+                    "as_of_confidence": "high",
+                }
+            ],
+        }
+    ]
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+    )
+
+    assert "Do NOT say" in extra_sections
+    assert "thank you for your reply" in extra_sections
+    assert "You MUST acknowledge the debtor's most recent response" not in extra_sections
+
+
 def test_build_extra_sections_ignores_last_response_snippet(sample_generate_draft_request, caplog):
     """Prompt construction should no longer read deprecated last_response_snippet."""
     sample_generate_draft_request.context.recent_messages = None

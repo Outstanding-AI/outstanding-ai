@@ -372,6 +372,9 @@ class CaseContext(CaseContextV2):
     threading_mode: Optional[str] = None
     case_lane_contexts: List[dict[str, Any]] = Field(default_factory=list)
     active_thread_subject: Optional[str] = None
+    collection_thread_messages: List[dict[str, Any]] = Field(default_factory=list)
+    collection_thread_invoice_evidence: List[dict[str, Any]] = Field(default_factory=list)
+    collection_thread_commitment_evidence: List[dict[str, Any]] = Field(default_factory=list)
     held_commitments: List[dict[str, Any]] = Field(default_factory=list)
     broken_commitments: List[dict[str, Any]] = Field(default_factory=list)
     manual_intervention_summary: Optional[dict[str, Any]] = None

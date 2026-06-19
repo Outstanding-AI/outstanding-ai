@@ -78,7 +78,7 @@ def test_lane_scope_uses_candidate_refs_over_open_lane_refs():
     )
 
     assert not results[0].passed
-    assert "outside lane cohort" in results[0].message.lower()
+    assert "outside candidate scope" in results[0].message.lower()
 
 
 def test_lane_scope_digit_only_does_not_collide_on_prefix():
@@ -124,4 +124,4 @@ def test_lane_scope_digit_only_does_not_collide_on_prefix():
     )
 
     assert not results[0].passed
-    assert "outside lane cohort" in results[0].message.lower()
+    assert "outside candidate scope" in results[0].message.lower()

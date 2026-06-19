@@ -56,12 +56,35 @@ OBLIGATIONS_CURRENT = "silver_core_obligations_current"
 COLLECTION_LANES_CURRENT = "silver_app_collection_lanes_current"
 COLLECTION_LANE_INVOICES_CURRENT = "silver_app_collection_lane_invoices_current"
 COLLECTION_LANE_HISTORY_CURRENT = "silver_app_collection_lane_history_current"
+COLLECTION_CASES_CURRENT = "collection_cases_current"
+COLLECTION_CASE_THREADS_CURRENT = "collection_case_threads_current"
+COLLECTION_THREAD_MESSAGE_INVOICE_EVIDENCE_CURRENT = (
+    "collection_thread_message_invoice_evidence_current"
+)
 SENT_DRAFT_ANALYSIS_EVENTS_CURRENT = "sent_draft_analysis_events_current"
 DRAFT_PROVIDER_LIFECYCLE_EVENTS_CURRENT = "draft_provider_lifecycle_events_current"
 DRAFTS_CURRENT = "silver_app_drafts_current"
 PARTY_COLLECTION_STATE_CURRENT = "party_collection_state_events_current"
 PARTY_COMM_STATE_CURRENT = "party_comm_state_events_current"
 PARTY_BEHAVIOR_PROFILE_CURRENT = "party_behavior_profile_versions_current"
+
+_HELD_COMMITMENT_REASON_TOKENS = {
+    "promised",
+    "promise",
+    "remittance",
+    "remittance_pending",
+    "payment_verification",
+    "payment_claim",
+    "payment_plan",
+}
+_BROKEN_COMMITMENT_REASON_TOKENS = {
+    "broken_promise",
+    "promise_broken",
+    "broken_remittance",
+    "remittance_not_found",
+    "payment_verification_not_found",
+    "not_found_remittance",
+}
 
 
 def _current_projection(projection: str, alias: str) -> str:
@@ -130,6 +153,10 @@ class CaseContextHydrator:
         party_contacts = self._load_party_contacts(candidate.party_id)
         history = self._load_lane_history(candidate.lane_id)
         actual_sent_scope_history = self._load_actual_sent_scope_history(candidate.party_id)
+        case_ids = [str(candidate.collection_case_id)] if candidate.collection_case_id else []
+        case_threads = self._load_case_threads_batch(case_ids)
+        temporal_evidence = self._load_case_temporal_invoice_evidence_batch(case_ids)
+        commitment_evidence = self._load_case_commitment_evidence_batch(case_ids)
         return self._assemble_case_context(
             candidate=candidate,
             party=party,
@@ -138,6 +165,13 @@ class CaseContextHydrator:
             party_contacts=party_contacts,
             history=history,
             actual_sent_scope_history=actual_sent_scope_history,
+            case_thread=case_threads.get(str(candidate.collection_case_id or "")),
+            case_temporal_evidence=temporal_evidence.get(
+                str(candidate.collection_case_id or ""), []
+            ),
+            case_commitment_evidence=commitment_evidence.get(
+                str(candidate.collection_case_id or ""), []
+            ),
         )
 
     def hydrate_batch(self, candidates: list[DraftCandidate]) -> list[BatchHydrationResult]:
@@ -165,6 +199,10 @@ class CaseContextHydrator:
         contacts_by_party = self._load_party_contacts_batch(party_ids)
         history_by_lane = self._load_lane_history_batch(lane_ids)
         actual_sent_scope_by_party = self._load_actual_sent_scope_history_batch(party_ids)
+        case_ids = sorted({str(c.collection_case_id) for c in candidates if c.collection_case_id})
+        case_threads_by_id = self._load_case_threads_batch(case_ids)
+        case_temporal_evidence_by_id = self._load_case_temporal_invoice_evidence_batch(case_ids)
+        case_commitment_evidence_by_id = self._load_case_commitment_evidence_batch(case_ids)
 
         results: list[BatchHydrationResult] = []
         for candidate in candidates:
@@ -190,6 +228,13 @@ class CaseContextHydrator:
                     party_contacts=contacts_by_party.get(party_id, []),
                     history=history_by_lane.get(lane_id, []),
                     actual_sent_scope_history=actual_sent_scope_by_party.get(party_id, []),
+                    case_thread=case_threads_by_id.get(str(candidate.collection_case_id or "")),
+                    case_temporal_evidence=case_temporal_evidence_by_id.get(
+                        str(candidate.collection_case_id or ""), []
+                    ),
+                    case_commitment_evidence=case_commitment_evidence_by_id.get(
+                        str(candidate.collection_case_id or ""), []
+                    ),
                 )
             except ContextHydrationError as exc:
                 results.append(BatchHydrationResult(candidate=candidate, error=exc))
@@ -232,6 +277,9 @@ class CaseContextHydrator:
         party_contacts: list[dict[str, Any]],
         history: list[dict[str, Any]],
         actual_sent_scope_history: list[dict[str, Any]],
+        case_thread: dict[str, Any] | None = None,
+        case_temporal_evidence: list[dict[str, Any]] | None = None,
+        case_commitment_evidence: list[dict[str, Any]] | None = None,
     ) -> CaseContext:
         """Compose a V4 ``CaseContext`` from pre-loaded row data.
 
@@ -308,6 +356,8 @@ class CaseContextHydrator:
             obligations=obligations,
         )
         mode = candidate.mode or ("multi_lane" if len(lane_contexts) > 1 else "single_lane")
+        held_commitments, broken_commitments = self._commitments_from_lane_contexts(lane_contexts)
+        temporal_evidence = case_temporal_evidence or []
 
         return CaseContext(
             schema_version=4,
@@ -342,18 +392,14 @@ class CaseContextHydrator:
                 else "cohort_thread"
             ),
             case_lane_contexts=lane_contexts,
-            active_thread_subject=None,
-            held_commitments=[
-                {"obligation_id": str(obligation_id), "hold_reasons": list(reasons or [])}
-                for obligation_id, reasons in (
-                    lane_context.get("blocked_reasons_by_obligation_id") or {}
-                ).items()
-                if any(
-                    str(reason) in {"promised", "payment_verification", "payment_plan"}
-                    for reason in (reasons or [])
-                )
-            ],
-            broken_commitments=[],
+            active_thread_subject=(case_thread or {}).get("latest_subject"),
+            collection_thread_messages=self._format_case_thread_messages(temporal_evidence),
+            collection_thread_invoice_evidence=self._format_case_invoice_evidence(
+                temporal_evidence
+            ),
+            collection_thread_commitment_evidence=case_commitment_evidence or [],
+            held_commitments=held_commitments,
+            broken_commitments=broken_commitments,
             manual_intervention_summary=None,
             lane=lane_context,
             lane_history=history,
@@ -773,6 +819,262 @@ class CaseContextHydrator:
             }
             for row in reversed(rows)
         ]
+
+    def _load_case_threads_batch(self, case_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Return the active/current thread row keyed by collection_case_id."""
+        if not case_ids:
+            return {}
+        try:
+            rows = self._fetch_case_threads(case_ids)
+        except Exception:
+            return {}
+        result: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            case_id = str(row.get("collection_case_id") or "")
+            if case_id and case_id not in result:
+                result[case_id] = row
+        return result
+
+    def _fetch_case_threads(self, case_ids: list[str]) -> list[dict[str, Any]]:
+        sql = f"""
+            SELECT
+                ct.collection_case_id,
+                ct.collection_case_thread_id,
+                ct.conversation_id,
+                CAST(NULL AS VARCHAR) AS mailbox_email,
+                CAST(NULL AS VARCHAR) AS latest_subject,
+                ct.thread_status,
+                ct.adopted_at AS first_message_at,
+                COALESCE(ct.superseded_at, ct.adopted_at, ct.valid_from, ct.observed_at) AS last_message_at
+            FROM {_current_projection_in(COLLECTION_CASE_THREADS_CURRENT, "ct", id_column="collection_case_id")}
+            ORDER BY
+                CASE WHEN ct.thread_status = 'active' THEN 0 ELSE 1 END,
+                ct.last_message_at DESC NULLS LAST,
+                ct.collection_case_thread_id
+            """
+        return self.reader.execute(sql, [self.tenant_id, tuple(case_ids)])
+
+    def _load_case_temporal_invoice_evidence_batch(
+        self,
+        case_ids: list[str],
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Return message-time invoice evidence keyed by collection_case_id.
+
+        These rows are context only. They must never widen the current
+        candidate obligations selected from Silver Core obligations.
+        """
+        if not case_ids:
+            return {}
+        try:
+            rows = self._fetch_case_temporal_invoice_evidence(case_ids)
+        except Exception:
+            return {}
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        seen: set[tuple[str, str, str]] = set()
+        for row in rows:
+            case_id = str(row.get("collection_case_id") or "")
+            message_id = str(row.get("mail_message_id") or "")
+            invoice_key = str(row.get("invoice_ref_normalized") or row.get("invoice_number") or "")
+            dedupe_key = (case_id, message_id, invoice_key)
+            if not case_id or not message_id or not invoice_key or dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            grouped[case_id].append(self._format_temporal_evidence_row(row))
+        return dict(grouped)
+
+    def _fetch_case_temporal_invoice_evidence(self, case_ids: list[str]) -> list[dict[str, Any]]:
+        sql = f"""
+            SELECT
+                ev.collection_case_id,
+                ev.collection_case_thread_id,
+                ev.mail_message_id,
+                ev.message_time,
+                ev.invoice_ref_raw,
+                ev.invoice_ref_normalized,
+                ev.invoice_number,
+                ev.obligation_id,
+                ev.current_amount_due,
+                ev.current_amount_due_base,
+                ev.current_state,
+                ev.current_state_reason,
+                ev.as_of_amount_due,
+                ev.as_of_amount_due_base,
+                ev.as_of_state,
+                ev.as_of_source,
+                ev.as_of_confidence,
+                ev.commitment_event_ids_json,
+                ev.warnings_json
+            FROM {_current_projection_in(COLLECTION_THREAD_MESSAGE_INVOICE_EVIDENCE_CURRENT, "ev", id_column="collection_case_id")}
+            ORDER BY ev.collection_case_id,
+                     ev.message_time DESC NULLS LAST,
+                     ev.mail_message_id,
+                     ev.invoice_ref_normalized
+            """
+        return self.reader.execute(sql, [self.tenant_id, tuple(case_ids)])
+
+    @staticmethod
+    def _format_temporal_evidence_row(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "collection_case_thread_id": str(row.get("collection_case_thread_id"))
+            if row.get("collection_case_thread_id")
+            else None,
+            "mail_message_id": str(row.get("mail_message_id"))
+            if row.get("mail_message_id")
+            else None,
+            "message_time": _date_string(row.get("message_time")),
+            "invoice_ref_raw": row.get("invoice_ref_raw"),
+            "invoice_ref_normalized": row.get("invoice_ref_normalized"),
+            "invoice_number": row.get("invoice_number"),
+            "obligation_id": str(row.get("obligation_id")) if row.get("obligation_id") else None,
+            "current_amount_due": row.get("current_amount_due"),
+            "current_amount_due_base": row.get("current_amount_due_base"),
+            "current_state": row.get("current_state"),
+            "current_state_reason": row.get("current_state_reason"),
+            "as_of_amount_due": row.get("as_of_amount_due"),
+            "as_of_amount_due_base": row.get("as_of_amount_due_base"),
+            "as_of_state": row.get("as_of_state"),
+            "as_of_source": row.get("as_of_source"),
+            "as_of_confidence": row.get("as_of_confidence"),
+            "commitment_event_ids": _json_value(row.get("commitment_event_ids_json"), fallback=[]),
+            "warnings": _json_value(row.get("warnings_json"), fallback=[]),
+        }
+
+    @staticmethod
+    def _format_case_thread_messages(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        messages: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            message_id = str(row.get("mail_message_id") or "")
+            if not message_id:
+                continue
+            message = messages.setdefault(
+                message_id,
+                {
+                    "id": message_id,
+                    "message_time": row.get("message_time"),
+                    "invoice_states": [],
+                },
+            )
+            message["invoice_states"].append(
+                {
+                    "mail_message_id": message_id,
+                    "invoice_ref_raw": row.get("invoice_ref_raw"),
+                    "invoice_number": row.get("invoice_number"),
+                    "obligation_id": row.get("obligation_id"),
+                    "as_of_amount_due": row.get("as_of_amount_due"),
+                    "as_of_state": row.get("as_of_state"),
+                    "as_of_source": row.get("as_of_source"),
+                    "as_of_confidence": row.get("as_of_confidence"),
+                    "current_amount_due": row.get("current_amount_due"),
+                    "current_state": row.get("current_state"),
+                    "warning": "; ".join(str(item) for item in (row.get("warnings") or [])[:3])
+                    if isinstance(row.get("warnings"), list)
+                    else None,
+                }
+            )
+        return list(messages.values())[:8]
+
+    @staticmethod
+    def _format_case_invoice_evidence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        invoices: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            invoice_key = str(row.get("invoice_number") or row.get("invoice_ref_normalized") or "")
+            if not invoice_key:
+                continue
+            invoice = invoices.setdefault(
+                invoice_key,
+                {
+                    "invoice_number": row.get("invoice_number"),
+                    "obligation_id": row.get("obligation_id"),
+                    "message_states": [],
+                    "current_amount_due": row.get("current_amount_due"),
+                    "current_amount_due_base": row.get("current_amount_due_base"),
+                    "current_state": row.get("current_state"),
+                    "current_state_reason": row.get("current_state_reason"),
+                    "will_be_chased_if_adopted": (
+                        (str(row.get("current_state") or "").lower() == "open")
+                        and float(row.get("current_amount_due") or 0) > 0
+                    ),
+                },
+            )
+            invoice["message_states"].append(
+                {
+                    "mail_message_id": row.get("mail_message_id"),
+                    "message_time": row.get("message_time"),
+                    "as_of_amount_due": row.get("as_of_amount_due"),
+                    "as_of_state": row.get("as_of_state"),
+                    "as_of_source": row.get("as_of_source"),
+                    "as_of_confidence": row.get("as_of_confidence"),
+                }
+            )
+        return list(invoices.values())
+
+    @staticmethod
+    def _commitments_from_lane_contexts(
+        lane_contexts: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        held: list[dict[str, Any]] = []
+        broken: list[dict[str, Any]] = []
+        for lane_context in lane_contexts:
+            for obligation_id, raw_reasons in (
+                lane_context.get("blocked_reasons_by_obligation_id") or {}
+            ).items():
+                reasons = [
+                    str(reason).strip()
+                    for reason in (raw_reasons if isinstance(raw_reasons, list) else [raw_reasons])
+                    if str(reason).strip()
+                ]
+                normalized = {reason.lower() for reason in reasons}
+                payload = {
+                    "obligation_id": str(obligation_id),
+                    "lane_id": lane_context.get("lane_id")
+                    or lane_context.get("collection_lane_id"),
+                }
+                if normalized & _HELD_COMMITMENT_REASON_TOKENS:
+                    held.append({**payload, "hold_reasons": reasons})
+                if normalized & _BROKEN_COMMITMENT_REASON_TOKENS:
+                    broken.append({**payload, "broken_reasons": reasons})
+        return held, broken
+
+    def _load_case_commitment_evidence_batch(
+        self,
+        case_ids: list[str],
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Return explicit case commitment evidence when available.
+
+        V1 keeps commitment selection from current lane/case scope. The
+        temporal evidence table carries durable commitment event ids, so this
+        helper exposes those ids without querying by ambiguous thread keys.
+        """
+        temporal = self._load_case_temporal_invoice_evidence_batch(case_ids)
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        seen: set[tuple[str, str, str]] = set()
+        for case_id, rows in temporal.items():
+            for row in rows:
+                event_ids = row.get("commitment_event_ids") or []
+                if not event_ids:
+                    continue
+                key = (
+                    case_id,
+                    str(row.get("mail_message_id") or ""),
+                    str(row.get("invoice_number") or row.get("invoice_ref_normalized") or ""),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                grouped[case_id].append(
+                    {
+                        "type": "commitment",
+                        "invoice_number": row.get("invoice_number"),
+                        "source_message_id": row.get("mail_message_id"),
+                        "event_time": row.get("message_time"),
+                        "status_at_event": row.get("as_of_state"),
+                        "current_outcome": row.get("current_state"),
+                        "blocks_chasing": str(row.get("current_state") or "").lower()
+                        in {"promised", "remittance_pending", "payment_plan"},
+                        "commitment_event_ids": event_ids,
+                    }
+                )
+        return dict(grouped)
 
     def _load_actual_sent_scope_history(self, party_id: str) -> list[dict[str, Any]]:
         rows_by_party = self._load_actual_sent_scope_history_batch([party_id])

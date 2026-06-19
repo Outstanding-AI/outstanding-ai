@@ -1,4 +1,4 @@
-"""Lane-cohort guardrail for invoice references and lane totals."""
+"""Candidate-scope guardrail for invoice references and candidate totals."""
 
 import re
 from decimal import ROUND_HALF_UP, Decimal
@@ -65,7 +65,7 @@ def _bare_digit_form(value: Any) -> str:
 
 
 class LaneScopeGuardrail(BaseGuardrail):
-    """Block drafts that escape the current lane cohort or total."""
+    """Block drafts that escape the current candidate scope or total."""
 
     def __init__(self):
         super().__init__(name="lane_scope", severity=GuardrailSeverity.CRITICAL)
@@ -77,7 +77,7 @@ class LaneScopeGuardrail(BaseGuardrail):
             return [self._pass("No lane context supplied")]
 
         scoped_refs = candidate_refs or lane.get("invoice_refs") or []
-        cohort_invoices = set()
+        candidate_invoices = set()
         # Bare-digit lookup keyed by length: digits string -> set of normalized forms.
         # A bare-digit body extraction matches a prefixed cohort entry only when the
         # body digit string is **exactly equal** to the cohort entry's bare digits;
@@ -85,13 +85,13 @@ class LaneScopeGuardrail(BaseGuardrail):
         # eliminates prefix collisions ("1234" cannot match "12345").
         cohort_bare_digits: dict[str, set[str]] = {}
         for ref in scoped_refs:
-            cohort_invoices.update(_invoice_ref_variants(ref))
+            candidate_invoices.update(_invoice_ref_variants(ref))
             normalized = _normalize_invoice_ref(ref)
             digits = _bare_digit_form(ref)
             if digits and digits != normalized:
                 cohort_bare_digits.setdefault(digits, set()).add(normalized)
-        if not cohort_invoices and not cohort_bare_digits:
-            return [self._pass("Lane has no scoped invoice refs")]
+        if not candidate_invoices and not cohort_bare_digits:
+            return [self._pass("Candidate scope has no invoice refs")]
 
         blocked_ids = {
             str(value) for value in (getattr(context, "blocked_obligation_ids", None) or [])
@@ -125,12 +125,14 @@ class LaneScopeGuardrail(BaseGuardrail):
         for pattern in INVOICE_PATTERNS:
             for match in pattern.findall(output):
                 invoice_ref = _normalize_invoice_ref(match)
-                in_cohort = invoice_ref in cohort_invoices or (
+                in_scope = invoice_ref in candidate_invoices or (
                     invoice_ref.isdigit() and invoice_ref in cohort_bare_digits
                 )
-                if not in_cohort:
+                if not in_scope:
                     return [
-                        self._fail(f"Draft references invoice {invoice_ref} outside lane cohort")
+                        self._fail(
+                            f"Draft references invoice {invoice_ref} outside candidate scope"
+                        )
                     ]
                 if (
                     invoice_to_internal_id.get(invoice_ref) in blocked_ids
@@ -147,4 +149,4 @@ class LaneScopeGuardrail(BaseGuardrail):
                         self._fail(f"Stated total {match} does not match lane total {lane_total}")
                     ]
 
-        return [self._pass("Lane scope validated")]
+        return [self._pass("Candidate scope validated")]
