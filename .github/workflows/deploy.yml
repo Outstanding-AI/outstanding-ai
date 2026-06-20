@@ -70,8 +70,9 @@ jobs:
           AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
           git config --global http.https://github.com/Outstanding-AI/.extraheader \
             "AUTHORIZATION: basic ${AUTH}"
+          CONTRACTS_TAG="$(python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["tool"]["uv"]["sources"]["solvix-contracts"]["tag"])')"
           git ls-remote https://github.com/Outstanding-AI/outstanding-backend.git \
-            refs/tags/contracts-v0.12.28 >/dev/null
+            "refs/tags/${CONTRACTS_TAG}" >/dev/null
       - run: uv sync --frozen --extra dev
       - run: pip install pre-commit
       - run: pre-commit run --all-files --show-diff-on-failure
@@ -329,9 +330,10 @@ jobs:
             exit 1
           fi
           AUTH="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          CONTRACTS_TAG="$(python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["tool"]["uv"]["sources"]["solvix-contracts"]["tag"])')"
           git -c http.https://github.com/Outstanding-AI/.extraheader="AUTHORIZATION: basic ${AUTH}" \
             ls-remote https://github.com/Outstanding-AI/outstanding-backend.git \
-            refs/tags/contracts-v0.12.28 >/dev/null
+            "refs/tags/${CONTRACTS_TAG}" >/dev/null
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v6
