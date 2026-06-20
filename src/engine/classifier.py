@@ -515,6 +515,10 @@ def _format_historical_backfill_context(context: dict[str, Any] | None) -> str:
             "chain_message_ordinal",
             "invoice_refs",
             "current_sage_scope",
+            "protocol_touch_type",
+            "protocol_level",
+            "protocol_touch_index",
+            "protocol_cadence_status",
             "classification_instruction",
         }
     }
