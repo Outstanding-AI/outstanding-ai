@@ -151,6 +151,9 @@ class EmailClassifier:
             party_source=request.context.party.source,
             industry_context=industry_context,
             forwarded_context=_format_forwarded_context_for_prompt(request.email.forwarded_context),
+            historical_backfill_context=_format_historical_backfill_context(
+                request.context.historical_backfill
+            ),
             received_at=received_at_display,
             reference_date=reference_date.isoformat(),
             from_name=request.email.from_name or "Unknown",
@@ -488,6 +491,31 @@ def _format_forwarded_context_for_prompt(context: dict[str, Any] | None) -> str:
             "prompt_budget",
             "evidence_snippets",
             "instruction",
+        }
+    }
+    return sanitize_delimiter_tags(json.dumps(safe_context, sort_keys=True, default=str))
+
+
+def _format_historical_backfill_context(context: dict[str, Any] | None) -> str:
+    """Render body-free historical audit metadata for collection-thread backfill."""
+
+    if not context:
+        return "Not a historical backfill classification."
+    safe_context = {
+        key: value
+        for key, value in context.items()
+        if key
+        in {
+            "mode",
+            "message_role",
+            "direction",
+            "folder_name",
+            "mail_message_id",
+            "conversation_id",
+            "chain_message_ordinal",
+            "invoice_refs",
+            "current_sage_scope",
+            "classification_instruction",
         }
     }
     return sanitize_delimiter_tags(json.dumps(safe_context, sort_keys=True, default=str))

@@ -55,7 +55,7 @@ Concept → file navigation index.
 
 | Concept | File |
 |---------|------|
-| Classification endpoint | `src/api/routes/classify.py` — reused by historical collection-thread backfill audit with the same debtor-reply classifier semantics; backend controls no-cache/no-persist audit mode and token/cost caps; AI returns semantic evidence only and never writes App DB/data-lake/mailbox state |
+| Classification endpoint | `src/api/routes/classify.py` — reused by historical collection-thread backfill audit; inbound historical rows use debtor-reply semantics, outbound rows classify operator/Outstanding AI collection actions; backend controls no-cache/no-persist audit mode and token/cost caps; AI returns semantic evidence only and never writes App DB/data-lake/mailbox state |
 | Generation endpoint | `src/api/routes/generate.py` |
 | Persona endpoints | `src/api/routes/persona.py` |
 | Health checks | `src/api/routes/health.py` |

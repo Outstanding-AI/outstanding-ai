@@ -378,6 +378,7 @@ class CaseContext(CaseContextV2):
     held_commitments: List[dict[str, Any]] = Field(default_factory=list)
     broken_commitments: List[dict[str, Any]] = Field(default_factory=list)
     manual_intervention_summary: Optional[dict[str, Any]] = None
+    historical_backfill: Optional[dict[str, Any]] = None
 
     # ------------------------------------------------------------------
     # V3-only top-level fields (Optional so V2 callers omit them safely).
