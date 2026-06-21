@@ -35,6 +35,7 @@ from .validation import (
     PROMPT_INJECTION_PATTERNS,
     ClassifyRequest,
     GenerateDraftRequest,
+    HistoricalCollectionThreadRequest,
 )
 
 __all__ = [
@@ -67,6 +68,7 @@ __all__ = [
     "SentDraftInvoiceCandidate",
     # Validation / Requests
     "ClassifyRequest",
+    "HistoricalCollectionThreadRequest",
     "GenerateDraftRequest",
     "PROMPT_INJECTION_PATTERNS",
 ]

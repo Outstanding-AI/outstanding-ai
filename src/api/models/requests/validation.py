@@ -43,6 +43,24 @@ class ClassifyRequest(BaseModel):
     context: CaseContext
 
 
+class HistoricalCollectionThreadRequest(BaseModel):
+    """Request to classify historical protocol/adjudication evidence."""
+
+    mode: str = Field(pattern="^(message_protocol|debtor_thread_adjudication)$")
+    message: Optional[dict[str, Any]] = None
+    prior_messages_summary: Optional[list[dict[str, Any]]] = Field(default_factory=list)
+    previous_ai_protocol_decisions: Optional[list[dict[str, Any]]] = Field(default_factory=list)
+    rolling_invoice_state_before: Optional[list[str]] = Field(default_factory=list)
+    rolling_invoice_state_after: Optional[list[str]] = Field(default_factory=list)
+    deterministic_facts: Optional[dict[str, Any]] = Field(default_factory=dict)
+    as_of_invoice_evidence: Optional[list[dict[str, Any]]] = Field(default_factory=list)
+    current_sage_validation: Optional[list[Any]] = Field(default_factory=list)
+    tenant_protocol_summary: Optional[dict[str, Any]] = Field(default_factory=dict)
+    party_id: Optional[str] = None
+    candidate_threads: Optional[list[dict[str, Any]]] = Field(default_factory=list)
+    guardrails: Optional[dict[str, Any]] = Field(default_factory=dict)
+
+
 class FollowUpContext(BaseModel):
     """Verification claim/match context for queued follow-up drafts.
 

@@ -296,6 +296,46 @@ class ClassificationLLMResponse(BaseModel):
         return self
 
 
+class HistoricalCollectionThreadLLMResponse(BaseModel):
+    """Structured response for historical collection-thread protocol/adjudication."""
+
+    classification: Optional[str] = Field(
+        default=None,
+        description="Semantic message classification or debtor-thread recommendation label.",
+    )
+    protocol_touch_type: Optional[
+        Literal[
+            "initial_reminder",
+            "same_level_reminder",
+            "same_level_follow_up",
+            "debtor_reply_response",
+            "cross_contact_escalation",
+            "same_contact_escalation",
+            "promise_acknowledgement",
+            "remittance_acknowledgement",
+            "manual_off_protocol_touch",
+            "non_collection_or_auto",
+            "unknown",
+        ]
+    ] = None
+    is_escalation: Optional[bool] = None
+    escalation_kind: Optional[Literal["same_contact", "cross_contact", "none", "unclear"]] = None
+    debtor_reply_response: Optional[bool] = None
+    commitment_acknowledgement_type: Optional[
+        Literal["promise_acknowledgement", "remittance_acknowledgement", "none", "unclear"]
+    ] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: str = Field(default="", max_length=800)
+    evidence_message_ids: list[str] = Field(default_factory=list)
+    recommended_active_thread_id: Optional[str] = None
+    thread_actions: dict[
+        str, Literal["active", "superseded", "closed_history", "needs_review", "ignore"]
+    ] = Field(default_factory=dict)
+    guardrail_warnings: list[str] = Field(default_factory=list)
+    secondary_intents: list[str] = Field(default_factory=list)
+    intent_details: list[dict] = Field(default_factory=list)
+
+
 class DraftReasoningResponse(BaseModel):
     """Structured reasoning from the LLM about its draft generation decisions."""
 

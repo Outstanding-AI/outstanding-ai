@@ -215,6 +215,32 @@ class ClassifyResponse(BaseModel):
     ai_audit: Optional[AIAuditMetadata] = None
 
 
+class HistoricalCollectionThreadResponse(BaseModel):
+    """Response from historical collection-thread protocol/adjudication classification."""
+
+    classification: Optional[str] = None
+    protocol_touch_type: Optional[str] = None
+    is_escalation: Optional[bool] = None
+    escalation_kind: Optional[str] = None
+    debtor_reply_response: Optional[bool] = None
+    commitment_acknowledgement_type: Optional[str] = None
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    reason: Optional[str] = None
+    evidence_message_ids: List[str] = []
+    recommended_active_thread_id: Optional[str] = None
+    thread_actions: Dict[str, str] = {}
+    guardrail_warnings: List[str] = []
+    secondary_intents: List[str] = []
+    intent_details: List[dict] = []
+    tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    is_fallback: bool = False
+    ai_audit: Optional[AIAuditMetadata] = None
+
+
 class PersonaResult(BaseModel):
     """Generated persona for a single contact."""
 
