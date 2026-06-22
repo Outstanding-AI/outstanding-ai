@@ -178,6 +178,141 @@ class TestClassifyEndpoint:
         assert data["classification"] == "HARDSHIP"
 
 
+class TestHistoricalCollectionThreadEndpoint:
+    """Tests for /classify-historical-collection-thread endpoint."""
+
+    def test_historical_collection_thread_requires_auth(self, client):
+        response = client.post("/classify-historical-collection-thread", json={})
+
+        assert response.status_code == 401
+
+    @patch(
+        "src.api.routes.classify_historical_collection_thread.historical_collection_thread_classifier"
+    )
+    def test_historical_collection_thread_message_protocol_success(
+        self, mock_classifier, authed_client
+    ):
+        from src.api.models.responses import HistoricalCollectionThreadResponse
+
+        mock_classifier.classify = AsyncMock(
+            return_value=HistoricalCollectionThreadResponse(
+                classification="same_level_follow_up",
+                protocol_touch_type="same_level_follow_up",
+                is_escalation=False,
+                escalation_kind="none",
+                debtor_reply_response=False,
+                confidence=0.93,
+                reason="Outbound follow-up stayed in the same conversation and same contact level.",
+                evidence_message_ids=["msg-1", "msg-2"],
+                thread_actions={},
+                tokens_used=32,
+                prompt_tokens=20,
+                completion_tokens=12,
+                provider="openai",
+                model="gpt-5-mini",
+                is_fallback=True,
+            )
+        )
+
+        response = authed_client.post(
+            "/classify-historical-collection-thread",
+            json={
+                "mode": "message_protocol",
+                "message": {
+                    "mail_message_id": "msg-2",
+                    "conversation_id": "conv-1",
+                    "message_role": "outbound_operator",
+                    "subject": "Re: Invoice 0000007926",
+                    "body": "Following up on the overdue invoice.",
+                },
+                "prior_messages_summary": [
+                    {
+                        "mail_message_id": "msg-1",
+                        "message_role": "outbound_operator",
+                        "subject": "Invoice 0000007926",
+                    }
+                ],
+                "rolling_invoice_state_before": ["0000007926"],
+                "rolling_invoice_state_after": ["0000007926"],
+                "deterministic_facts": {
+                    "contact_transition_fact": "none",
+                    "days_since_prior_touch": 7,
+                },
+                "current_sage_validation": [
+                    {
+                        "invoice_number": "0000007926",
+                        "current_state": "open_overdue",
+                        "will_be_chased_if_adopted": True,
+                    }
+                ],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["classification"] == "same_level_follow_up"
+        assert data["provider"] == "openai"
+        assert data["is_fallback"] is True
+        assert data["tokens_used"] == 32
+        mock_classifier.classify.assert_awaited_once()
+
+    @patch(
+        "src.api.routes.classify_historical_collection_thread.historical_collection_thread_classifier"
+    )
+    def test_historical_collection_thread_adjudication_success(
+        self, mock_classifier, authed_client
+    ):
+        from src.api.models.responses import HistoricalCollectionThreadResponse
+
+        mock_classifier.classify = AsyncMock(
+            return_value=HistoricalCollectionThreadResponse(
+                classification="needs_review",
+                confidence=0.51,
+                reason="Two candidate chains compete for the same currently open exposure.",
+                recommended_active_thread_id=None,
+                thread_actions={"conv-a": "needs_review", "conv-b": "needs_review"},
+                guardrail_warnings=["multiple_competing_threads"],
+                provider="openai",
+                model="gpt-5-mini",
+                is_fallback=True,
+            )
+        )
+
+        response = authed_client.post(
+            "/classify-historical-collection-thread",
+            json={
+                "mode": "debtor_thread_adjudication",
+                "party_id": "party-1",
+                "candidate_threads": [
+                    {
+                        "conversation_id": "conv-a",
+                        "current_open_overdue_invoice_numbers": ["0000007926"],
+                    },
+                    {
+                        "conversation_id": "conv-b",
+                        "current_open_overdue_invoice_numbers": ["0000007926"],
+                    },
+                ],
+                "current_sage_validation": [
+                    {
+                        "invoice_number": "0000007926",
+                        "current_state": "open_overdue",
+                    }
+                ],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["classification"] == "needs_review"
+        assert data["thread_actions"] == {
+            "conv-a": "needs_review",
+            "conv-b": "needs_review",
+        }
+        assert data["guardrail_warnings"] == ["multiple_competing_threads"]
+        mock_classifier.classify.assert_awaited_once()
+
+
 class TestGenerateEndpoint:
     """Tests for /generate-draft endpoint."""
 
