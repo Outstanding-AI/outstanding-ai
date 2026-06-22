@@ -296,8 +296,49 @@ class ClassificationLLMResponse(BaseModel):
         return self
 
 
+class HistoricalThreadActionLLM(BaseModel):
+    """Closed schema item for debtor-level thread adjudication.
+
+    OpenAI strict structured outputs reject free-form mapping item schemas. Keep
+    the provider-facing shape as a closed list while accepting the legacy dict
+    form in validators below for tests and older model output.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: str = Field(
+        default="", description="Provider conversation id being adjudicated"
+    )
+    action: Literal["active", "superseded", "closed_history", "needs_review", "ignore"] = Field(
+        default="needs_review",
+        description="Recommended action for this candidate thread",
+    )
+
+
+class HistoricalIntentDetailLLM(BaseModel):
+    """Closed schema item for historical per-intent facts.
+
+    This is intentionally narrower than live debtor-reply extraction. Historical
+    protocol classification is review evidence only; detailed invoice state is
+    already carried by deterministic audit fields.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: str = Field(default="", max_length=100)
+    invoice_refs: list[str] = Field(default_factory=list)
+    evidence_message_ids: list[str] = Field(default_factory=list)
+    summary: str = Field(default="", max_length=800)
+    amount: Optional[float] = None
+    date: Optional[str] = Field(default=None, max_length=40)
+    status: Optional[str] = Field(default=None, max_length=100)
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
 class HistoricalCollectionThreadLLMResponse(BaseModel):
     """Structured response for historical collection-thread protocol/adjudication."""
+
+    model_config = ConfigDict(extra="forbid")
 
     classification: Optional[str] = Field(
         default=None,
@@ -328,12 +369,55 @@ class HistoricalCollectionThreadLLMResponse(BaseModel):
     reason: str = Field(default="", max_length=800)
     evidence_message_ids: list[str] = Field(default_factory=list)
     recommended_active_thread_id: Optional[str] = None
-    thread_actions: dict[
-        str, Literal["active", "superseded", "closed_history", "needs_review", "ignore"]
-    ] = Field(default_factory=dict)
+    thread_actions: list[HistoricalThreadActionLLM] = Field(default_factory=list)
     guardrail_warnings: list[str] = Field(default_factory=list)
     secondary_intents: list[str] = Field(default_factory=list)
-    intent_details: list[dict] = Field(default_factory=list)
+    intent_details: list[HistoricalIntentDetailLLM] = Field(default_factory=list)
+
+    @field_validator("thread_actions", mode="before")
+    @classmethod
+    def coerce_thread_actions(cls, value: object) -> object:
+        if isinstance(value, dict):
+            return [
+                {"conversation_id": str(key), "action": action} for key, action in value.items()
+            ]
+        return value
+
+    @field_validator("intent_details", mode="before")
+    @classmethod
+    def coerce_intent_details(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        coerced: list[dict[str, object]] = []
+        for item in value:
+            if isinstance(item, dict):
+                coerced.append(
+                    {
+                        "intent": str(item.get("intent") or item.get("classification") or ""),
+                        "invoice_refs": item.get("invoice_refs") or [],
+                        "evidence_message_ids": item.get("evidence_message_ids") or [],
+                        "summary": str(
+                            item.get("summary") or item.get("reason") or item.get("details") or ""
+                        ),
+                        "amount": item.get("amount"),
+                        "date": item.get("date"),
+                        "status": item.get("status"),
+                        "confidence": item.get("confidence"),
+                    }
+                )
+            else:
+                coerced.append(item)
+        return coerced
+
+    def thread_actions_dict(self) -> dict[str, str]:
+        return {
+            item.conversation_id: item.action
+            for item in self.thread_actions
+            if item.conversation_id
+        }
+
+    def intent_details_payload(self) -> list[dict]:
+        return [item.model_dump(exclude_none=True) for item in self.intent_details]
 
 
 class DraftReasoningResponse(BaseModel):

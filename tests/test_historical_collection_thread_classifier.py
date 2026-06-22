@@ -6,6 +6,7 @@ import pytest
 from src.api.models.requests import HistoricalCollectionThreadRequest
 from src.engine.historical_collection_thread_classifier import HistoricalCollectionThreadClassifier
 from src.llm.base import LLMResponse
+from src.llm.schemas import HistoricalCollectionThreadLLMResponse
 
 
 def _llm_response(payload: dict) -> LLMResponse:
@@ -15,6 +16,44 @@ def _llm_response(payload: dict) -> LLMResponse:
         provider="test",
         usage={"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20},
     )
+
+
+def test_historical_collection_schema_is_openai_strict_compatible():
+    schema = HistoricalCollectionThreadLLMResponse.model_json_schema()
+
+    assert schema["additionalProperties"] is False
+    assert schema["$defs"]["HistoricalThreadActionLLM"]["additionalProperties"] is False
+    assert schema["$defs"]["HistoricalIntentDetailLLM"]["additionalProperties"] is False
+    assert schema["properties"]["thread_actions"]["items"] == {
+        "$ref": "#/$defs/HistoricalThreadActionLLM"
+    }
+    assert schema["properties"]["intent_details"]["items"] == {
+        "$ref": "#/$defs/HistoricalIntentDetailLLM"
+    }
+
+
+def test_historical_collection_schema_accepts_legacy_thread_action_dict():
+    parsed = HistoricalCollectionThreadLLMResponse(
+        classification="needs_review",
+        thread_actions={"conv-a": "active", "conv-b": "needs_review"},
+        intent_details=[
+            {
+                "intent": "remittance",
+                "invoice_refs": ["0000001234"],
+                "details": "Debtor attached remittance advice.",
+            }
+        ],
+    )
+
+    assert parsed.thread_actions_dict() == {"conv-a": "active", "conv-b": "needs_review"}
+    assert parsed.intent_details_payload() == [
+        {
+            "intent": "remittance",
+            "invoice_refs": ["0000001234"],
+            "evidence_message_ids": [],
+            "summary": "Debtor attached remittance advice.",
+        }
+    ]
 
 
 @pytest.mark.asyncio

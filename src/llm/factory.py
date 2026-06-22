@@ -223,8 +223,17 @@ class LLMProviderWithFallback:
         return (provider, caller or "unknown")
 
     def _record_cooldown(self, provider: str, caller: str) -> None:
-        until = time.monotonic() + max(0, settings.llm_fallback_cooldown_seconds)
+        until = time.monotonic() + max(0, self._cooldown_seconds(provider, caller))
         self._cooldowns[self._cooldown_key(provider, caller)] = until
+
+    def _cooldown_seconds(self, provider: str, caller: str) -> int:
+        default_seconds = settings.llm_fallback_cooldown_seconds
+        if provider == "vertex" and caller == "historical_collection_thread":
+            return max(
+                default_seconds,
+                settings.llm_historical_collection_cooldown_seconds,
+            )
+        return default_seconds
 
     def _raise_if_cooling_down(self, provider: str, caller: str) -> None:
         until = self._cooldowns.get(self._cooldown_key(provider, caller))

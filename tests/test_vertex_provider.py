@@ -9,9 +9,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from google.api_core.exceptions import ResourceExhausted
 from pydantic import BaseModel
 
-from src.llm.base import LLMResponse
+from src.llm.base import LLMRateLimitedError, LLMResponse
 from src.llm.factory import LLMProviderWithFallback
 from src.llm.vertex_provider import VertexProvider
 
@@ -118,6 +119,30 @@ async def test_vertex_complete_uses_structured_output(monkeypatch):
     assert config.response_mime_type == "application/json"
     assert config.response_schema is _Schema
     assert getattr(config, "max_output_tokens", None) is None
+
+
+@pytest.mark.asyncio
+async def test_vertex_historical_collection_rate_limit_fails_fast(monkeypatch):
+    fake_client = MagicMock()
+    fake_client.aio.models.generate_content = AsyncMock(side_effect=ResourceExhausted("quota"))
+    fake_client.aio.aclose = AsyncMock()
+
+    monkeypatch.setattr(VertexProvider, "_build_credentials", lambda self: object())
+    monkeypatch.setattr(
+        "src.llm.vertex_provider.settings.llm_historical_collection_vertex_max_retries",
+        1,
+    )
+
+    with patch("src.llm.vertex_provider.Client", return_value=fake_client):
+        provider = VertexProvider()
+        with pytest.raises(LLMRateLimitedError):
+            await provider.complete(
+                system_prompt="sys",
+                user_prompt="user",
+                caller="historical_collection_thread",
+            )
+
+    assert fake_client.aio.models.generate_content.await_count == 1
     fake_client.aio.aclose.assert_awaited_once()
 
 
@@ -244,3 +269,34 @@ async def test_factory_falls_back_to_openai():
     assert response.is_fallback is True
     assert client.fallback_count == 1
     assert client.get_failure_metrics()["primary_failures_by_caller"] == {"draft_generation": 1}
+
+
+@pytest.mark.asyncio
+async def test_factory_historical_vertex_rate_limit_cools_primary_longer(monkeypatch):
+    fallback_response = LLMResponse(
+        content='{"ok": true}',
+        model="gpt-5-mini",
+        provider="openai",
+        usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    )
+
+    monkeypatch.setattr("src.llm.factory.settings.llm_fallback_cooldown_seconds", 300)
+    monkeypatch.setattr("src.llm.factory.settings.llm_historical_collection_cooldown_seconds", 1800)
+
+    with patch("src.llm.factory.VertexProvider") as mock_vertex:
+        with patch("src.llm.factory.OpenAIProvider") as mock_openai:
+            mock_vertex.return_value.complete = AsyncMock(side_effect=LLMRateLimitedError("quota"))
+            mock_vertex.return_value.provider_name = "vertex"
+            mock_openai.return_value.complete = AsyncMock(return_value=fallback_response)
+            mock_openai.return_value.provider_name = "openai"
+            client = LLMProviderWithFallback(primary_provider="vertex", fallback_provider="openai")
+
+            first = await client.complete("sys", "user", caller="historical_collection_thread")
+            second = await client.complete("sys", "user", caller="historical_collection_thread")
+
+    assert first.provider == "openai"
+    assert second.provider == "openai"
+    assert mock_vertex.return_value.complete.await_count == 1
+    assert mock_openai.return_value.complete.await_count == 2
+    cooldown_until = client._cooldowns[("vertex", "historical_collection_thread")]
+    assert cooldown_until > 0

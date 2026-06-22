@@ -41,6 +41,11 @@ try:
 except ImportError:
     OPENAI_RETRYABLE_ERRORS = ()
 
+try:
+    from openai import BadRequestError as OpenAIBadRequestError
+except ImportError:
+    OpenAIBadRequestError = None
+
 
 def _log_retry(retry_state):
     """Log retry attempts with structured metrics."""
@@ -307,6 +312,20 @@ class OpenAIProvider(BaseLLMProvider):
                     exc_info=True,
                 )
                 raise LLMRateLimitedError(str(e)) from e
+
+            if OpenAIBadRequestError and isinstance(e, OpenAIBadRequestError):
+                logger.error(
+                    "OpenAI structured request rejected",
+                    extra={
+                        "caller": caller,
+                        "provider": "openai",
+                        "model": self._model,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                raise LLMStructuredOutputError(str(e)) from e
 
             logger.error(
                 "OpenAI provider error",

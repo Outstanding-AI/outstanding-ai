@@ -29,6 +29,7 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 VERTEX_RETRYABLE_ERRORS = (InternalServerError, ResourceExhausted, ServiceUnavailable)
+HISTORICAL_COLLECTION_CALLER = "historical_collection_thread"
 
 
 def _log_retry(retry_state):
@@ -109,10 +110,15 @@ class VertexProvider(BaseLLMProvider):
             location=self._location,
             credentials=self._credentials,
         )
+        retry_attempts = (
+            max(1, settings.llm_historical_collection_vertex_max_retries)
+            if caller == HISTORICAL_COLLECTION_CALLER
+            else settings.llm_max_retries
+        )
 
         @retry(
             retry=retry_if_exception_type(VERTEX_RETRYABLE_ERRORS),
-            stop=stop_after_attempt(settings.llm_max_retries),
+            stop=stop_after_attempt(retry_attempts),
             wait=wait_exponential(multiplier=1, min=2, max=30),
             before_sleep=_log_retry,
             reraise=True,

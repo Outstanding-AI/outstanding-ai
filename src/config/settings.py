@@ -118,6 +118,12 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 60  # Per-call timeout (seconds)
     llm_max_retries: int = 3  # Tenacity retry decorator max attempts
     llm_fallback_cooldown_seconds: int = 300
+    # Historical backfill can issue hundreds of sequential classification calls.
+    # When Vertex returns RESOURCE_EXHAUSTED, fail fast to fallback and keep the
+    # primary cooling down for the rest of the rare audit window instead of
+    # repeatedly spending retries against an exhausted quota bucket.
+    llm_historical_collection_vertex_max_retries: int = 1
+    llm_historical_collection_cooldown_seconds: int = 1800
 
     # --- Logging ---
     log_level: str = "INFO"
