@@ -11,7 +11,7 @@ from src.api.errors import LLMResponseInvalidError
 from src.api.models.requests import HistoricalCollectionThreadRequest
 from src.api.models.responses import HistoricalCollectionThreadResponse
 from src.config.settings import settings
-from src.llm.factory import llm_client
+from src.llm.factory import LLMProviderWithFallback
 from src.llm.schemas import HistoricalCollectionThreadLLMResponse
 
 from .audit import build_ai_audit
@@ -20,6 +20,13 @@ logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "historical_collection_thread"
 PROMPT_TEMPLATE_VERSION = "v1"
+
+
+# Historical backfill can issue hundreds of sequential calls and Vertex quota has
+# proven too burst-sensitive for this workflow. Route this rare maintenance
+# classifier directly to OpenAI; leave the shared llm_client's Vertex-primary
+# routing in place for normal draft generation and live reply classification.
+historical_llm_client = LLMProviderWithFallback(primary_provider="openai", fallback_provider=None)
 
 SYSTEM_PROMPT = """You classify historical accounts-receivable collection thread evidence.
 
@@ -51,7 +58,7 @@ class HistoricalCollectionThreadClassifier:
             mode=request.mode,
             payload=json.dumps(prompt_input, ensure_ascii=True, sort_keys=True, default=str),
         )
-        response = await llm_client.complete(
+        response = await historical_llm_client.complete(
             system_prompt=SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=settings.classification_temperature,
@@ -91,7 +98,7 @@ class HistoricalCollectionThreadClassifier:
             completion_tokens=completion_tokens,
             provider=response.provider,
             model=response.model,
-            is_fallback=(response.provider != llm_client.primary_provider_name),
+            is_fallback=(response.provider != historical_llm_client.primary_provider_name),
             ai_audit=build_ai_audit(
                 response=response,
                 prompt_template_id=PROMPT_TEMPLATE_ID,

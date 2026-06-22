@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.api.models.requests import HistoricalCollectionThreadRequest
+from src.engine import historical_collection_thread_classifier as historical_module
 from src.engine.historical_collection_thread_classifier import HistoricalCollectionThreadClassifier
 from src.llm.base import LLMResponse
 from src.llm.schemas import HistoricalCollectionThreadLLMResponse
@@ -56,6 +57,11 @@ def test_historical_collection_schema_accepts_legacy_thread_action_dict():
     ]
 
 
+def test_historical_collection_routes_openai_primary_without_vertex_fallback():
+    assert historical_module.historical_llm_client.primary_provider_name == "openai"
+    assert historical_module.historical_llm_client.fallback_provider_name is None
+
+
 @pytest.mark.asyncio
 async def test_message_protocol_classifies_reply_response_not_escalation():
     request = HistoricalCollectionThreadRequest(
@@ -72,7 +78,7 @@ async def test_message_protocol_classifies_reply_response_not_escalation():
         },
     )
     with patch(
-        "src.engine.historical_collection_thread_classifier.llm_client.complete",
+        "src.engine.historical_collection_thread_classifier.historical_llm_client.complete",
         new_callable=AsyncMock,
     ) as mock_complete:
         mock_complete.return_value = _llm_response(
@@ -108,7 +114,7 @@ async def test_debtor_thread_adjudication_can_return_needs_review():
         ],
     )
     with patch(
-        "src.engine.historical_collection_thread_classifier.llm_client.complete",
+        "src.engine.historical_collection_thread_classifier.historical_llm_client.complete",
         new_callable=AsyncMock,
     ) as mock_complete:
         mock_complete.return_value = _llm_response(
