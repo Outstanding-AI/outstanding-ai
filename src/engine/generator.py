@@ -205,6 +205,8 @@ class DraftGenerator:
         Returns:
             Generated draft with subject, body, and guardrail validation.
         """
+        if self._policy_blocks_ai_email_chase(request):
+            raise ValueError("Collection policy blocks AI email chase for this debtor.")
         prompt_ctx = self._assemble_prompt(request)
         (
             result,
@@ -216,6 +218,15 @@ class DraftGenerator:
         return self._build_response(
             request, result, guardrail_result, tokens, timing, prompt_ctx, last_response
         )
+
+    @staticmethod
+    def _policy_blocks_ai_email_chase(request: GenerateDraftRequest) -> bool:
+        policy_context = getattr(request.context, "collection_policy_context", None) or {}
+        if not isinstance(policy_context, dict):
+            return False
+        if policy_context.get("ai_email_chase_allowed") is not False:
+            return False
+        return not bool(request.closure_mode or request.trigger_classification)
 
     def _assemble_prompt(self, request: GenerateDraftRequest) -> _PromptContext:
         """Build the full user prompt from case context.

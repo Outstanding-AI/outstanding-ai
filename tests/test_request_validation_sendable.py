@@ -76,3 +76,36 @@ def test_is_sendable_candidate_rejects_zero_balance_current_obligation():
     )
 
     assert _is_sendable_candidate(obligation, context) is False
+
+
+def test_case_context_accepts_collection_policy_context():
+    context = CaseContext(
+        schema_version=4,
+        source_sync_run_id="sync-1",
+        application_run_id="app-1",
+        core_snapshot_watermark="core",
+        application_snapshot_watermark="app",
+        application_decision_cutoff="2026-05-06T00:00:00Z",
+        policy_snapshot_id="policy-1",
+        draft_candidate_id="draft-candidate-1",
+        collection_basis="overdue",
+        collection_policy_context={
+            "collection_policy": "monitor_only",
+            "ai_email_chase_allowed": False,
+        },
+        party=PartyInfo(
+            party_id="party-1",
+            external_id="party-ext-1",
+            provider_type="sage_200",
+            customer_code="CUST-1",
+            name="Customer",
+            currency="GBP",
+            source="sage_200",
+        ),
+        obligations=[],
+    )
+
+    assert context.collection_policy_context == {
+        "collection_policy": "monitor_only",
+        "ai_email_chase_allowed": False,
+    }

@@ -70,6 +70,8 @@ Verification Status Handling:
 Silver Application Boundary:
 - AI is a wording service only. Do NOT choose sender, recipient, cadence, grace days, escalation
   level, or lane eligibility. Those decisions are supplied by the upstream context.
+- Collection policy is upstream authority. If context says AI email chase is blocked, do not
+  generate payment-request wording; the caller should reject the request before model execution.
 - For normal collections, draft only against the supplied candidate obligations that are marked
   sendable/chase-eligible. The normal collection basis is overdue, not merely outstanding.
 - Do NOT add invoice numbers, infer missing invoices, widen to party/account scope, or chase

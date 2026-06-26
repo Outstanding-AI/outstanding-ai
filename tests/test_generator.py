@@ -135,6 +135,23 @@ class TestDraftGenerator:
             assert "INV-12346" in result.invoices_referenced
 
     @pytest.mark.asyncio
+    async def test_generate_rejects_policy_block_before_model_call(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.context.collection_policy_context = {
+            "collection_policy": "monitor_only",
+            "ai_email_chase_allowed": False,
+        }
+
+        with patch.object(
+            generator, "_run_llm_with_guardrails", new_callable=AsyncMock
+        ) as mock_llm:
+            with pytest.raises(ValueError, match="Collection policy blocks AI email chase"):
+                await generator.generate(sample_generate_draft_request)
+
+        mock_llm.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_generate_draft_different_tones(self, generator, sample_generate_draft_request):
         """Test draft generation with different tones."""
         tones = ["friendly_reminder", "professional", "urgent"]
