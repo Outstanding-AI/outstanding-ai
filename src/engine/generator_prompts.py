@@ -168,7 +168,7 @@ def format_sender_persona(request) -> str:
             f"- Mailbox Name: {name}",
             "- THIS IS A GENERIC/SHARED MAILBOX (e.g., accounts@, collections@)",
             "- Do NOT use a personal first-name greeting or personal sign-off",
-            f"- Sign off as: 'Regards, {name}'" + (f" — {company}" if company else ""),
+            f"- Sign off as: 'Kind Regards, {name}'" + (f" — {company}" if company else ""),
             "- Use a professional, team-oriented voice (not individual personality)",
         ]
         if company:

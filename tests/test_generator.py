@@ -5,9 +5,15 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.api.models.requests import CaseContext, GenerateDraftRequest, ObligationInfo, PartyInfo
+from src.api.models.requests import (
+    CaseContext,
+    GenerateDraftRequest,
+    ObligationInfo,
+    PartyInfo,
+    SenderPersona,
+)
 from src.api.models.responses import GenerateDraftResponse
-from src.engine.generator import DraftGenerator
+from src.engine.generator import DRAFT_PROMPT_TEMPLATE_VERSION, DraftGenerator
 from src.engine.generator_prompts import format_sender_persona
 from src.llm.base import LLMResponse
 from src.prompts.draft_generation import GENERATE_DRAFT_SYSTEM
@@ -42,6 +48,30 @@ class TestDraftGenerator:
         assert "Accounts USA" in rendered
         assert "[SENDER_TITLE]" not in rendered
         assert "[SENDER_COMPANY]" not in rendered
+
+    def test_generic_mailbox_persona_uses_sales_ledger_signoff(self, sample_generate_draft_request):
+        sample_generate_draft_request.sender_name = "Accounts USA"
+        sample_generate_draft_request.sender_company = "ESWL-Americas"
+        sample_generate_draft_request.sender_persona = SenderPersona(
+            name="Accounts USA",
+            is_generic_mailbox=True,
+        )
+
+        rendered = format_sender_persona(sample_generate_draft_request)
+
+        assert "Kind Regards, Accounts USA" in rendered
+        assert "'Regards, Accounts USA'" not in rendered
+
+    def test_draft_prompt_prioritises_sales_ledger_mailbox_style(self):
+        assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v4"
+        assert "Sales-Ledger Mailbox Style (CRITICAL)" in GENERATE_DRAFT_SYSTEM
+        assert "greeting -> one concrete invoice/payment/POD issue" in GENERATE_DRAFT_SYSTEM
+        assert "Please confirm" in GENERATE_DRAFT_SYSTEM
+        assert "Can you please advise" in GENERATE_DRAFT_SYSTEM
+        assert "Kind Regards," in GENERATE_DRAFT_SYSTEM
+        assert "Do not use marketing/polished collection phrasing" in GENERATE_DRAFT_SYSTEM
+        assert "we kindly request your" in GENERATE_DRAFT_SYSTEM
+        assert "prompt attention" in GENERATE_DRAFT_SYSTEM
 
     def test_reply_prompt_uses_actual_inbound_respondent_and_company(
         self, generator, sample_generate_draft_request
