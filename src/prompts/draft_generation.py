@@ -132,6 +132,11 @@ Sales-Ledger Mailbox Style (CRITICAL):
 - If the issue is a blocker rather than a payment chase, state the blocker directly
   ("revised invoice", "POD", "balance to be paid", "remittance") and ask for the
   specific next item. Do not turn blocker resolution into a generic overdue chase.
+- For invoices that are only recently due/overdue or where the supplied history says
+  the invoice is under review, awaiting internal approval, or just being checked, use
+  soft follow-up wording. Ask whether it has now been approved/processed or when payment
+  can be expected. Do not imply repeated non-response, escalation, or a long-overdue
+  account unless the supplied chronology and overdue age actually support that.
 - Do not use marketing/polished collection phrasing such as "we kindly request your
   prompt attention", "facilitate processing", or "procurement processes can sometimes
   involve delays" unless that wording appears in the supplied conversation history.

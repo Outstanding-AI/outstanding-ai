@@ -70,6 +70,9 @@ class TestDraftGenerator:
         assert "Can you please advise" in GENERATE_DRAFT_SYSTEM
         assert "Kind Regards," in GENERATE_DRAFT_SYSTEM
         assert "Do not use marketing/polished collection phrasing" in GENERATE_DRAFT_SYSTEM
+        assert "only recently due/overdue" in GENERATE_DRAFT_SYSTEM
+        assert "under review" in GENERATE_DRAFT_SYSTEM
+        assert "Do not imply repeated non-response" in GENERATE_DRAFT_SYSTEM
         assert "we kindly request your" in GENERATE_DRAFT_SYSTEM
         assert "prompt attention" in GENERATE_DRAFT_SYSTEM
 
