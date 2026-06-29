@@ -1,6 +1,7 @@
 """Unit tests for DraftGenerator."""
 
 import json
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -65,16 +66,22 @@ class TestDraftGenerator:
     def test_draft_prompt_prioritises_sales_ledger_mailbox_style(self):
         assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v4"
         assert "Sales-Ledger Mailbox Style (CRITICAL)" in GENERATE_DRAFT_SYSTEM
-        assert "greeting -> one concrete invoice/payment/POD issue" in GENERATE_DRAFT_SYSTEM
+        assert "greeting -> one concrete invoice/payment issue" in GENERATE_DRAFT_SYSTEM
         assert "Please confirm" in GENERATE_DRAFT_SYSTEM
         assert "Can you please advise" in GENERATE_DRAFT_SYSTEM
         assert "Kind Regards," in GENERATE_DRAFT_SYSTEM
         assert "Do not use marketing/polished collection phrasing" in GENERATE_DRAFT_SYSTEM
+        assert "Do NOT speculate about possible customer-side blockers" in GENERATE_DRAFT_SYSTEM
+        assert (
+            "If there is anything preventing payment, please let us know" in GENERATE_DRAFT_SYSTEM
+        )
         assert "only recently due/overdue" in GENERATE_DRAFT_SYSTEM
         assert "under review" in GENERATE_DRAFT_SYSTEM
         assert "Do not imply repeated non-response" in GENERATE_DRAFT_SYSTEM
         assert "we kindly request your" in GENERATE_DRAFT_SYSTEM
         assert "prompt attention" in GENERATE_DRAFT_SYSTEM
+        assert "Do not mention an internal staff member by name" in GENERATE_DRAFT_SYSTEM
+        assert "Prior Outreach Reference" in GENERATE_DRAFT_SYSTEM
 
     def test_reply_prompt_uses_actual_inbound_respondent_and_company(
         self, generator, sample_generate_draft_request
@@ -137,6 +144,50 @@ class TestDraftGenerator:
         assert "promised payment date: 2026-07-07" in prompt_ctx.user_prompt
         assert "Do NOT ask for a payment date" in prompt_ctx.user_prompt
         assert "payment status update" in prompt_ctx.user_prompt
+
+    def test_prompt_carries_prior_outreach_without_named_colleague_for_shared_mailbox(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.sender_name = "Accounts USA"
+        sample_generate_draft_request.sender_persona = SenderPersona(
+            name="Accounts USA",
+            is_generic_mailbox=True,
+        )
+        sample_generate_draft_request.context.communication.touch_count = 2
+        sample_generate_draft_request.context.communication.last_touch_at = datetime(
+            2026, 6, 16, tzinfo=UTC
+        )
+        sample_generate_draft_request.context.communication.last_sender_name = "Charleen Shanks"
+        sample_generate_draft_request.context.communication.last_sender_title = "Finance Manager"
+        sample_generate_draft_request.context.lane = {
+            "collection_lane_id": "lane-123",
+            "current_level": 1,
+            "entry_level": 1,
+            "scheduled_touch_index": 3,
+            "max_touches_for_level": 3,
+            "reminder_cadence_days_for_level": 7,
+            "max_days_for_level": 21,
+            "tone_ladder": ["professional", "firm"],
+            "invoice_refs": ["INV-12345"],
+            "outstanding_amount": 1500.0,
+        }
+        sample_generate_draft_request.context.escalation_history = [
+            {
+                "level": 1,
+                "name": "Charleen Shanks",
+                "title": "Finance Manager",
+                "touch_count": 2,
+                "last_touch_at": "2026-06-16",
+            }
+        ]
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+
+        assert "Prior Outreach:" in prompt_ctx.user_prompt
+        assert "Include one concise debtor-facing line" in prompt_ctx.user_prompt
+        assert "Debtor-Facing Prior Outreach Instruction" in prompt_ctx.user_prompt
+        assert "do not mention prior staff by name" in prompt_ctx.user_prompt
+        assert "my colleague" not in prompt_ctx.user_prompt
 
     @pytest.mark.asyncio
     async def test_generate_draft_referencing_invoices(

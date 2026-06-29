@@ -896,10 +896,24 @@ class DraftGenerator:
         elif prev_sender:
             lines.append(
                 f"- Previous Sender Name: {prev_sender} "
-                "(use this name in handoff narrative instead of 'my colleague')"
+                "(use only when the current sender is a named-person handoff)"
             )
         else:
-            lines.append("- Previous Sender Name: (not available — use 'my colleague')")
+            lines.append("- Previous Sender Name: (not available — do not invent a person)")
+
+        if comm and (comm.last_touch_at or int(comm.touch_count or 0) > 0):
+            last_touch_text = (
+                comm.last_touch_at.strftime("%Y-%m-%d")
+                if getattr(comm.last_touch_at, "strftime", None)
+                else str(comm.last_touch_at)
+                if comm.last_touch_at
+                else "unknown date"
+            )
+            lines.append(
+                f"- Prior Outreach: {int(comm.touch_count or 0)} previous touch(es); "
+                f"last contact {last_touch_text}. Include one concise debtor-facing line "
+                "that references this prior outreach."
+            )
 
         # 3. Legal handoff days (from industry alarm_dso_days)
         legal_handoff_days = 60  # system default

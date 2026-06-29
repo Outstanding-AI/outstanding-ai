@@ -454,6 +454,14 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             f"- Suppression State: {lane_state.get('suppression_state') or 'none'}\n"
             f"{scope_rule}"
         )
+        scheduled_touch = lane_state.get("scheduled_touch_index")
+        if isinstance(scheduled_touch, int) and scheduled_touch > 1:
+            sections.append(
+                "\n\n**Debtor-Facing Prior Outreach Instruction:**\n"
+                f"- This is touch/reminder {scheduled_touch} for the current level. "
+                "Include one short sentence that references the prior outreach or last contact date. "
+                "Do not write as if this is a first contact."
+            )
         protocol_lines = _build_protocol_decision_lines(lane_state, request)
         if protocol_lines:
             sections.append(
@@ -501,6 +509,17 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 "provided history proves it; otherwise keep the wording neutral.\n"
                 + "\n".join(lane_lines)
             )
+            max_touch = max(
+                (int(getattr(lane, "scheduled_touch_index", 0) or 0) for lane in lane_contexts),
+                default=0,
+            )
+            if max_touch > 1:
+                sections.append(
+                    "\n\n**Debtor-Facing Prior Outreach Instruction:**\n"
+                    f"- At least one grouped lane is on touch/reminder {max_touch}. "
+                    "Include one short sentence that references prior outreach. "
+                    "Do not write as if this is a first contact."
+                )
         else:
             lane = lane_contexts[0]
             invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
@@ -525,6 +544,13 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                     "and may be handled by different senders; do not merge or reference them unless listed here."
                 )
             )
+            if int(getattr(lane, "scheduled_touch_index", 0) or 0) > 1:
+                sections.append(
+                    "\n\n**Debtor-Facing Prior Outreach Instruction:**\n"
+                    f"- This is touch/reminder {lane.scheduled_touch_index} for the current level. "
+                    "Include one short sentence that references prior outreach. "
+                    "Do not write as if this is a first contact."
+                )
 
     lane_history = getattr(request.context, "lane_history", None)
     if lane_history:
@@ -623,11 +649,12 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                     f"— {h['touch_count']} touch(es), last on {h.get('last_touch_at', 'unknown')}"
                 )
         narrative_hint = (
-            "\n\nWhen writing the handoff narrative, reference these SPECIFIC people "
-            "by name and title. For L2+: mention the L1 sender. For L3+: you may say "
-            "'Both [L1 name] and [L2 name] have reached out.'\n"
+            "\n\nUse this section for continuity only. Reference specific prior people "
+            "by name only when the current sender is also a named person and the prompt "
+            "explicitly asks for a cross-person escalation handoff.\n"
             "If Level 0 (generic mailbox) is in the history, reference it as "
-            "'our accounts team' — NOT by a person's name."
+            "'our accounts team' — NOT by a person's name. If the current visible sender "
+            "is a shared/generic mailbox, do not mention prior staff by name."
         )
         sections.append(
             "\n\n**Prior Senders Who Contacted This Debtor:**\n"
