@@ -116,6 +116,10 @@ class Settings(BaseSettings):
 
     # --- Timeouts and Retries ---
     llm_timeout_seconds: int = 60  # Per-call timeout (seconds)
+    # Sent-scope analysis is called through a bounded backend HTTP request. Keep
+    # the primary provider timeout below the backend deadline so OpenAI fallback
+    # can still run before the caller times out.
+    llm_sent_scope_provider_timeout_seconds: float = 40.0
     llm_max_retries: int = 3  # Tenacity retry decorator max attempts
     llm_fallback_cooldown_seconds: int = 300
     # Historical backfill can issue hundreds of sequential classification calls.

@@ -1,5 +1,6 @@
 """LLM provider factory with automatic fallback."""
 
+import asyncio
 import logging
 import time
 
@@ -95,7 +96,8 @@ class LLMProviderWithFallback:
 
         try:
             self._raise_if_cooling_down(self.primary.provider_name, caller)
-            response = await self.primary.complete(
+            response = await self._complete_with_provider(
+                self.primary,
                 system_prompt,
                 user_prompt,
                 caller=caller,
@@ -120,7 +122,10 @@ class LLMProviderWithFallback:
             return response
         except Exception as e:
             primary_latency_ms = (time.perf_counter() - start_time) * 1000
-            if isinstance(e, (LLMRateLimitedError, LLMProviderUnavailableError)):
+            if isinstance(
+                e,
+                (LLMRateLimitedError, LLMProviderUnavailableError, asyncio.TimeoutError),
+            ):
                 self._record_cooldown(self.primary.provider_name, caller)
             self._primary_failures_by_caller[caller] = (
                 self._primary_failures_by_caller.get(caller, 0) + 1
@@ -155,7 +160,8 @@ class LLMProviderWithFallback:
             fallback_start = time.perf_counter()
 
             try:
-                response = await fallback.complete(
+                response = await self._complete_with_provider(
+                    fallback,
                     system_prompt,
                     user_prompt,
                     caller=caller,
@@ -184,7 +190,7 @@ class LLMProviderWithFallback:
             except Exception as fallback_error:
                 if isinstance(
                     fallback_error,
-                    (LLMRateLimitedError, LLMProviderUnavailableError),
+                    (LLMRateLimitedError, LLMProviderUnavailableError, asyncio.TimeoutError),
                 ):
                     self._record_cooldown(fallback.provider_name, caller)
                 total_latency_ms = (time.perf_counter() - start_time) * 1000
@@ -202,6 +208,40 @@ class LLMProviderWithFallback:
                     exc_info=True,
                 )
                 raise LLMFallbackExhaustedError(str(fallback_error)) from fallback_error
+
+    async def _complete_with_provider(
+        self,
+        provider,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        caller: str,
+        **kwargs,
+    ) -> LLMResponse:
+        completion = provider.complete(
+            system_prompt,
+            user_prompt,
+            caller=caller,
+            **kwargs,
+        )
+        timeout_seconds = self._provider_timeout_seconds(caller)
+        if not timeout_seconds:
+            return await completion
+        try:
+            return await asyncio.wait_for(completion, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            logger.error(
+                "LLM provider timed out before fallback window closed",
+                extra={
+                    "caller": caller,
+                    "provider": getattr(provider, "provider_name", "unknown"),
+                    "timeout_seconds": timeout_seconds,
+                    "error": f"provider timeout after {timeout_seconds}s",
+                    "error_type": "TimeoutError",
+                },
+                exc_info=True,
+            )
+            raise
 
     async def health_check(self) -> dict:
         """Check health of both providers."""
@@ -234,6 +274,12 @@ class LLMProviderWithFallback:
                 settings.llm_historical_collection_cooldown_seconds,
             )
         return default_seconds
+
+    def _provider_timeout_seconds(self, caller: str) -> float | None:
+        if caller != "sent_scope_analysis":
+            return None
+        timeout = float(settings.llm_sent_scope_provider_timeout_seconds or 0)
+        return max(1.0, timeout) if timeout > 0 else None
 
     def _raise_if_cooling_down(self, provider: str, caller: str) -> None:
         until = self._cooldowns.get(self._cooldown_key(provider, caller))

@@ -272,6 +272,43 @@ async def test_factory_falls_back_to_openai():
 
 
 @pytest.mark.asyncio
+async def test_factory_sent_scope_vertex_timeout_falls_back_to_openai(monkeypatch):
+    fallback_response = LLMResponse(
+        content='{"ok": true}',
+        model="gpt-5-mini",
+        provider="openai",
+        usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    )
+    vertex_calls: list[str] = []
+
+    async def slow_vertex_complete(*args, **kwargs):
+        vertex_calls.append(kwargs.get("caller"))
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(
+        "src.llm.factory.settings.llm_sent_scope_provider_timeout_seconds",
+        0.01,
+    )
+
+    with patch("src.llm.factory.VertexProvider") as mock_vertex:
+        with patch("src.llm.factory.OpenAIProvider") as mock_openai:
+            mock_vertex.return_value.complete = slow_vertex_complete
+            mock_vertex.return_value.provider_name = "vertex"
+            mock_openai.return_value.complete = AsyncMock(return_value=fallback_response)
+            mock_openai.return_value.provider_name = "openai"
+            client = LLMProviderWithFallback(primary_provider="vertex", fallback_provider="openai")
+
+            response = await client.complete("sys", "user", caller="sent_scope_analysis")
+
+    assert response.provider == "openai"
+    assert response.is_fallback is True
+    assert vertex_calls == ["sent_scope_analysis"]
+    assert mock_openai.return_value.complete.await_count == 1
+    assert client.get_failure_metrics()["primary_failures_by_caller"] == {"sent_scope_analysis": 1}
+    assert ("vertex", "sent_scope_analysis") in client._cooldowns
+
+
+@pytest.mark.asyncio
 async def test_factory_historical_vertex_rate_limit_cools_primary_longer(monkeypatch):
     fallback_response = LLMResponse(
         content='{"ok": true}',
