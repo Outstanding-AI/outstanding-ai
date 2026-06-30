@@ -7,8 +7,8 @@ Concept → file navigation index.
 | Concept | File |
 |---------|------|
 | Email classification | `src/engine/classifier.py` |
-| Draft generation (orchestration) | `src/engine/generator.py` | `DraftGenerator.generate()` orchestrates `_assemble_prompt`, `_run_llm_with_guardrails`, `_build_response`; blocks non-current/held obligations and treats temporal thread evidence as continuity context only |
-| Draft prompt builders | `src/engine/generator_prompts.py` | collection-case-aware wording, temporal evidence summaries, live/broken commitment instructions |
+| Draft generation (orchestration) | `src/engine/generator.py` | `DraftGenerator.generate()` orchestrates `_assemble_prompt`, `_run_llm_with_guardrails`, `_build_response`; honors upstream collection-policy blocks before model work, blocks non-current/held obligations, and treats temporal thread evidence as continuity context only |
+| Draft prompt builders | `src/engine/generator_prompts.py` | collection-case-aware wording, temporal evidence summaries, concise operator-style phrasing, live/broken commitment instructions |
 | Shared formatters | `src/engine/formatters.py` |
 | Persona management | `src/engine/persona.py` |
 
@@ -19,7 +19,7 @@ Concept → file navigation index.
 | Concept | File |
 |---------|------|
 | Classification prompt | `src/prompts/classification.py` |
-| Draft generation prompt | `src/prompts/draft_generation.py` | strategy-aware wording: `single_active_debtor_thread` continues one debtor thread; `invoice_cohort_thread` keeps legacy cohort behavior |
+| Draft generation prompt | `src/prompts/draft_generation.py` | strategy-aware wording: `single_active_debtor_thread` continues one debtor thread; `invoice_cohort_thread` keeps legacy cohort behavior; collection policy is upstream authority |
 | Prompt sanitization helpers | `src/prompts/_sanitize.py` |
 
 ## Guardrails
@@ -75,7 +75,8 @@ Concept → file navigation index.
 Hydration rules:
 - join collection case evidence by `collection_case_id`, `collection_case_thread_id`, and `mail_message_id`;
 - never use generic `thread_id` as a cross-table join key;
-- do not widen `obligations` from historical message evidence; current collectible obligations remain the only chase scope.
+- do not widen `obligations` from historical message evidence; current collectible obligations remain the only chase scope;
+- `collection_policy_context.ai_email_chase_allowed = false` means no draft should be generated.
 
 ## Config & Utils
 
