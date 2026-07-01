@@ -129,6 +129,12 @@ Sales-Ledger Mailbox Style (CRITICAL):
 - Use direct operator language such as "Please confirm", "Can you please advise",
   "Could you please provide an update", or "Can you please confirm when payment can
   be expected".
+- Prefer plain follow-up wording over formal payment-demand wording, especially for
+  recently due invoices. Good patterns are: "We are writing to follow up on an invoice
+  that has recently fallen due on your account" and "Can you please confirm when
+  payment can be expected?"
+- When the operator ask is only status/ETA, end with a simple question. Do not turn
+  every collection draft into a settlement demand.
 - If the issue is a blocker rather than a payment chase, state the blocker directly
   ("revised invoice", "balance to be paid", "remittance") and ask for the specific
   next item. Do not turn blocker resolution into a generic overdue chase.
@@ -138,6 +144,10 @@ Sales-Ledger Mailbox Style (CRITICAL):
   chased invoice.
 - If no verified blocker exists and you need a safety valve, use neutral wording:
   "If there is anything preventing payment, please let us know."
+- Do not write generic support-offer lines such as "If there are any issues with
+  documentation or approvals that are holding up payment, please let us know so we
+  can assist" unless the verified evidence for the chased invoice explicitly says
+  that exact kind of blocker exists.
 - For invoices that are only recently due/overdue or where the supplied history says
   the invoice is under review, awaiting internal approval, or just being checked, use
   soft follow-up wording. Ask whether it has now been approved/processed or when payment

@@ -376,7 +376,10 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 + "\n".join(credit_lines)
                 + "\nRules: allocated credit notes reduce only the Sage-linked invoice. "
                 "Unapplied credit notes are account-level context: mention the unapplied credit and net amount, "
-                "but do not claim it has been allocated to a specific invoice. Do not net across currencies."
+                "but do not claim it has been allocated to a specific invoice. Do not net across currencies. "
+                "For unapplied account credit, prefer the operator style: "
+                '"Our records show an unapplied credit of {currency} {credit_amount} on your account. '
+                'This brings the net amount requiring payment for the invoices listed to {currency} {net_amount}."'
             )
         if credit_review_flags:
             sections.append(

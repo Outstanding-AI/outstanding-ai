@@ -64,6 +64,8 @@ class TestDraftGenerator:
         assert "'Regards, Accounts USA'" not in rendered
 
     def test_draft_prompt_prioritises_sales_ledger_mailbox_style(self):
+        normalized_prompt = " ".join(GENERATE_DRAFT_SYSTEM.split())
+
         assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v4"
         assert "Sales-Ledger Mailbox Style (CRITICAL)" in GENERATE_DRAFT_SYSTEM
         assert "greeting -> one concrete invoice/payment issue" in GENERATE_DRAFT_SYSTEM
@@ -78,6 +80,10 @@ class TestDraftGenerator:
         assert "only recently due/overdue" in GENERATE_DRAFT_SYSTEM
         assert "under review" in GENERATE_DRAFT_SYSTEM
         assert "Do not imply repeated non-response" in GENERATE_DRAFT_SYSTEM
+        assert "recently fallen due on your account" in GENERATE_DRAFT_SYSTEM
+        assert "Can you please confirm when payment can be expected" in normalized_prompt
+        assert "end with a simple question" in GENERATE_DRAFT_SYSTEM
+        assert "documentation or approvals" in GENERATE_DRAFT_SYSTEM
         assert "we kindly request your" in GENERATE_DRAFT_SYSTEM
         assert "prompt attention" in GENERATE_DRAFT_SYSTEM
         assert "Do not mention an internal staff member by name" in GENERATE_DRAFT_SYSTEM

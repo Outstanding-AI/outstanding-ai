@@ -13,6 +13,7 @@ from src.api.models.requests import (
     GenerateDraftRequest,
     LaneContextInfo,
 )
+from src.api.models.requests.context import CreditPositionInfo
 from src.engine.generator_prompts import build_extra_sections
 
 
@@ -359,6 +360,26 @@ def test_build_extra_sections_renders_actual_sent_scope_history(sample_generate_
     assert "AI-generated scope: INV-1001, INV-1002" in extra_sections
     assert "operator removed before send: INV-1001" in extra_sections
     assert "current invoice table remains the authoritative scope" in extra_sections
+
+
+def test_build_extra_sections_uses_operator_credit_note_wording(sample_generate_draft_request):
+    sample_generate_draft_request.context.party_credit_position_by_currency = [
+        CreditPositionInfo(
+            currency_code="USD",
+            unapplied_credit_amount_native=103.53,
+            recovery_eligible_overdue_amount_native=5355.56,
+            net_recovery_eligible_overdue_native=5252.03,
+        )
+    ]
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+    )
+
+    assert "Our records show an unapplied credit" in extra_sections
+    assert "net amount requiring payment for the invoices listed" in extra_sections
+    assert "Do not net across currencies" in extra_sections
 
 
 def test_format_obligation_flags_omits_procurement_status_for_unverified():
