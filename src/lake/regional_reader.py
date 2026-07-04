@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Sequence
@@ -9,6 +10,38 @@ from typing import Any, Sequence
 from solvix_contracts.datalake.athena_dialect import coerce_row, render_params
 
 from .models import DraftGenerationHandoff
+
+_SAFE_LABEL_RE = re.compile(r"[^A-Za-z0-9_.:-]+")
+
+
+def _sanitize_sql_label(value: Any, *, max_length: int = 120) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    cleaned = _SAFE_LABEL_RE.sub("_", raw).strip("_.:-")
+    return cleaned[:max_length] or None
+
+
+def _athena_attribution_comment(
+    *,
+    source: str | None,
+    tenant_id: str | None = None,
+    sync_run_id: str | None = None,
+) -> str:
+    safe_source = _sanitize_sql_label(source, max_length=120) or "ai.lake_reader.unknown"
+    parts = [
+        "solvix_sql:v1",
+        "runtime=ai",
+        "component=lake_reader",
+        f"source={safe_source}",
+    ]
+    if tenant_id:
+        parts.append(f"tenant={tenant_id}")
+    sync = _sanitize_sql_label(sync_run_id, max_length=120)
+    if sync:
+        parts.append(f"sync_run_id={sync}")
+    parts.append("query_class=select")
+    return "/* " + ";".join(parts) + " */\n"
 
 
 class RegionalLakeQueryError(RuntimeError):
@@ -61,9 +94,16 @@ class RegionalLakeReader:
         params: Sequence[Any] | None = None,
         *,
         schema: dict[str, str] | None = None,
+        source: str | None = None,
+        tenant_id: str | None = None,
+        sync_run_id: str | None = None,
     ) -> list[dict[str, Any]]:
         athena = self.clients.athena()
-        rendered_sql = render_params(sql, list(params or []))
+        rendered_sql = _athena_attribution_comment(
+            source=f"ai.lake_reader.{source}" if source else "ai.lake_reader.unknown",
+            tenant_id=tenant_id,
+            sync_run_id=sync_run_id,
+        ) + render_params(sql, list(params or []))
         start_kwargs: dict[str, Any] = {
             "QueryString": rendered_sql,
             "QueryExecutionContext": {"Database": self.database or self._database_name()},
@@ -82,8 +122,18 @@ class RegionalLakeReader:
         params: Sequence[Any] | None = None,
         *,
         schema: dict[str, str] | None = None,
+        source: str | None = None,
+        tenant_id: str | None = None,
+        sync_run_id: str | None = None,
     ) -> dict[str, Any] | None:
-        rows = self.execute(sql, params, schema=schema)
+        rows = self.execute(
+            sql,
+            params,
+            schema=schema,
+            source=source,
+            tenant_id=tenant_id,
+            sync_run_id=sync_run_id,
+        )
         return rows[0] if rows else None
 
     def _database_name(self) -> str:

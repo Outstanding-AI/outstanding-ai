@@ -110,11 +110,19 @@ def test_regional_lake_reader_executes_against_region_database_and_coerces_rows(
     reader = RegionalLakeReader(clients=clients, poll_interval_seconds=0)
 
     rows = reader.execute(
-        "SELECT id, amount_due FROM obligations WHERE tenant_id = %s", ["tenant-1"]
+        "SELECT id, amount_due FROM obligations WHERE tenant_id = %s",
+        ["tenant-1"],
+        source="draft_context",
+        tenant_id="tenant-1",
+        sync_run_id="sync-1",
     )
 
     assert rows == [{"id": "obl-1", "amount_due": 12.5}]
     started = clients.athena_client.started[0]
     assert started["QueryExecutionContext"] == {"Database": "outstandingai_eu_west_2"}
     assert started["WorkGroup"] == "primary"
+    assert started["QueryString"].startswith("/* solvix_sql:v1;runtime=ai;component=lake_reader;")
+    assert "source=ai.lake_reader.draft_context" in started["QueryString"]
+    assert "tenant=tenant-1" in started["QueryString"]
+    assert "sync_run_id=sync-1" in started["QueryString"]
     assert "tenant_id = 'tenant-1'" in started["QueryString"]
