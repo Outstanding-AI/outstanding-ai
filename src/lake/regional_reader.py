@@ -2,46 +2,15 @@
 
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import dataclass
 from typing import Any, Sequence
 
 from solvix_contracts.datalake.athena_dialect import coerce_row, render_params
 
+from src.common.sql_attribution import athena_attribution_comment
+
 from .models import DraftGenerationHandoff
-
-_SAFE_LABEL_RE = re.compile(r"[^A-Za-z0-9_.:-]+")
-
-
-def _sanitize_sql_label(value: Any, *, max_length: int = 120) -> str | None:
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    cleaned = _SAFE_LABEL_RE.sub("_", raw).strip("_.:-")
-    return cleaned[:max_length] or None
-
-
-def _athena_attribution_comment(
-    *,
-    source: str | None,
-    tenant_id: str | None = None,
-    sync_run_id: str | None = None,
-) -> str:
-    safe_source = _sanitize_sql_label(source, max_length=120) or "ai.lake_reader.unknown"
-    parts = [
-        "solvix_sql:v1",
-        "runtime=ai",
-        "component=lake_reader",
-        f"source={safe_source}",
-    ]
-    if tenant_id:
-        parts.append(f"tenant={tenant_id}")
-    sync = _sanitize_sql_label(sync_run_id, max_length=120)
-    if sync:
-        parts.append(f"sync_run_id={sync}")
-    parts.append("query_class=select")
-    return "/* " + ";".join(parts) + " */\n"
 
 
 class RegionalLakeQueryError(RuntimeError):
@@ -99,7 +68,7 @@ class RegionalLakeReader:
         sync_run_id: str | None = None,
     ) -> list[dict[str, Any]]:
         athena = self.clients.athena()
-        rendered_sql = _athena_attribution_comment(
+        rendered_sql = athena_attribution_comment(
             source=f"ai.lake_reader.{source}" if source else "ai.lake_reader.unknown",
             tenant_id=tenant_id,
             sync_run_id=sync_run_id,
