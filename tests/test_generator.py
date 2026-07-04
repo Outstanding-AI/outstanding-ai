@@ -241,6 +241,14 @@ class TestDraftGenerator:
 
         mock_llm.assert_not_called()
 
+    def test_policy_guard_allows_email_chase_policy(self, generator, sample_generate_draft_request):
+        sample_generate_draft_request.context.collection_policy_context = {
+            "collection_policy": "monitor_and_chase_email",
+            "ai_email_chase_allowed": True,
+        }
+
+        assert generator._policy_blocks_ai_email_chase(sample_generate_draft_request) is False
+
     @pytest.mark.asyncio
     async def test_generate_draft_different_tones(self, generator, sample_generate_draft_request):
         """Test draft generation with different tones."""
