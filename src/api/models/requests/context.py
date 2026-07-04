@@ -380,6 +380,7 @@ class CaseContext(CaseContextV2):
     manual_intervention_summary: Optional[dict[str, Any]] = None
     historical_backfill: Optional[dict[str, Any]] = None
     collection_policy_context: Optional[dict[str, Any]] = None
+    reply_scope: Optional[dict[str, Any]] = None
 
     # ------------------------------------------------------------------
     # V3-only top-level fields (Optional so V2 callers omit them safely).

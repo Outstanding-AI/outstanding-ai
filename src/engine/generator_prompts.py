@@ -634,6 +634,30 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             f"- Blocked Reasons: {request.context.blocked_reasons_by_obligation_id or {}}"
         )
 
+    reply_scope = getattr(request.context, "reply_scope", None) or {}
+    if isinstance(reply_scope, dict) and reply_scope:
+        scoped_invoices = [
+            _safe_prompt_value(value, max_length=64)
+            for value in (reply_scope.get("invoice_refs") or [])
+            if str(value or "").strip()
+        ]
+        scoped_obligations = [
+            _safe_prompt_value(value, max_length=64)
+            for value in (reply_scope.get("obligation_ids") or [])
+            if str(value or "").strip()
+        ]
+        sections.append(
+            "\n\n**Reply Scope:**\n"
+            f"- Scope Status: {_safe_prompt_value(reply_scope.get('scope_status'), max_length=64) or 'unknown'}\n"
+            f"- Scoped Invoices: {', '.join(scoped_invoices) if scoped_invoices else 'none listed'}\n"
+            f"- Scoped Obligations: {', '.join(scoped_obligations) if scoped_obligations else 'none listed'}\n"
+            "- This reply must discuss only the scoped invoices/obligations above. Do not mention, chase, "
+            "or ask for payment on unrelated open invoices.\n"
+            "- If the triggering reply is a dispute, query, internal blocker, already-paid claim, promise, "
+            "or remittance, acknowledge that the scoped item is being reviewed or noted; do not demand payment "
+            "for that scoped item in this reply."
+        )
+
     # Escalation history (all prior senders for handoff narrative)
     esc_history = request.context.escalation_history
     if esc_history:

@@ -648,6 +648,29 @@ class TestDraftGenerator:
         assert "Planned Send Timing: 2026-06-05T00:00:00" in prompt_ctx.user_prompt
         assert "Do not mention scheduling windows" in prompt_ctx.user_prompt
 
+    def test_prompt_renders_reply_scope_and_excludes_unrelated_invoice_instruction(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.trigger_classification = "DEBTOR_INTERNAL_PROCESSING_BLOCKER"
+        sample_generate_draft_request.context.lane_mail_mode = "reply_ack"
+        sample_generate_draft_request.context.reply_scope = {
+            "scope_status": "exact",
+            "obligation_ids": ["obl-b"],
+            "invoice_refs": ["INV-B"],
+            "unresolved_reason": None,
+        }
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+
+        assert "**Reply Scope:**" in prompt_ctx.user_prompt
+        assert "Scoped Invoices: INV-B" in prompt_ctx.user_prompt
+        assert "Scoped Obligations: obl-b" in prompt_ctx.user_prompt
+        assert (
+            "Do not mention, chase, or ask for payment on unrelated open invoices"
+            in prompt_ctx.user_prompt
+        )
+        assert "do not demand payment for that scoped item" in prompt_ctx.user_prompt
+
     @pytest.mark.asyncio
     async def test_collection_draft_prompt_and_response_keep_full_invoice_scope(
         self, generator, sample_generate_draft_request
