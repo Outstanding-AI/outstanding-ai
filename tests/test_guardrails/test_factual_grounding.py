@@ -298,6 +298,18 @@ class TestFactualGroundingGuardrail:
         assert not procurement_result.passed
         assert "unverified procurement" in procurement_result.message
 
+    def test_unverified_procurement_workflow_claim_fails(self, sample_context):
+        """Generic procurement/approval workflow wording is also evidence-gated."""
+        results = FactualGroundingGuardrail().validate(
+            "Please let us know if your procurement process or GRN approval is holding up payment.",
+            sample_context,
+        )
+
+        procurement_result = results[3]
+        assert not procurement_result.passed
+        assert "procurement_workflow" in procurement_result.found
+        assert "proof_of_delivery" in procurement_result.found
+
     def test_po_box_address_does_not_count_as_procurement_claim(self, sample_context):
         """Sender/footer PO Box text is not a purchase-order claim."""
         results = FactualGroundingGuardrail().validate(
@@ -314,6 +326,18 @@ class TestFactualGroundingGuardrail:
 
         results = FactualGroundingGuardrail().validate(
             "This invoice is backed by PO number PO-1 and proof of delivery.",
+            sample_context,
+        )
+
+        assert results[3].passed
+
+    def test_source_query_context_allows_procurement_workflow_ack(self, sample_context):
+        """A real Sage/query flag can ground neutral workflow wording."""
+        sample_context.obligations[0].source_query_raw = "Awaiting approval"
+        sample_context.obligations[0].has_source_query_flag = True
+
+        results = FactualGroundingGuardrail().validate(
+            "If your approval workflow is still preventing payment, please let us know.",
             sample_context,
         )
 

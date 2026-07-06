@@ -375,8 +375,10 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 "\n\n**Credit Note Context:**\n"
                 + "\n".join(credit_lines)
                 + "\nRules: allocated credit notes reduce only the Sage-linked invoice. "
-                "Unapplied credit notes are account-level context: mention the unapplied credit and net amount, "
-                "but do not claim it has been allocated to a specific invoice. Do not net across currencies. "
+                "Unapplied credit notes are account-level context: mention the unapplied credit and net amount "
+                "only when the current candidate invoice table and current credit context use the same currency "
+                "and invoice scope. Do not carry credit/net figures forward from old sent-scope history. "
+                "Do not claim account credit has been allocated to a specific invoice. Do not net across currencies. "
                 "For unapplied account credit, prefer the operator style: "
                 '"Our records show an unapplied credit of {currency} {credit_amount} on your account. '
                 'This brings the net amount requiring payment for the invoices listed to {currency} {net_amount}."'
@@ -461,9 +463,8 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         if isinstance(scheduled_touch, int) and scheduled_touch > 1:
             sections.append(
                 "\n\n**Debtor-Facing Prior Outreach Instruction:**\n"
-                f"- This is touch/reminder {scheduled_touch} for the current level. "
-                "Include one short sentence that references the prior outreach or last contact date. "
-                "Do not write as if this is a first contact."
+                "- Include one short sentence that references prior outreach or the last contact date when supplied. "
+                "Do not write as if this is a first contact. Do not expose the touch/reminder number to the debtor."
             )
         protocol_lines = _build_protocol_decision_lines(lane_state, request)
         if protocol_lines:
@@ -519,9 +520,8 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             if max_touch > 1:
                 sections.append(
                     "\n\n**Debtor-Facing Prior Outreach Instruction:**\n"
-                    f"- At least one grouped lane is on touch/reminder {max_touch}. "
-                    "Include one short sentence that references prior outreach. "
-                    "Do not write as if this is a first contact."
+                    "- Include one short sentence that references prior outreach when supplied. "
+                    "Do not write as if this is a first contact. Do not expose touch/reminder numbers to the debtor."
                 )
         else:
             lane = lane_contexts[0]
@@ -550,9 +550,8 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             if int(getattr(lane, "scheduled_touch_index", 0) or 0) > 1:
                 sections.append(
                     "\n\n**Debtor-Facing Prior Outreach Instruction:**\n"
-                    f"- This is touch/reminder {lane.scheduled_touch_index} for the current level. "
-                    "Include one short sentence that references prior outreach. "
-                    "Do not write as if this is a first contact."
+                    "- Include one short sentence that references prior outreach when supplied. "
+                    "Do not write as if this is a first contact. Do not expose touch/reminder numbers to the debtor."
                 )
 
     lane_history = getattr(request.context, "lane_history", None)
@@ -620,6 +619,8 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             + "\n\nUse this section only as evidence of what the debtor actually received after operator edits. "
             "The current invoice table remains the authoritative scope for this draft. Do not chase, demand, "
             "or re-add any invoice merely because it appears here if it is absent from the current invoice table. "
+            "If the current invoice table differs from prior sent scope, do not reuse prior total, net amount, "
+            "or credit arithmetic in debtor-facing copy. "
             "For wording such as 'we previously reminded you', rely on the actually sent invoices above, not on "
             "the AI-generated scope when an operator removed invoices before sending. Treat payment expectation "
             "flags here as prior-email evidence only; do not state a current promise/remittance unless the current "

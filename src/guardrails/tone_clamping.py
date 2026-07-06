@@ -43,6 +43,35 @@ class ToneClampingGuardrail(BaseGuardrail):
 
         tone_key = str(tone).strip().lower()
         body = _strip_quoted_reply_text(str(output or "")).lower()
+        authorized_policies = (
+            kwargs.get("authorized_policies") or getattr(context, "authorized_policies", None) or {}
+        )
+        legal_escalation_enabled = bool(authorized_policies.get("legal_escalation_enabled"))
+        legal_pressure_phrases = [
+            "legal action",
+            "legal proceedings",
+            "legal team",
+            "legal referral",
+            "refer this matter",
+            "refer the matter",
+            "account suspension",
+            "final notice",
+        ]
+        if not legal_escalation_enabled:
+            found_legal_pressure = [phrase for phrase in legal_pressure_phrases if phrase in body]
+            if found_legal_pressure:
+                return [
+                    self._fail(
+                        "Draft contains legal/escalation pressure without policy authorization.",
+                        expected="operational follow-up wording unless legal escalation is authorized",
+                        found=", ".join(found_legal_pressure),
+                        details={
+                            "tone": tone_key,
+                            "level": escalation_level,
+                            "legal_escalation_enabled": legal_escalation_enabled,
+                        },
+                    )
+                ]
         if tone_key == "acknowledgement":
             pressure_phrases = [
                 "please pay",

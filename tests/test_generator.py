@@ -83,9 +83,16 @@ class TestDraftGenerator:
         assert "recently fallen due on your account" in GENERATE_DRAFT_SYSTEM
         assert "Can you please confirm when payment can be expected" in normalized_prompt
         assert "end with a simple question" in GENERATE_DRAFT_SYSTEM
-        assert "documentation or approvals" in GENERATE_DRAFT_SYSTEM
+        assert "documentation or approvals that are holding up payment" not in GENERATE_DRAFT_SYSTEM
+        assert "process acronyms, receipt posting, or document checks" in GENERATE_DRAFT_SYSTEM
+        assert (
+            "Generic collection drafts should not mention these categories" in GENERATE_DRAFT_SYSTEM
+        )
         assert "we kindly request your" in GENERATE_DRAFT_SYSTEM
         assert "prompt attention" in GENERATE_DRAFT_SYSTEM
+        assert "This is reminder {touch_index}" not in GENERATE_DRAFT_SYSTEM
+        assert "Touch index is internal routing metadata" in GENERATE_DRAFT_SYSTEM
+        assert "If legal escalation is not explicitly authorized" in GENERATE_DRAFT_SYSTEM
         assert "Do not mention an internal staff member by name" in GENERATE_DRAFT_SYSTEM
         assert "Prior Outreach Reference" in GENERATE_DRAFT_SYSTEM
 

@@ -450,17 +450,28 @@ class FactualGroundingGuardrail(BaseGuardrail):
         """Allow PO/POD claims only when verified procurement evidence exists."""
         mentions_po = bool(
             re.search(
-                r"\b(purchase order|po\s*(?:number|ref|reference|#))\b", output, re.IGNORECASE
-            )
-        )
-        mentions_pod = bool(
-            re.search(
-                r"\b(proof of delivery|pod\b|delivery note|goods received)\b",
+                r"\b(purchase order|po\s*(?:number|ref|reference|#)|po/grn)\b",
                 output,
                 re.IGNORECASE,
             )
         )
-        if not mentions_po and not mentions_pod:
+        mentions_pod = bool(
+            re.search(
+                r"\b(proof of delivery|pod\b|delivery note|goods received|goods receipt|grn\b)\b",
+                output,
+                re.IGNORECASE,
+            )
+        )
+        mentions_workflow = bool(
+            re.search(
+                r"\b(procurement process(?:es)?|receipt posting|customer-side workflow|"
+                r"documentation approval|documentation or approvals?|approval workflow|"
+                r"internal approval|customer approval)\b",
+                output,
+                re.IGNORECASE,
+            )
+        )
+        if not mentions_po and not mentions_pod and not mentions_workflow:
             return self._pass("No procurement claims found")
 
         has_verified_po = any(
@@ -470,23 +481,36 @@ class FactualGroundingGuardrail(BaseGuardrail):
         has_verified_pod = any(
             getattr(obligation, "has_verified_pod", False) for obligation in context.obligations
         )
+        has_procurement_context = any(
+            bool(getattr(obligation, "source_query_raw", None))
+            or bool(getattr(obligation, "has_source_query_flag", None))
+            or str(getattr(obligation, "procurement_context_status", "") or "").lower()
+            in {"verified", "manual"}
+            for obligation in context.obligations
+        )
 
         failures = []
         if mentions_po and not has_verified_po:
             failures.append("purchase_order")
         if mentions_pod and not has_verified_pod:
             failures.append("proof_of_delivery")
+        if mentions_workflow and not (
+            has_verified_po or has_verified_pod or has_procurement_context
+        ):
+            failures.append("procurement_workflow")
 
         if failures:
             return self._fail(
                 message="Draft claims unverified procurement evidence: " + ", ".join(failures),
-                expected="PO/POD wording only when verified flags are true",
+                expected="Procurement, PO/POD, approval, and GRN wording only when verified evidence is present",
                 found=failures,
                 details={
                     "mentions_po": mentions_po,
                     "mentions_pod": mentions_pod,
+                    "mentions_workflow": mentions_workflow,
                     "has_verified_purchase_order": has_verified_po,
                     "has_verified_pod": has_verified_pod,
+                    "has_procurement_context": has_procurement_context,
                 },
             )
 

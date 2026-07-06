@@ -360,6 +360,7 @@ def test_build_extra_sections_renders_actual_sent_scope_history(sample_generate_
     assert "AI-generated scope: INV-1001, INV-1002" in extra_sections
     assert "operator removed before send: INV-1001" in extra_sections
     assert "current invoice table remains the authoritative scope" in extra_sections
+    assert "do not reuse prior total, net amount" in extra_sections
 
 
 def test_build_extra_sections_uses_operator_credit_note_wording(sample_generate_draft_request):
@@ -379,7 +380,35 @@ def test_build_extra_sections_uses_operator_credit_note_wording(sample_generate_
 
     assert "Our records show an unapplied credit" in extra_sections
     assert "net amount requiring payment for the invoices listed" in extra_sections
+    assert (
+        "only when the current candidate invoice table and current credit context use the same currency"
+        in extra_sections
+    )
     assert "Do not net across currencies" in extra_sections
+
+
+def test_build_extra_sections_does_not_expose_touch_number_to_debtor(sample_generate_draft_request):
+    sample_generate_draft_request.context.lane = {
+        "collection_lane_id": "lane-sea011",
+        "current_level": 0,
+        "entry_level": 0,
+        "scheduled_touch_index": 4,
+        "max_touches_for_level": 4,
+        "reminder_cadence_days_for_level": 7,
+        "max_days_for_level": 21,
+        "tone_ladder": ["friendly_reminder", "professional"],
+        "invoice_refs": ["0000008036"],
+        "outstanding_amount": 938.15,
+    }
+
+    extra_sections = build_extra_sections(
+        sample_generate_draft_request,
+        sample_generate_draft_request.context.behavior,
+    )
+
+    assert "Scheduled Touch Index: 4 of 4" in extra_sections
+    assert "This is touch/reminder 4" not in extra_sections
+    assert "Do not expose the touch/reminder number to the debtor" in extra_sections
 
 
 def test_format_obligation_flags_omits_procurement_status_for_unverified():
