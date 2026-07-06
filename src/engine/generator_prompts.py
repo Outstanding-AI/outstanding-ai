@@ -399,7 +399,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             if candidate_total > 0 or unapplied > 0:
                 credit_lines.append(
                     f"- Current draft scope {currency}: listed overdue invoices total {candidate_total:,.2f}; "
-                    f"unapplied account credit {unapplied:,.2f}; net amount requiring payment/allocation "
+                    f"unapplied account credit {unapplied:,.2f}; net amount requiring payment "
                     f"for the listed invoices {net:,.2f}"
                 )
         for position in credit_positions:
@@ -414,7 +414,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             if unapplied > 0 or overdue > 0:
                 credit_lines.append(
                     f"- Party credit position background {currency}: overdue eligible for recovery {overdue:,.2f}; "
-                    f"unapplied credit notes {unapplied:,.2f}; net requiring payment/allocation {net:,.2f}"
+                    f"unapplied credit notes {unapplied:,.2f}; net requiring payment {net:,.2f}"
                 )
         for adjustment in invoice_credit_adjustments:
             invoice = getattr(adjustment, "invoice_number", None) or getattr(
@@ -439,7 +439,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 "Do not carry credit/net figures forward from old sent-scope history. "
                 "Do not claim account credit has been allocated to a specific invoice. Do not net across currencies. "
                 "If the Current draft scope net amount is 0.00, do not write a normal payment chase; route to credit review. "
-                "For unapplied account credit, prefer the operator style: "
+                "If the Current draft scope line has unapplied account credit above 0.00 and net amount above 0.00, "
+                "include this operator-style sentence with the exact currency, credit amount, and net amount from "
+                "that Current draft scope line: "
                 '"Our records show an unapplied credit of {currency} {credit_amount} on your account. '
                 'This brings the net amount requiring payment for the invoices listed to {currency} {net_amount}."'
             )

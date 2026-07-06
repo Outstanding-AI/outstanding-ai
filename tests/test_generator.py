@@ -89,15 +89,25 @@ class TestDraftGenerator:
         assert "Can you please confirm when payment can be expected" in normalized_prompt
         assert "end with a simple question" in GENERATE_DRAFT_SYSTEM
         assert "documentation or approvals that are holding up payment" not in GENERATE_DRAFT_SYSTEM
-        assert "process acronyms, receipt posting, or document checks" in GENERATE_DRAFT_SYSTEM
+        assert (
+            "process acronyms, document checks, internal approval, or customer-side process"
+            in GENERATE_DRAFT_SYSTEM
+        )
         assert (
             "Generic collection drafts should not mention these categories" in GENERATE_DRAFT_SYSTEM
         )
+        assert "procurement" not in GENERATE_DRAFT_SYSTEM.lower()
+        assert "purchase order" not in GENERATE_DRAFT_SYSTEM.lower()
+        assert "proof of delivery" not in GENERATE_DRAFT_SYSTEM.lower()
+        assert "PO/GRN" not in GENERATE_DRAFT_SYSTEM
+        assert "GRN" not in GENERATE_DRAFT_SYSTEM
+        assert "splitting it up" not in GENERATE_DRAFT_SYSTEM
+        assert "If paying in one go is tricky" not in GENERATE_DRAFT_SYSTEM
         assert "we kindly request your" in GENERATE_DRAFT_SYSTEM
         assert "prompt attention" in GENERATE_DRAFT_SYSTEM
         assert "This is reminder {touch_index}" not in GENERATE_DRAFT_SYSTEM
         assert "Touch index is internal routing metadata" in GENERATE_DRAFT_SYSTEM
-        assert "If legal escalation is not explicitly authorized" in GENERATE_DRAFT_SYSTEM
+        assert "If escalation wording is not explicitly authorized" in GENERATE_DRAFT_SYSTEM
         assert "Do not mention an internal staff member by name" in GENERATE_DRAFT_SYSTEM
         assert "Prior Outreach Reference" in GENERATE_DRAFT_SYSTEM
 
@@ -328,8 +338,7 @@ class TestDraftGenerator:
         )
         assert "unapplied account credit 103.53" in prompt_ctx.user_prompt
         assert (
-            "net amount requiring payment/allocation for the listed invoices 396.47"
-            in prompt_ctx.user_prompt
+            "net amount requiring payment for the listed invoices 396.47" in prompt_ctx.user_prompt
         )
         assert (
             "Party credit position background USD: overdue eligible for recovery 5,355.56"

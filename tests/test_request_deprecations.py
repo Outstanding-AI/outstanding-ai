@@ -380,10 +380,7 @@ def test_build_extra_sections_uses_operator_credit_note_wording(sample_generate_
 
     assert "Our records show an unapplied credit" in extra_sections
     assert "net amount requiring payment for the invoices listed" in extra_sections
-    assert (
-        "only when the current candidate invoice table and current credit context use the same currency"
-        in extra_sections
-    )
+    assert "include this operator-style sentence with the exact currency" in extra_sections
     assert "Do not net across currencies" in extra_sections
 
 
