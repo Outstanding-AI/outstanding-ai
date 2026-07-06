@@ -13,8 +13,13 @@ from src.api.models.requests import (
     PartyInfo,
     SenderPersona,
 )
+from src.api.models.requests.context import CreditPositionInfo
 from src.api.models.responses import GenerateDraftResponse
-from src.engine.generator import DRAFT_PROMPT_TEMPLATE_VERSION, DraftGenerator
+from src.engine.generator import (
+    DRAFT_PROMPT_TEMPLATE_VERSION,
+    CreditReviewRequiredError,
+    DraftGenerator,
+)
 from src.engine.generator_prompts import format_sender_persona
 from src.llm.base import LLMResponse
 from src.prompts.draft_generation import GENERATE_DRAFT_SYSTEM
@@ -248,6 +253,23 @@ class TestDraftGenerator:
 
         mock_llm.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_generate_rejects_credit_full_cover_before_model_call(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.context.schema_version = 4
+        sample_generate_draft_request.context.credit_review_flags = [
+            "unapplied_credit_fully_covers_overdue"
+        ]
+
+        with patch.object(
+            generator, "_run_llm_with_guardrails", new_callable=AsyncMock
+        ) as mock_llm:
+            with pytest.raises(CreditReviewRequiredError, match="Credit review required"):
+                await generator.generate(sample_generate_draft_request)
+
+        mock_llm.assert_not_called()
+
     def test_policy_guard_allows_email_chase_policy(self, generator, sample_generate_draft_request):
         sample_generate_draft_request.context.collection_policy_context = {
             "collection_policy": "monitor_and_chase_email",
@@ -255,6 +277,68 @@ class TestDraftGenerator:
         }
 
         assert generator._policy_blocks_ai_email_chase(sample_generate_draft_request) is False
+
+    def test_prompt_uses_current_draft_scope_for_unapplied_credit(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.context.obligations = [
+            ObligationInfo(
+                id="obl-1",
+                external_id="ext-1",
+                provider_type="sage_200",
+                invoice_number="INV-1",
+                original_amount=300.0,
+                amount_due=300.0,
+                document_currency_code="USD",
+                is_overdue=True,
+                days_overdue=10,
+                days_past_due=10,
+                is_sendable=True,
+                is_chase_eligible=True,
+            ),
+            ObligationInfo(
+                id="obl-2",
+                external_id="ext-2",
+                provider_type="sage_200",
+                invoice_number="INV-2",
+                original_amount=200.0,
+                amount_due=200.0,
+                document_currency_code="USD",
+                is_overdue=True,
+                days_overdue=5,
+                days_past_due=5,
+                is_sendable=True,
+                is_chase_eligible=True,
+            ),
+        ]
+        sample_generate_draft_request.context.party_credit_position_by_currency = [
+            CreditPositionInfo(
+                currency_code="USD",
+                unapplied_credit_amount_native=103.53,
+                recovery_eligible_overdue_amount_native=5355.56,
+                net_recovery_eligible_overdue_native=5252.03,
+            )
+        ]
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+
+        assert (
+            "Current draft scope USD: listed overdue invoices total 500.00"
+            in prompt_ctx.user_prompt
+        )
+        assert "unapplied account credit 103.53" in prompt_ctx.user_prompt
+        assert (
+            "net amount requiring payment/allocation for the listed invoices 396.47"
+            in prompt_ctx.user_prompt
+        )
+        assert (
+            "Party credit position background USD: overdue eligible for recovery 5,355.56"
+            in prompt_ctx.user_prompt
+        )
+        assert (
+            "calculate debtor-facing net wording from the Current draft scope line"
+            in prompt_ctx.user_prompt
+        )
 
     @pytest.mark.asyncio
     async def test_generate_draft_different_tones(self, generator, sample_generate_draft_request):

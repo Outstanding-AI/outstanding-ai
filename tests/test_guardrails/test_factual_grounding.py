@@ -342,3 +342,17 @@ class TestFactualGroundingGuardrail:
         )
 
         assert results[3].passed
+
+    def test_generic_procurement_process_phrase_requires_exact_evidence(self, sample_context):
+        """Approval context does not authorize broad procurement-process phrasing."""
+        sample_context.obligations[0].source_query_raw = "Awaiting approval"
+        sample_context.obligations[0].has_source_query_flag = True
+
+        results = FactualGroundingGuardrail().validate(
+            "If your procurement process is still preventing payment, please let us know.",
+            sample_context,
+        )
+
+        procurement_result = results[3]
+        assert not procurement_result.passed
+        assert "generic_procurement_process" in procurement_result.found

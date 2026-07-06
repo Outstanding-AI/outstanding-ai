@@ -471,6 +471,9 @@ class FactualGroundingGuardrail(BaseGuardrail):
                 re.IGNORECASE,
             )
         )
+        mentions_generic_procurement_process = bool(
+            re.search(r"\bprocurement process(?:es)?\b", output, re.IGNORECASE)
+        )
         if not mentions_po and not mentions_pod and not mentions_workflow:
             return self._pass("No procurement claims found")
 
@@ -488,12 +491,18 @@ class FactualGroundingGuardrail(BaseGuardrail):
             in {"verified", "manual"}
             for obligation in context.obligations
         )
+        has_exact_procurement_process_context = any(
+            "procurement process" in str(getattr(obligation, "source_query_raw", "") or "").lower()
+            for obligation in context.obligations
+        )
 
         failures = []
         if mentions_po and not has_verified_po:
             failures.append("purchase_order")
         if mentions_pod and not has_verified_pod:
             failures.append("proof_of_delivery")
+        if mentions_generic_procurement_process and not has_exact_procurement_process_context:
+            failures.append("generic_procurement_process")
         if mentions_workflow and not (
             has_verified_po or has_verified_pod or has_procurement_context
         ):

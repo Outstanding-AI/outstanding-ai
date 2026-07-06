@@ -28,6 +28,30 @@ def test_final_notice_legal_pressure_requires_authorized_policy():
     assert "without policy authorization" in results[0].message
 
 
+def test_legal_department_pressure_requires_authorized_policy():
+    results = ToneClampingGuardrail().validate(
+        "Please respond today before this is passed to our legal department.",
+        _context(),
+        tone="firm",
+        authorized_policies={"legal_escalation_enabled": False},
+    )
+
+    assert not results[0].passed
+    assert "legal department" in results[0].found
+
+
+def test_critically_overdue_is_blocked_as_exaggerated_pressure():
+    results = ToneClampingGuardrail().validate(
+        "Your invoices are critically overdue and require immediate attention.",
+        _context(),
+        tone="professional",
+        authorized_policies={"legal_escalation_enabled": False},
+    )
+
+    assert not results[0].passed
+    assert "exaggerated collection pressure" in results[0].message
+
+
 def test_final_notice_operational_follow_up_passes_without_legal_policy():
     results = ToneClampingGuardrail().validate(
         "Could you please confirm when payment can be expected?",

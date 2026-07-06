@@ -43,6 +43,36 @@ def _as_dict(value) -> dict:
     return {}
 
 
+def _float_value(value) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _candidate_currency(request, obligation) -> str:
+    return (
+        str(
+            getattr(obligation, "currency", None)
+            or getattr(obligation, "currency_code", None)
+            or getattr(obligation, "document_currency_code", None)
+            or getattr(obligation, "base_currency", None)
+            or getattr(request.context.party, "currency", None)
+            or getattr(request.context, "base_currency", "")
+            or ""
+        )
+        .strip()
+        .upper()
+    )
+
+
+def _candidate_amount_after_credit(obligation) -> float:
+    net = getattr(obligation, "net_amount_due_after_credit_native", None)
+    if net is not None:
+        return _float_value(net)
+    return _float_value(getattr(obligation, "amount_due", None))
+
+
 def _recent_history_is_inbound_reply_trigger(request, recent_msgs: list[dict]) -> bool:
     if getattr(request, "trigger_classification", None):
         return True
@@ -343,18 +373,47 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
     credit_review_flags = getattr(request.context, "credit_review_flags", None) or []
     if credit_positions or invoice_credit_adjustments:
         credit_lines = []
+        candidate_totals_by_currency: dict[str, float] = {}
+        for obligation in (
+            candidate_obligations or getattr(request.context, "obligations", None) or []
+        ):
+            currency = _candidate_currency(request, obligation)
+            if not currency:
+                continue
+            candidate_totals_by_currency[currency] = candidate_totals_by_currency.get(
+                currency, 0.0
+            ) + _candidate_amount_after_credit(obligation)
+        positions_by_currency = {
+            str(
+                getattr(position, "currency_code", None)
+                or getattr(request.context.party, "currency", "")
+            )
+            .strip()
+            .upper(): position
+            for position in credit_positions
+        }
+        for currency, candidate_total in sorted(candidate_totals_by_currency.items()):
+            position = positions_by_currency.get(currency)
+            unapplied = _float_value(getattr(position, "unapplied_credit_amount_native", 0.0))
+            net = max(candidate_total - unapplied, 0.0)
+            if candidate_total > 0 or unapplied > 0:
+                credit_lines.append(
+                    f"- Current draft scope {currency}: listed overdue invoices total {candidate_total:,.2f}; "
+                    f"unapplied account credit {unapplied:,.2f}; net amount requiring payment/allocation "
+                    f"for the listed invoices {net:,.2f}"
+                )
         for position in credit_positions:
             currency = getattr(position, "currency_code", None) or getattr(
                 request.context.party, "currency", ""
             )
-            unapplied = float(getattr(position, "unapplied_credit_amount_native", 0.0) or 0.0)
-            overdue = float(
-                getattr(position, "recovery_eligible_overdue_amount_native", 0.0) or 0.0
+            unapplied = _float_value(getattr(position, "unapplied_credit_amount_native", 0.0))
+            overdue = _float_value(
+                getattr(position, "recovery_eligible_overdue_amount_native", 0.0)
             )
-            net = float(getattr(position, "net_recovery_eligible_overdue_native", 0.0) or 0.0)
+            net = _float_value(getattr(position, "net_recovery_eligible_overdue_native", 0.0))
             if unapplied > 0 or overdue > 0:
                 credit_lines.append(
-                    f"- {currency}: overdue eligible for recovery {overdue:,.2f}; "
+                    f"- Party credit position background {currency}: overdue eligible for recovery {overdue:,.2f}; "
                     f"unapplied credit notes {unapplied:,.2f}; net requiring payment/allocation {net:,.2f}"
                 )
         for adjustment in invoice_credit_adjustments:
@@ -364,7 +423,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             currency = getattr(adjustment, "currency_code", None) or getattr(
                 request.context.party, "currency", ""
             )
-            allocated = float(getattr(adjustment, "allocated_credit_amount_native", 0.0) or 0.0)
+            allocated = _float_value(getattr(adjustment, "allocated_credit_amount_native", 0.0))
             net = getattr(adjustment, "invoice_amount_due_after_credit_native", None)
             credit_lines.append(
                 f"- Invoice {invoice}: Sage allocated credit {currency} {allocated:,.2f}"
@@ -375,10 +434,11 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 "\n\n**Credit Note Context:**\n"
                 + "\n".join(credit_lines)
                 + "\nRules: allocated credit notes reduce only the Sage-linked invoice. "
-                "Unapplied credit notes are account-level context: mention the unapplied credit and net amount "
-                "only when the current candidate invoice table and current credit context use the same currency "
-                "and invoice scope. Do not carry credit/net figures forward from old sent-scope history. "
+                "Unapplied credit notes are account-level context: calculate debtor-facing net wording from "
+                "the Current draft scope line, not from the wider Party credit position background. "
+                "Do not carry credit/net figures forward from old sent-scope history. "
                 "Do not claim account credit has been allocated to a specific invoice. Do not net across currencies. "
+                "If the Current draft scope net amount is 0.00, do not write a normal payment chase; route to credit review. "
                 "For unapplied account credit, prefer the operator style: "
                 '"Our records show an unapplied credit of {currency} {credit_amount} on your account. '
                 'This brings the net amount requiring payment for the invoices listed to {currency} {net_amount}."'

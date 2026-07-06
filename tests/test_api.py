@@ -351,6 +351,24 @@ class TestGenerateEndpoint:
         assert data["body"] == "Dear Customer,\n\nThank you for reaching out."
 
     @patch("src.api.routes.generate.generator")
+    def test_generate_credit_review_returns_conflict(
+        self, mock_generator, authed_client, sample_generate_draft_request
+    ):
+        from src.engine.generator import CreditReviewRequiredError
+
+        _mark_current_datalake_context(sample_generate_draft_request.context)
+        mock_generator.generate = AsyncMock(
+            side_effect=CreditReviewRequiredError("Credit review required")
+        )
+
+        response = authed_client.post(
+            "/generate-draft", json=sample_generate_draft_request.model_dump(mode="json")
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["reason"] == "credit_review_required"
+
+    @patch("src.api.routes.generate.generator")
     def test_generate_rejects_legacy_context(
         self, mock_generator, authed_client, sample_generate_draft_request
     ):

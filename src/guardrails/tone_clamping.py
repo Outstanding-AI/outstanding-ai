@@ -51,7 +51,9 @@ class ToneClampingGuardrail(BaseGuardrail):
             "legal action",
             "legal proceedings",
             "legal team",
+            "legal department",
             "legal referral",
+            "legal collection",
             "refer this matter",
             "refer the matter",
             "account suspension",
@@ -72,6 +74,17 @@ class ToneClampingGuardrail(BaseGuardrail):
                         },
                     )
                 ]
+        high_pressure_phrases = ["critically overdue"]
+        found_high_pressure = [phrase for phrase in high_pressure_phrases if phrase in body]
+        if found_high_pressure:
+            return [
+                self._fail(
+                    "Draft contains exaggerated collection pressure.",
+                    expected="plain overdue wording in sales-ledger style",
+                    found=", ".join(found_high_pressure),
+                    details={"tone": tone_key, "level": escalation_level},
+                )
+            ]
         if tone_key == "acknowledgement":
             pressure_phrases = [
                 "please pay",
@@ -81,6 +94,7 @@ class ToneClampingGuardrail(BaseGuardrail):
                 "settle the balance",
                 "settle this balance",
                 "overdue balance",
+                "critically overdue",
                 "final notice",
                 "legal action",
                 "legal proceedings",
@@ -121,8 +135,11 @@ class ToneClampingGuardrail(BaseGuardrail):
             pressure_phrases = [
                 "legal action",
                 "legal proceedings",
+                "legal department",
+                "legal team",
                 "final notice",
                 "account suspension",
+                "critically overdue",
             ]
             found_pressure = [phrase for phrase in pressure_phrases if phrase in body]
             if found_pressure:

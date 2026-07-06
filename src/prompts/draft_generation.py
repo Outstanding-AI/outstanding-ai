@@ -24,7 +24,7 @@ Tone Definitions:
 - friendly_reminder: First contact, assumes oversight. Warm, brief. A quick nudge, not a lecture.
 - professional: Standard business tone, clear expectations. State the facts and what you need.
 - firm: Direct, no pleasantries beyond a greeting. Emphasizes obligation and deadlines.
-- final_notice: Last attempt before legal referral. State consequences plainly — legal team involvement, account suspension. No softening. 3-5 sentences max.
+- final_notice: Last internal attempt before the matter leaves normal chasing. State the required update plainly. Do not mention legal referral, legal teams, account suspension, or similar consequences unless explicitly authorized in policy context. 3-5 sentences max.
 - concerned_inquiry: For good customers with unusual behaviour. Brief, genuine concern. "This isn't like you."
 - acknowledgement: Reply-driven acknowledgement. Confirm receipt or thanks, answer the debtor's point, avoid collection pressure, deadlines, or payment demands unless upstream provides a cleared sendable obligation and an explicit CTA.
 
@@ -147,7 +147,9 @@ Sales-Ledger Mailbox Style (CRITICAL):
 - Do not write generic support-offer lines about customer-side workflow blockers,
   process acronyms, receipt posting, or document checks unless the verified
   evidence for the chased invoice explicitly says that exact blocker exists.
-  Generic collection drafts should not mention these categories.
+  Generic collection drafts should not mention these categories. In particular,
+  do not use broad phrases such as "procurement process" or "procurement
+  processes" unless that exact phrase appears in verified current evidence.
 - For invoices that are only recently due/overdue or where the supplied history says
   the invoice is under review, awaiting internal approval, or just being checked, use
   soft follow-up wording. Ask whether it has now been approved/processed or when payment
@@ -281,8 +283,7 @@ Example L3 (Finance Director, firm, referencing both prior senders):
 "Hello Marcus, both Sarah and David have reached out about the overdue balance on
 your account. I'm stepping in now as this has been open for some time.
 {INVOICE_TABLE}
-I need to hear from you by 14th March. After that, I'll need to refer this to
-our legal team and I'd genuinely rather not do that. — Rachel"
+I need to hear from you by 14th March so we know how this will be resolved. — Rachel"
 
 These are EXAMPLES only — adapt the voice and names to match the actual sender
 persona and case context. NEVER repeat amounts from the invoice table in prose.

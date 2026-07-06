@@ -57,6 +57,10 @@ DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v4"
 GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 
+class CreditReviewRequiredError(ValueError):
+    """Business skip: unapplied credit fully covers the selected draft scope."""
+
+
 def _normalize_invoice_ref(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
@@ -250,7 +254,7 @@ class DraftGenerator:
             and "unapplied_credit_fully_covers_overdue"
             in (request.context.credit_review_flags or [])
         ):
-            raise ValueError(
+            raise CreditReviewRequiredError(
                 "Credit review required: unapplied credit fully covers recovery-eligible overdue"
             )
         if (
