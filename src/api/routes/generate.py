@@ -28,7 +28,7 @@ from src.api.models.responses import (
     GenerateDraftResponse,
 )
 from src.config.settings import settings
-from src.engine.generator import CreditReviewRequiredError, generator
+from src.engine.generator import generator
 from src.lake import (
     CaseContextHydrator,
     DraftGenerationHandoff,
@@ -116,30 +116,6 @@ async def generate_draft(
     )
     try:
         result = await generator.generate(generate_request)
-    except CreditReviewRequiredError as exc:
-        logger.info(
-            "Draft generation skipped for credit review",
-            extra={
-                "request_id": request_id,
-                "tenant_id": tenant_id,
-                "party_id": party_id,
-                "collection_lane_id": lane_id,
-                "lane_mail_mode": generate_request.context.lane_mail_mode,
-                "schema_version": generate_request.context.schema_version,
-                "provider": provider,
-                "model": model,
-                "obligation_count": obligation_count,
-                "reason_code": "credit_review_required",
-            },
-        )
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "reason": "credit_review_required",
-                "reason_code": "unapplied_credit_fully_covers_recovery_overdue",
-                "message": str(exc),
-            },
-        ) from exc
     except Exception as exc:
         logger.exception(
             "Draft generation request failed",

@@ -366,6 +366,7 @@ class CaseContext(CaseContextV2):
     party_credit_position_by_currency: List[CreditPositionInfo] = []
     invoice_credit_adjustments: List[InvoiceCreditAdjustmentInfo] = []
     credit_review_flags: List[str] = []
+    candidate_credit_context: Optional[dict[str, Any]] = None
     net_recovery_eligible_by_currency: dict[str, float] = Field(default_factory=dict)
     collection_case_id: Optional[str] = None
     threading_strategy: Optional[str] = None

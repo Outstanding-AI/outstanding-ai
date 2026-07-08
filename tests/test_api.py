@@ -351,22 +351,36 @@ class TestGenerateEndpoint:
         assert data["body"] == "Dear Customer,\n\nThank you for reaching out."
 
     @patch("src.api.routes.generate.generator")
-    def test_generate_credit_review_returns_conflict(
+    def test_generate_accepts_candidate_credit_context(
         self, mock_generator, authed_client, sample_generate_draft_request
     ):
-        from src.engine.generator import CreditReviewRequiredError
+        from src.api.models.responses import GenerateDraftResponse
 
         _mark_current_datalake_context(sample_generate_draft_request.context)
+        sample_generate_draft_request.context.candidate_credit_context = {
+            "currency": "USD",
+            "candidate_overdue_amount": 413.78,
+            "unapplied_credit_amount": 861.65,
+            "net_candidate_amount": 0.0,
+            "full_cover": True,
+            "invoice_refs": ["0000008064"],
+        }
         mock_generator.generate = AsyncMock(
-            side_effect=CreditReviewRequiredError("Credit review required")
+            return_value=GenerateDraftResponse(
+                subject="Credit allocation update",
+                body="Can you please confirm how the unapplied credit should be allocated?",
+                tone_used="professional",
+                invoices_referenced=["0000008064"],
+            )
         )
 
         response = authed_client.post(
             "/generate-draft", json=sample_generate_draft_request.model_dump(mode="json")
         )
 
-        assert response.status_code == 409
-        assert response.json()["detail"]["reason"] == "credit_review_required"
+        assert response.status_code == 200
+        request_arg = mock_generator.generate.await_args.args[0]
+        assert request_arg.context.candidate_credit_context["full_cover"] is True
 
     @patch("src.api.routes.generate.generator")
     def test_generate_rejects_legacy_context(

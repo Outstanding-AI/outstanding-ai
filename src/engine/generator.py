@@ -58,7 +58,7 @@ GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 
 class CreditReviewRequiredError(ValueError):
-    """Business skip: unapplied credit fully covers the selected draft scope."""
+    """Deprecated business skip retained for compatibility with older callers."""
 
 
 def _normalize_invoice_ref(value: str) -> str:
@@ -247,16 +247,6 @@ class DraftGenerator:
             _PromptContext with the assembled prompt and derived values.
         """
         candidate_obligations = self._select_candidate_obligations(request)
-        if (
-            request.context.schema_version == 4
-            and not request.skip_invoice_table
-            and not request.closure_mode
-            and "unapplied_credit_fully_covers_overdue"
-            in (request.context.credit_review_flags or [])
-        ):
-            raise CreditReviewRequiredError(
-                "Credit review required: unapplied credit fully covers recovery-eligible overdue"
-            )
         if (
             request.context.schema_version == 4
             and not candidate_obligations

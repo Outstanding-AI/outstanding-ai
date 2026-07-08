@@ -368,11 +368,24 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             + "\nDo not ask for payment on these obligations unless the upstream context explicitly marks them cleared and sendable."
         )
 
+    candidate_credit_context = getattr(request.context, "candidate_credit_context", None) or {}
     credit_positions = getattr(request.context, "party_credit_position_by_currency", None) or []
     invoice_credit_adjustments = getattr(request.context, "invoice_credit_adjustments", None) or []
     credit_review_flags = getattr(request.context, "credit_review_flags", None) or []
-    if credit_positions or invoice_credit_adjustments:
+    if candidate_credit_context or credit_positions or invoice_credit_adjustments:
         credit_lines = []
+        if candidate_credit_context:
+            currency = str(candidate_credit_context.get("currency") or "").strip().upper()
+            candidate_total = _float_value(candidate_credit_context.get("candidate_overdue_amount"))
+            unapplied = _float_value(candidate_credit_context.get("unapplied_credit_amount"))
+            net = _float_value(candidate_credit_context.get("net_candidate_amount"))
+            invoice_refs = candidate_credit_context.get("invoice_refs") or []
+            if currency and (candidate_total > 0 or unapplied > 0):
+                credit_lines.append(
+                    f"- Current draft scope {currency}: listed overdue invoices total {candidate_total:,.2f}; "
+                    f"unapplied account credit {unapplied:,.2f}; net amount requiring payment "
+                    f"for the listed invoices {net:,.2f}; invoices {', '.join(str(ref) for ref in invoice_refs)}"
+                )
         candidate_totals_by_currency: dict[str, float] = {}
         for obligation in (
             candidate_obligations or getattr(request.context, "obligations", None) or []
@@ -438,7 +451,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 "the Current draft scope line, not from the wider Party credit position background. "
                 "Do not carry credit/net figures forward from old sent-scope history. "
                 "Do not claim account credit has been allocated to a specific invoice. Do not net across currencies. "
-                "If the Current draft scope net amount is 0.00, do not write a normal payment chase; route to credit review. "
+                "If the Current draft scope net amount is 0.00, write a neutral credit-allocation/account-update email: "
+                "mention the listed invoices and unapplied credit, ask how the customer wants the credit allocated or "
+                "whether payment/account update has already been arranged, and do not make a normal payment demand. "
                 "If the Current draft scope line has unapplied account credit above 0.00 and net amount above 0.00, "
                 "include this operator-style sentence with the exact currency, credit amount, and net amount from "
                 "that Current draft scope line: "
@@ -449,7 +464,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             sections.append(
                 "\nCredit review flags: "
                 + ", ".join(str(flag) for flag in credit_review_flags)
-                + ". If credit fully covers recovery-eligible overdue, do not write a normal payment chase."
+                + ". If credit fully covers recovery-eligible overdue, write a neutral allocation/update request, not a normal payment chase."
             )
 
     # Behaviour segment

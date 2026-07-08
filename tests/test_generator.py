@@ -17,7 +17,6 @@ from src.api.models.requests.context import CreditPositionInfo
 from src.api.models.responses import GenerateDraftResponse
 from src.engine.generator import (
     DRAFT_PROMPT_TEMPLATE_VERSION,
-    CreditReviewRequiredError,
     DraftGenerator,
 )
 from src.engine.generator_prompts import format_sender_persona
@@ -264,21 +263,35 @@ class TestDraftGenerator:
         mock_llm.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_generate_rejects_credit_full_cover_before_model_call(
+    async def test_generate_allows_credit_full_cover_to_reach_model(
         self, generator, sample_generate_draft_request
     ):
         sample_generate_draft_request.context.schema_version = 4
         sample_generate_draft_request.context.credit_review_flags = [
             "unapplied_credit_fully_covers_overdue"
         ]
+        sample_generate_draft_request.context.candidate_credit_context = {
+            "currency": "USD",
+            "candidate_overdue_amount": 413.78,
+            "unapplied_credit_amount": 861.65,
+            "net_candidate_amount": 0.0,
+            "full_cover": True,
+            "invoice_refs": ["0000008064"],
+        }
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+
+        assert "neutral credit-allocation/account-update email" in prompt_ctx.user_prompt
+        assert "do not make a normal payment demand" in prompt_ctx.user_prompt
 
         with patch.object(
             generator, "_run_llm_with_guardrails", new_callable=AsyncMock
         ) as mock_llm:
-            with pytest.raises(CreditReviewRequiredError, match="Credit review required"):
+            mock_llm.side_effect = RuntimeError("model path reached")
+            with pytest.raises(RuntimeError, match="model path reached"):
                 await generator.generate(sample_generate_draft_request)
 
-        mock_llm.assert_not_called()
+        mock_llm.assert_called_once()
 
     def test_policy_guard_allows_email_chase_policy(self, generator, sample_generate_draft_request):
         sample_generate_draft_request.context.collection_policy_context = {
