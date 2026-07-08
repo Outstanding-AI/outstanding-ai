@@ -8,6 +8,7 @@ from typing import Any, Sequence
 
 from solvix_contracts.datalake.athena_dialect import coerce_row, render_params
 
+from src.common.s3_request_attribution import create_instrumented_s3_client
 from src.common.sql_attribution import athena_attribution_comment
 
 from .models import DraftGenerationHandoff
@@ -39,6 +40,11 @@ class RegionalLakeClients:
     def _client(self, service_name: str) -> Any:
         import boto3
 
+        if service_name == "s3":
+            return create_instrumented_s3_client(
+                region_name=self.region_name,
+                source="ai.lake_reader.regional_clients",
+            )
         return boto3.client(service_name, region_name=self.region_name)
 
 

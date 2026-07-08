@@ -8,6 +8,12 @@ from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
+from src.common.s3_request_attribution import (
+    create_instrumented_s3_client,
+    log_s3_request_summary,
+    s3_request_attribution_context,
+)
+
 from .models import DraftCandidate
 
 MANIFEST_SCHEMA_VERSION = 1
@@ -26,22 +32,33 @@ def parse_s3_uri(uri: str) -> tuple[str, str]:
 
 
 def _default_s3_client(region_name: str):
-    import boto3
-
-    return boto3.client("s3", region_name=region_name)
+    return create_instrumented_s3_client(
+        region_name=region_name,
+        source="ai.lake_reader.manifest_loader",
+    )
 
 
 def _read_manifest_bytes(manifest_uri: str, *, region_name: str, s3_client: Any | None) -> bytes:
     bucket, key = parse_s3_uri(manifest_uri)
     client = s3_client or _default_s3_client(region_name)
-    try:
-        response = client.get_object(Bucket=bucket, Key=key)
-        body = response["Body"]
-        return body.read()
-    except Exception as exc:
-        raise ManifestLoadError(
-            f"Failed to read draft candidate manifest {manifest_uri}: {exc}"
-        ) from exc
+    with s3_request_attribution_context() as s3_accumulator:
+        try:
+            response = client.get_object(Bucket=bucket, Key=key)
+            body = response["Body"]
+            return body.read()
+        except Exception as exc:
+            raise ManifestLoadError(
+                f"Failed to read draft candidate manifest {manifest_uri}: {exc}"
+            ) from exc
+        finally:
+            log_s3_request_summary(
+                s3_accumulator,
+                context={
+                    "runtime": "ai",
+                    "component": "lake_reader",
+                    "source": "ai.lake_reader.manifest_loader",
+                },
+            )
 
 
 def _candidate_payload(raw_payload: Any) -> list[Any]:
