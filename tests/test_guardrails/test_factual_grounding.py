@@ -310,6 +310,17 @@ class TestFactualGroundingGuardrail:
         assert "procurement_workflow" in procurement_result.found
         assert "proof_of_delivery" in procurement_result.found
 
+    def test_unverified_documentation_requirements_claim_fails(self, sample_context):
+        """Routine reminders must not fish for documentation requirements without evidence."""
+        results = FactualGroundingGuardrail().validate(
+            "If there are any documentation requirements needed for processing, please let us know.",
+            sample_context,
+        )
+
+        procurement_result = results[3]
+        assert not procurement_result.passed
+        assert "procurement_workflow" in procurement_result.found
+
     def test_po_box_address_does_not_count_as_procurement_claim(self, sample_context):
         """Sender/footer PO Box text is not a purchase-order claim."""
         results = FactualGroundingGuardrail().validate(

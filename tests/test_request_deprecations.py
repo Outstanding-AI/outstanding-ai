@@ -424,14 +424,18 @@ def test_format_obligation_flags_omits_procurement_status_for_unverified():
     assert "procurement" not in flags
 
 
-def test_factual_grounding_section_removed_from_system_prompt():
-    """System prompt must NOT mention PO/POD/procurement priming tokens.
+def test_system_prompt_explicitly_blocks_unverified_process_wording():
+    """System prompt blocks customer-side process wording at generation time.
 
-    The guardrail still validates output, but the model should not be primed
-    with the very words it might then hallucinate around."""
+    The prompt still avoids turning PO/POD evidence into a positive drafting
+    pattern, but the production SEA011/WEA027 failure showed the model can
+    infer process wording from industry context unless the source instruction
+    explicitly forbids it.
+    """
     from src.prompts.draft_generation import GENERATE_DRAFT_SYSTEM
 
     lower_prompt = GENERATE_DRAFT_SYSTEM.lower()
     assert "purchase order" not in lower_prompt
     assert "proof of delivery" not in lower_prompt
-    assert "procurement" not in lower_prompt
+    assert "never infer customer-side procurement" in lower_prompt
+    assert "routine reminders must not ask whether documentation requirements" in lower_prompt

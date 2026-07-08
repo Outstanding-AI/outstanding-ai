@@ -9,6 +9,7 @@ import pytest
 from src.api.models.requests import (
     CaseContext,
     GenerateDraftRequest,
+    IndustryInfo,
     ObligationInfo,
     PartyInfo,
     SenderPersona,
@@ -70,7 +71,7 @@ class TestDraftGenerator:
     def test_draft_prompt_prioritises_sales_ledger_mailbox_style(self):
         normalized_prompt = " ".join(GENERATE_DRAFT_SYSTEM.split())
 
-        assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v4"
+        assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v5"
         assert "Sales-Ledger Mailbox Style (CRITICAL)" in GENERATE_DRAFT_SYSTEM
         assert "greeting -> one concrete invoice/payment issue" in GENERATE_DRAFT_SYSTEM
         assert "Please confirm" in GENERATE_DRAFT_SYSTEM
@@ -85,8 +86,8 @@ class TestDraftGenerator:
         assert "under review" in GENERATE_DRAFT_SYSTEM
         assert "Do not imply repeated non-response" in GENERATE_DRAFT_SYSTEM
         assert "recently fallen due on your account" in GENERATE_DRAFT_SYSTEM
-        assert "Can you please confirm when payment can be expected" in normalized_prompt
-        assert "end with a simple question" in GENERATE_DRAFT_SYSTEM
+        assert "Please confirm once payment has been arranged" in normalized_prompt
+        assert "end with a simple status question" in GENERATE_DRAFT_SYSTEM
         assert "documentation or approvals that are holding up payment" not in GENERATE_DRAFT_SYSTEM
         assert (
             "process acronyms, document checks, internal approval, or customer-side process"
@@ -95,11 +96,16 @@ class TestDraftGenerator:
         assert (
             "Generic collection drafts should not mention these categories" in GENERATE_DRAFT_SYSTEM
         )
-        assert "procurement" not in GENERATE_DRAFT_SYSTEM.lower()
+        assert "Never infer customer-side procurement" in GENERATE_DRAFT_SYSTEM
+        assert "payment ETA/timing" in GENERATE_DRAFT_SYSTEM
+        assert "Routine reminders must not ask whether documentation requirements" in (
+            GENERATE_DRAFT_SYSTEM
+        )
+        assert "Can you please confirm when payment can be expected" not in GENERATE_DRAFT_SYSTEM
+        assert "when can we expect payment" not in GENERATE_DRAFT_SYSTEM.lower()
         assert "purchase order" not in GENERATE_DRAFT_SYSTEM.lower()
         assert "proof of delivery" not in GENERATE_DRAFT_SYSTEM.lower()
-        assert "PO/GRN" not in GENERATE_DRAFT_SYSTEM
-        assert "GRN" not in GENERATE_DRAFT_SYSTEM
+        assert "PO/GRN" in GENERATE_DRAFT_SYSTEM
         assert "splitting it up" not in GENERATE_DRAFT_SYSTEM
         assert "If paying in one go is tricky" not in GENERATE_DRAFT_SYSTEM
         assert "we kindly request your" in GENERATE_DRAFT_SYSTEM
@@ -109,6 +115,68 @@ class TestDraftGenerator:
         assert "If escalation wording is not explicitly authorized" in GENERATE_DRAFT_SYSTEM
         assert "Do not mention an internal staff member by name" in GENERATE_DRAFT_SYSTEM
         assert "Prior Outreach Reference" in GENERATE_DRAFT_SYSTEM
+
+    def test_reminder_prompt_does_not_prime_payment_eta_or_process_fishing(
+        self, generator, sample_generate_draft_request
+    ):
+        sample_generate_draft_request.context.party.name = "WEATHERFORD ARTIFICIAL LIFT SYSTEMS LLC"
+        sample_generate_draft_request.context.party.customer_code = "WEA027"
+        sample_generate_draft_request.context.base_currency = "USD"
+        sample_generate_draft_request.context.currency_symbol = "$"
+        sample_generate_draft_request.tone = "friendly_reminder"
+        sample_generate_draft_request.objective = "follow_up"
+        sample_generate_draft_request.context.obligations = [
+            ObligationInfo(
+                id="obl-wea-7740",
+                external_id="7740",
+                provider_type="sage_200",
+                invoice_number="0000007740",
+                original_amount=2559.09,
+                amount_due=2559.09,
+                document_currency_code="USD",
+                due_date="2026-07-06",
+                days_past_due=2,
+                days_overdue=2,
+                is_overdue=True,
+                is_sendable=True,
+                is_chase_eligible=True,
+                state="open",
+            )
+        ]
+        sample_generate_draft_request.context.lane = {
+            "collection_lane_id": "lane-wea027",
+            "current_level": 0,
+            "entry_level": 0,
+            "scheduled_touch_index": 2,
+            "max_touches_for_level": 3,
+            "reminder_cadence_days_for_level": 7,
+            "max_days_for_level": 21,
+            "tone_ladder": ["friendly_reminder", "professional"],
+            "invoice_refs": ["0000007740"],
+            "outstanding_amount": 2559.09,
+        }
+        sample_generate_draft_request.context.industry = IndustryInfo(
+            code="oilfield_services",
+            name="Oilfield Services",
+            typical_dso_days=60,
+            alarm_dso_days=90,
+            payment_cycle="net60",
+            escalation_patience="patient",
+            common_dispute_types=["purchase order mismatch", "approval delay"],
+            preferred_tone="professional",
+            ai_context_notes="Large enterprise accounts may have purchasing workflows.",
+        )
+
+        prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
+        combined_prompt = f"{GENERATE_DRAFT_SYSTEM}\n{prompt_ctx.user_prompt}".lower()
+
+        assert "payment eta/timing" in combined_prompt
+        assert "routine reminders must not ask whether documentation requirements" in (
+            combined_prompt
+        )
+        assert "when can we expect payment" not in combined_prompt
+        assert "when payment can be expected" not in combined_prompt
+        assert "specific po numbers needed for processing" not in combined_prompt
 
     def test_reply_prompt_uses_actual_inbound_respondent_and_company(
         self, generator, sample_generate_draft_request

@@ -465,7 +465,7 @@ class FactualGroundingGuardrail(BaseGuardrail):
         mentions_workflow = bool(
             re.search(
                 r"\b(procurement process(?:es)?|receipt posting|customer-side workflow|"
-                r"documentation approval|documentation or approvals?|approval workflow|"
+                r"documentation approval|documentation requirements?|documentation or approvals?|approval workflow|"
                 r"internal approval|customer approval)\b",
                 output,
                 re.IGNORECASE,
