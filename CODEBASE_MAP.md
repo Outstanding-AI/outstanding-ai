@@ -77,6 +77,7 @@ Hydration rules:
 - never use generic `thread_id` as a cross-table join key;
 - do not widen `obligations` from historical message evidence; current collectible obligations remain the only chase scope;
 - `collection_policy_context.ai_email_chase_allowed = false` means no draft should be generated.
+- Silver Core delta manifests, Silver Application delta signals, Gold skip proofs, and Athena/MSCK partition controls are upstream ETL/backend operational mechanics. AI consumes the current request context it receives from backend/Gold/Silver readers and does not make skip or manifest decisions.
 
 ## Config & Utils
 
