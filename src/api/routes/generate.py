@@ -228,7 +228,10 @@ async def generate_draft_from_manifest(
         poll_interval_seconds=settings.regional_lake_poll_interval_seconds,
         timeout_seconds=settings.regional_lake_query_timeout_seconds,
     )
-    hydrator = CaseContextHydrator(handoff.tenant_id, reader)
+    hydrator_kwargs = (
+        {"current_source_map": handoff.current_source_map} if handoff.current_source_map else {}
+    )
+    hydrator = CaseContextHydrator(handoff.tenant_id, reader, **hydrator_kwargs)
     # Batch-hydrate the entire candidate set with one bulk SELECT per
     # shape (parties / lanes / lane obligations / lane history / party
     # contacts) instead of N x 5 per-candidate Athena calls. Per-candidate

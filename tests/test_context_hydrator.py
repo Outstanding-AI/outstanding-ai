@@ -637,6 +637,29 @@ def test_hydrate_batch_partial_failure_per_candidate() -> None:
     assert "party-B" in str(failed.error)
 
 
+def test_hydrator_uses_only_backend_issued_materialized_source_tokens() -> None:
+    reader = _FakeReader()
+    hydrator = CaseContextHydrator(
+        "tenant-1",
+        reader,
+        current_source_map={
+            "silver_core_parties_current": "silver_current_silver_core_parties_current",
+            "silver_app_collection_lanes_current": "silver_current_silver_app_collection_lanes_current",
+        },
+    )
+
+    hydrator.hydrate_candidate(_candidate())
+
+    sql_blob = "\n".join(sql for sql, _ in reader.execute_calls)
+    assert "silver_current_silver_core_parties_current" in sql_blob
+    assert "silver_current_silver_app_collection_lanes_current" in sql_blob
+    # A malformed map value never becomes SQL; the canonical source survives.
+    bad = CaseContextHydrator(
+        "tenant-1", reader, current_source_map={"silver_core_parties_current": "bad-table;drop"}
+    )
+    assert bad._source("silver_core_parties_current") == "silver_core_parties_current"
+
+
 def test_hydrate_batch_partial_failure_when_lane_missing() -> None:
     """Same partial-failure invariant when the LANE is the missing piece."""
     reader = _BatchFakeReader(

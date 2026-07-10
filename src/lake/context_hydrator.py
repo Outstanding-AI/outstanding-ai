@@ -134,9 +134,22 @@ def _date_string(value: Any) -> str | None:
 class CaseContextHydrator:
     """Build existing GenerateDraftRequest context from regional Silver reads."""
 
-    def __init__(self, tenant_id: str, reader: LakeReader) -> None:
+    def __init__(
+        self,
+        tenant_id: str,
+        reader: LakeReader,
+        *,
+        current_source_map: dict[str, str] | None = None,
+    ) -> None:
         self.tenant_id = str(tenant_id)
         self.reader = reader
+        self.current_source_map = dict(current_source_map or {})
+
+    def _source(self, canonical_view: str) -> str:
+        """Use only backend-issued, identifier-safe materialized sources."""
+
+        source = str(self.current_source_map.get(canonical_view) or canonical_view)
+        return source if source.replace("_", "").isalnum() else canonical_view
 
     def hydrate_candidate(self, candidate: DraftCandidate) -> CaseContext:
         """Hydrate a single candidate via per-id reads (legacy single-shot path).
@@ -558,14 +571,14 @@ class CaseContextHydrator:
                 CAST(FALSE AS BOOLEAN) AS unsubscribe_requested,
                 CAST(NULL AS VARCHAR) AS customer_type,
                 CAST(NULL AS VARCHAR) AS size_bucket
-            FROM {_current_projection_in(PARTIES_CURRENT, "p", id_column="id")}
-            LEFT JOIN {_current_projection(PARTY_COLLECTION_STATE_CURRENT, "cs")}
+            FROM {_current_projection_in(self._source(PARTIES_CURRENT), "p", id_column="id")}
+            LEFT JOIN {_current_projection(self._source(PARTY_COLLECTION_STATE_CURRENT), "cs")}
               ON cs.party_id = p.id
              AND cs.tenant_id = p.tenant_id
-            LEFT JOIN {_current_projection(PARTY_COMM_STATE_CURRENT, "comm")}
+            LEFT JOIN {_current_projection(self._source(PARTY_COMM_STATE_CURRENT), "comm")}
               ON comm.party_id = p.id
              AND comm.tenant_id = p.tenant_id
-            LEFT JOIN {_current_projection(PARTY_BEHAVIOR_PROFILE_CURRENT, "bp")}
+            LEFT JOIN {_current_projection(self._source(PARTY_BEHAVIOR_PROFILE_CURRENT), "bp")}
               ON bp.party_id = p.id
              AND bp.tenant_id = p.tenant_id
             """
@@ -608,7 +621,7 @@ class CaseContextHydrator:
             SELECT lane.*
             FROM (
                 SELECT *
-                FROM {COLLECTION_LANES_CURRENT}
+                FROM {self._source(COLLECTION_LANES_CURRENT)}
                 WHERE tenant_id = %s
                   AND COALESCE(lane_id, id) IN %s
             ) lane
@@ -723,8 +736,8 @@ class CaseContextHydrator:
                     li.source_dispute_observed_from,
                     o.source_dispute_observed_from
                 ) AS source_dispute_observed_from
-            FROM {_current_projection_in(COLLECTION_LANE_INVOICES_CURRENT, "li", id_column="lane_id")}
-            JOIN {_current_projection(OBLIGATIONS_CURRENT, "o")}
+            FROM {_current_projection_in(self._source(COLLECTION_LANE_INVOICES_CURRENT), "li", id_column="lane_id")}
+            JOIN {_current_projection(self._source(OBLIGATIONS_CURRENT), "o")}
               ON li.obligation_id = o.id
              AND li.tenant_id = o.tenant_id
             WHERE COALESCE(li.lane_invoice_status, 'open') = %s
@@ -792,7 +805,7 @@ class CaseContextHydrator:
                 h.created_at,
                 h.event_time,
                 h.valid_from
-            FROM {_current_projection_in(COLLECTION_LANE_HISTORY_CURRENT, "h", id_column="lane_id")}
+            FROM {_current_projection_in(self._source(COLLECTION_LANE_HISTORY_CURRENT), "h", id_column="lane_id")}
             ORDER BY h.lane_id, COALESCE(h.event_time, h.created_at, h.valid_from) DESC NULLS LAST
             """
         return self.reader.execute(sql, [self.tenant_id, tuple(lane_ids)])
@@ -846,7 +859,7 @@ class CaseContextHydrator:
                 ct.thread_status,
                 ct.adopted_at AS first_message_at,
                 COALESCE(ct.superseded_at, ct.adopted_at, ct.valid_from, ct.observed_at) AS last_message_at
-            FROM {_current_projection_in(COLLECTION_CASE_THREADS_CURRENT, "ct", id_column="collection_case_id")}
+            FROM {_current_projection_in(self._source(COLLECTION_CASE_THREADS_CURRENT), "ct", id_column="collection_case_id")}
             ORDER BY
                 CASE WHEN ct.thread_status = 'active' THEN 0 ELSE 1 END,
                 ct.last_message_at DESC NULLS LAST,
@@ -904,7 +917,7 @@ class CaseContextHydrator:
                 ev.as_of_confidence,
                 ev.commitment_event_ids_json,
                 ev.warnings_json
-            FROM {_current_projection_in(COLLECTION_THREAD_MESSAGE_INVOICE_EVIDENCE_CURRENT, "ev", id_column="collection_case_id")}
+            FROM {_current_projection_in(self._source(COLLECTION_THREAD_MESSAGE_INVOICE_EVIDENCE_CURRENT), "ev", id_column="collection_case_id")}
             ORDER BY ev.collection_case_id,
                      ev.message_time DESC NULLS LAST,
                      ev.mail_message_id,
@@ -1128,11 +1141,11 @@ class CaseContextHydrator:
                 a.payment_expectation_date,
                 a.payment_expectation_amount,
                 a.review_reason_codes_json
-            FROM {_current_projection_in(DRAFTS_CURRENT, "d", id_column="party_id")}
-            JOIN {_current_projection(SENT_DRAFT_ANALYSIS_EVENTS_CURRENT, "a")}
+            FROM {_current_projection_in(self._source(DRAFTS_CURRENT), "d", id_column="party_id")}
+            JOIN {_current_projection(self._source(SENT_DRAFT_ANALYSIS_EVENTS_CURRENT), "a")}
               ON a.tenant_id = d.tenant_id
              AND a.draft_id = d.draft_id
-            JOIN {_current_projection(DRAFT_PROVIDER_LIFECYCLE_EVENTS_CURRENT, "dle")}
+            JOIN {_current_projection(self._source(DRAFT_PROVIDER_LIFECYCLE_EVENTS_CURRENT), "dle")}
               ON dle.tenant_id = d.tenant_id
              AND dle.draft_id = d.draft_id
              AND dle.event_type = 'sent_confirmed'
@@ -1220,7 +1233,7 @@ class CaseContextHydrator:
                 c.is_active,
                 c.email_valid,
                 COALESCE(c.source_contact_key, c.source) AS source
-            FROM {_current_projection_in(PARTY_CONTACTS_CURRENT, "c", id_column="party_id")}
+            FROM {_current_projection_in(self._source(PARTY_CONTACTS_CURRENT), "c", id_column="party_id")}
             WHERE COALESCE(c.is_active, TRUE) = TRUE
               AND COALESCE(c.email_valid, TRUE) = TRUE
               AND COALESCE(c.email_normalized, c.email, c.email_address) IS NOT NULL
