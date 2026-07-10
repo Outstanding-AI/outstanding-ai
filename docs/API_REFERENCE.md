@@ -272,6 +272,14 @@ Generator retry: when guardrails `should_block` and `len(blocking_guardrails) <=
 
 `LLMProviderWithFallback` singleton (`src/llm/factory.py`). Every call carries a `caller=` kwarg (`draft_generation`, `classification`, `persona_*`, `sent_scope_analysis`, guardrail callers).
 
+Historical thread relevance uses the same provider policy: Vertex AI is primary
+(`gemini-2.5-flash` in `europe-west2`) and OpenAI `gpt-5-mini` is the fallback.
+The `/classify-historical-collection-thread` endpoint accepts
+`mode=thread_collection_relevance` for the Stage 3 CTR-only shadow. That mode
+returns only `collection_related`, `non_collection`, or `uncertain` relevance
+evidence; it does not classify promises, disputes, remittances, or create
+draft/routing decisions.
+
 - **Primary: Vertex AI** (`gemini-2.5-flash` @ `europe-west2`, temperature 0.3). `google-genai` builds a **new `Client` per call**; credentials via AWS→GCP Workload Identity Federation (ECS task-role supplier) in production, ADC locally. Structured output via `response_schema` + `response_mime_type="application/json"`. Retry: tenacity `stop_after_attempt(LLM_MAX_RETRIES=3)`, `wait_exponential(min=2, max=30)`, on `(InternalServerError, ResourceExhausted, ServiceUnavailable)`.
 - **Fallback: OpenAI** (`gpt-5-mini`, temperature 0.3, LangChain `ChatOpenAI`). Disabled if it equals the primary or `OPENAI_API_KEY` is unset. Same tenacity retry shape. **No application-level max-token cap** is set (`OPENAI_MAX_TOKENS`/`VERTEX_MAX_TOKENS` env vars were removed 2026-04-29).
 - **Anthropic: disabled.** `_create_provider("anthropic")` raises `ValueError` ("disabled until it supports no application-level max token cap"), and the production settings validator rejects `LLM_PROVIDER=anthropic`. `anthropic_provider.py` still exists (defaults `claude-sonnet-4-20250514` / classification `claude-haiku-4-5-20251001`) but is unreachable via the factory.

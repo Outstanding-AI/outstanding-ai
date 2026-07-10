@@ -336,7 +336,7 @@ class HistoricalIntentDetailLLM(BaseModel):
 
 
 class HistoricalCollectionThreadLLMResponse(BaseModel):
-    """Structured response for historical collection-thread protocol/adjudication."""
+    """Structured response for historical collection-thread evidence."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -373,6 +373,10 @@ class HistoricalCollectionThreadLLMResponse(BaseModel):
     guardrail_warnings: list[str] = Field(default_factory=list)
     secondary_intents: list[str] = Field(default_factory=list)
     intent_details: list[HistoricalIntentDetailLLM] = Field(default_factory=list)
+    relevance_label: Optional[Literal["collection_related", "non_collection", "uncertain"]] = None
+    signal_codes: list[str] = Field(default_factory=list, max_length=20)
+    evidence_message_ordinals: list[int] = Field(default_factory=list, max_length=50)
+    abstention_reason: Optional[str] = Field(default=None, max_length=120)
 
     @field_validator("thread_actions", mode="before")
     @classmethod

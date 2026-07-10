@@ -312,6 +312,41 @@ class TestHistoricalCollectionThreadEndpoint:
         assert data["guardrail_warnings"] == ["multiple_competing_threads"]
         mock_classifier.classify.assert_awaited_once()
 
+    @patch(
+        "src.api.routes.classify_historical_collection_thread.historical_collection_thread_classifier"
+    )
+    def test_historical_collection_thread_relevance_success(self, mock_classifier, authed_client):
+        from src.api.models.responses import HistoricalCollectionThreadResponse
+
+        mock_classifier.classify = AsyncMock(
+            return_value=HistoricalCollectionThreadResponse(
+                relevance_label="collection_related",
+                confidence=0.88,
+                signal_codes=["explicit_collection_request"],
+                evidence_message_ordinals=[1],
+                reason="The authored thread contains a collection request.",
+                provider="vertex",
+                model="gemini-2.5-flash",
+            )
+        )
+
+        response = authed_client.post(
+            "/classify-historical-collection-thread",
+            json={
+                "mode": "thread_collection_relevance",
+                "prior_messages_summary": [
+                    {"ordinal": 1, "direction": "outbound", "body": "Please confirm payment."}
+                ],
+                "deterministic_facts": {"visible_party_match": True},
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["relevance_label"] == "collection_related"
+        assert data["provider"] == "vertex"
+        mock_classifier.classify.assert_awaited_once()
+
 
 class TestGenerateEndpoint:
     """Tests for /generate-draft endpoint."""

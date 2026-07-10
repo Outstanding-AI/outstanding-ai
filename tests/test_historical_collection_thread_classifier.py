@@ -57,9 +57,9 @@ def test_historical_collection_schema_accepts_legacy_thread_action_dict():
     ]
 
 
-def test_historical_collection_routes_openai_primary_without_vertex_fallback():
-    assert historical_module.historical_llm_client.primary_provider_name == "openai"
-    assert historical_module.historical_llm_client.fallback_provider_name is None
+def test_historical_collection_routes_vertex_primary_with_openai_fallback():
+    assert historical_module.historical_llm_client.primary_provider_name == "vertex"
+    assert historical_module.historical_llm_client.fallback_provider_name == "openai"
 
 
 @pytest.mark.asyncio
@@ -131,3 +131,70 @@ async def test_debtor_thread_adjudication_can_return_needs_review():
     assert result.recommended_active_thread_id is None
     assert result.thread_actions == {"conv-a": "needs_review", "conv-b": "needs_review"}
     assert "multiple_competing_threads" in result.guardrail_warnings
+
+
+@pytest.mark.asyncio
+async def test_thread_relevance_returns_only_thread_gate_fields():
+    request = HistoricalCollectionThreadRequest(
+        mode="thread_collection_relevance",
+        prior_messages_summary=[
+            {
+                "ordinal": 1,
+                "direction": "outbound",
+                "unique_body_plain": "Please confirm payment date.",
+            },
+            {"ordinal": 2, "direction": "inbound", "unique_body_plain": "We will pay next week."},
+        ],
+        deterministic_facts={"visible_party_match": True, "invoice_mention_count": 1},
+    )
+    with patch(
+        "src.engine.historical_collection_thread_classifier.historical_llm_client.complete",
+        new_callable=AsyncMock,
+    ) as mock_complete:
+        mock_complete.return_value = _llm_response(
+            {
+                "relevance_label": "collection_related",
+                "confidence": 0.94,
+                "signal_codes": ["explicit_collection_request", "debtor_payment_response"],
+                "evidence_message_ordinals": [1, 2],
+                "reason": "The authored chronology is a payment follow-up and debtor response.",
+            }
+        )
+        result = await HistoricalCollectionThreadClassifier().classify(request)
+
+    assert result.relevance_label == "collection_related"
+    assert result.signal_codes == ["explicit_collection_request", "debtor_payment_response"]
+    assert result.evidence_message_ordinals == [1, 2]
+    assert result.classification is None
+
+
+@pytest.mark.asyncio
+async def test_thread_relevance_missing_label_fails_closed():
+    request = HistoricalCollectionThreadRequest(mode="thread_collection_relevance")
+    with patch(
+        "src.engine.historical_collection_thread_classifier.historical_llm_client.complete",
+        new_callable=AsyncMock,
+    ) as mock_complete:
+        mock_complete.return_value = _llm_response(
+            {"confidence": 0.4, "reason": "insufficient evidence"}
+        )
+        with pytest.raises(Exception, match="no thread relevance label"):
+            await HistoricalCollectionThreadClassifier().classify(request)
+
+
+@pytest.mark.asyncio
+async def test_thread_relevance_rejects_message_intent_fields():
+    request = HistoricalCollectionThreadRequest(mode="thread_collection_relevance")
+    with patch(
+        "src.engine.historical_collection_thread_classifier.historical_llm_client.complete",
+        new_callable=AsyncMock,
+    ) as mock_complete:
+        mock_complete.return_value = _llm_response(
+            {
+                "relevance_label": "collection_related",
+                "classification": "PROMISE_TO_PAY",
+                "confidence": 0.9,
+            }
+        )
+        with pytest.raises(Exception, match="message/adjudication fields"):
+            await HistoricalCollectionThreadClassifier().classify(request)

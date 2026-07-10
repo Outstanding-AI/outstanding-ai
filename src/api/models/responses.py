@@ -216,7 +216,7 @@ class ClassifyResponse(BaseModel):
 
 
 class HistoricalCollectionThreadResponse(BaseModel):
-    """Response from historical collection-thread protocol/adjudication classification."""
+    """Response from historical collection-thread protocol, adjudication, or relevance classification."""
 
     classification: Optional[str] = None
     protocol_touch_type: Optional[str] = None
@@ -239,6 +239,10 @@ class HistoricalCollectionThreadResponse(BaseModel):
     model: Optional[str] = None
     is_fallback: bool = False
     ai_audit: Optional[AIAuditMetadata] = None
+    relevance_label: Optional[str] = None
+    signal_codes: List[str] = []
+    evidence_message_ordinals: List[int] = []
+    abstention_reason: Optional[str] = None
 
 
 class PersonaResult(BaseModel):

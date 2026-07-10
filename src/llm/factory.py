@@ -24,9 +24,12 @@ class LLMProviderWithFallback:
     """
 
     def __init__(self, primary_provider: str = None, fallback_provider: str = "openai"):
-        self.primary_provider_name = primary_provider or settings.llm_provider
+        provider_aliases = {"gemini": "vertex"}
+        configured_primary = primary_provider or settings.llm_provider
+        self.primary_provider_name = provider_aliases.get(configured_primary, configured_primary)
+        normalized_fallback = provider_aliases.get(fallback_provider, fallback_provider)
         self.fallback_provider_name = (
-            None if fallback_provider == self.primary_provider_name else fallback_provider
+            None if normalized_fallback == self.primary_provider_name else normalized_fallback
         )
 
         # Lazy initialization - providers created on first use
