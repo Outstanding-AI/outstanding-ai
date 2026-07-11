@@ -424,6 +424,41 @@ class HistoricalCollectionThreadLLMResponse(BaseModel):
         return [item.model_dump(exclude_none=True) for item in self.intent_details]
 
 
+class CollectionEmailEventLLMResponse(BaseModel):
+    """Strict, email-native semantic output for one collection-chain event."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    relevance_status: Literal["collection", "non_collection", "uncertain"]
+    lifecycle_status: Literal[
+        "active",
+        "awaiting_debtor_response",
+        "pending_financial_confirmation",
+        "closed_by_email",
+        "uncertain",
+        "not_applicable",
+    ]
+    semantic_classification: Optional[str] = Field(default=None, max_length=80)
+    secondary_intents: list[str] = Field(default_factory=list, max_length=12)
+    invoice_assertions: list[str] = Field(default_factory=list, max_length=20)
+    amount_assertions: list[dict[str, object]] = Field(default_factory=list, max_length=20)
+    date_assertions: list[dict[str, object]] = Field(default_factory=list, max_length=20)
+    reason_codes: list[str] = Field(default_factory=list, max_length=20)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    @field_validator("semantic_classification")
+    @classmethod
+    def validate_semantic_classification(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.upper()
+        if normalized not in CLASSIFICATION_CATEGORIES:
+            raise ValueError(
+                "semantic_classification must use the existing debtor-response taxonomy"
+            )
+        return normalized
+
+
 class ChainSelectionTieBreakLLMResponse(BaseModel):
     """Strict response for bounded pre-draft route tie-breaking."""
 

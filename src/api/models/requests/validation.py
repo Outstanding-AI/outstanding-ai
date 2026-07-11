@@ -10,7 +10,7 @@ Security:
 """
 
 import warnings
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -61,6 +61,25 @@ class HistoricalCollectionThreadRequest(BaseModel):
     party_id: Optional[str] = None
     candidate_threads: Optional[list[dict[str, Any]]] = Field(default_factory=list)
     guardrails: Optional[dict[str, Any]] = Field(default_factory=dict)
+
+
+class CollectionEmailEventRequest(BaseModel):
+    """One email event plus bounded email-native chain context.
+
+    The service accepts raw content only in transit. Consumers persist hashes
+    and controlled extracted facts, never this request payload.
+    """
+
+    mode: Literal[
+        "initial_chain",
+        "known_collection_inbound",
+        "manual_outbound",
+        "reopen_closed_chain",
+    ]
+    current_message: dict[str, Any]
+    prior_messages: list[dict[str, Any]] = Field(default_factory=list, max_length=6)
+    prior_evidence: list[dict[str, Any]] = Field(default_factory=list, max_length=2)
+    chain_status: dict[str, Any] = Field(default_factory=dict)
 
 
 class FollowUpContext(BaseModel):

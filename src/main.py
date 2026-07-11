@@ -30,6 +30,7 @@ from src.api.errors import ErrorCode, ErrorResponse, OutstandingAIBaseError
 from src.api.middleware import RequestIDMiddleware, ServiceAuthMiddleware, get_request_id
 from src.api.routes import (
     classify,
+    classify_collection_email_event,
     classify_historical_collection_thread,
     generate,
     health,
@@ -249,6 +250,7 @@ if IDLE_SHUTDOWN_SECONDS > 0:
 # Include routers
 app.include_router(health.router, tags=["Health"])
 app.include_router(classify.router, tags=["Classification"])
+app.include_router(classify_collection_email_event.router, tags=["Classification"])
 app.include_router(classify_historical_collection_thread.router, tags=["Classification"])
 app.include_router(generate.router, tags=["Generation"])
 app.include_router(sent_scope.router, tags=["Sent Scope"])

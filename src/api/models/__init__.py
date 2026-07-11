@@ -2,6 +2,7 @@ from .requests import (
     BehaviorInfo,
     CaseContext,
     ClassifyRequest,
+    CollectionEmailEventRequest,
     CommunicationInfo,
     CommunicationTrackingInfo,
     EmailContent,
@@ -13,6 +14,7 @@ from .requests import (
 )
 from .responses import (
     ClassifyResponse,
+    CollectionEmailEventResponse,
     ExtractedData,
     GateResult,
     GenerateDraftResponse,
@@ -30,9 +32,11 @@ __all__ = [
     "PromiseHistory",
     "CaseContext",
     "ClassifyRequest",
+    "CollectionEmailEventRequest",
     "GenerateDraftRequest",
     "ExtractedData",
     "ClassifyResponse",
+    "CollectionEmailEventResponse",
     "GenerateDraftResponse",
     "GateResult",
     "HealthResponse",

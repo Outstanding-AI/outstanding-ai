@@ -247,6 +247,25 @@ class HistoricalCollectionThreadResponse(BaseModel):
     selection_action: Optional[str] = None
 
 
+class CollectionEmailEventResponse(BaseModel):
+    relevance_status: str
+    lifecycle_status: str
+    semantic_classification: Optional[str] = None
+    secondary_intents: List[str] = []
+    invoice_assertions: List[str] = []
+    amount_assertions: List[dict] = []
+    date_assertions: List[dict] = []
+    reason_codes: List[str] = []
+    confidence: float = Field(ge=0.0, le=1.0)
+    tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    is_fallback: bool = False
+    ai_audit: Optional[AIAuditMetadata] = None
+
+
 class PersonaResult(BaseModel):
     """Generated persona for a single contact."""
 
