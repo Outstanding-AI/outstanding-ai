@@ -63,6 +63,21 @@ that JSON object."""
 _USER_PROMPT = """Mode: {mode}\n\nEmail event evidence:\n{payload}"""
 
 
+def _parse_response_object(content: str) -> dict:
+    """Parse strict JSON, allowing only the common fenced-JSON transport wrapper."""
+    text = str(content or "").strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3 and lines[-1].strip() == "```":
+            fence = lines[0].strip().lower()
+            if fence in {"```", "```json"}:
+                text = "\n".join(lines[1:-1]).strip()
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+        raise ValueError("collection_email_event_response_must_be_object")
+    return parsed
+
+
 class CollectionEmailEventClassifier:
     def __init__(self) -> None:
         self._client = LLMProviderWithFallback(
@@ -87,7 +102,7 @@ class CollectionEmailEventClassifier:
             caller="collection_email_event",
         )
         try:
-            parsed = CollectionEmailEventLLMResponse(**json.loads(response.content))
+            parsed = CollectionEmailEventLLMResponse(**_parse_response_object(response.content))
         except (ValidationError, ValueError, TypeError) as exc:
             validation_errors = []
             if isinstance(exc, ValidationError):
@@ -98,6 +113,8 @@ class CollectionEmailEventClassifier:
                     }
                     for error in exc.errors()[:8]
                 ]
+            elif isinstance(exc, json.JSONDecodeError):
+                validation_errors = [{"location": "response", "type": "json_decode_error"}]
             # Keep diagnostics useful without recording model output, prompt
             # text, or customer content in application logs or API errors.
             logger.warning(

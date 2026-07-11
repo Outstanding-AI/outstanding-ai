@@ -72,6 +72,28 @@ async def test_collection_email_event_invalid_json_reports_only_sanitized_locati
 
 
 @pytest.mark.asyncio
+async def test_collection_email_event_accepts_only_a_fenced_json_transport_wrapper():
+    classifier = CollectionEmailEventClassifier()
+    classifier._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content="""```json
+{"relevance_status":"collection","lifecycle_status":"active","confidence":0.9}
+```""",
+            provider="vertex",
+            model="gemini-2.5-flash",
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        )
+    )
+
+    result = await classifier.classify(
+        CollectionEmailEventRequest(mode="initial_chain", current_message={"body": "synthetic"})
+    )
+
+    assert result.relevance_status == "collection"
+    assert result.lifecycle_status == "active"
+
+
+@pytest.mark.asyncio
 async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
     classifier = CollectionEmailEventClassifier()
     assert classifier._client.primary_provider_name == "vertex"
