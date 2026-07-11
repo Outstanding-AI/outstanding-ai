@@ -266,6 +266,36 @@ class CollectionEmailEventResponse(BaseModel):
     ai_audit: Optional[AIAuditMetadata] = None
 
 
+class CollectionEmailFactExtractionResponse(BaseModel):
+    invoice_assertions: List[str] = []
+    amount_assertions: List[dict] = []
+    date_assertions: List[dict] = []
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason_codes: List[str] = []
+    tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    is_fallback: bool = False
+    ai_audit: Optional[AIAuditMetadata] = None
+
+
+class CollectionChainIdentificationResponse(BaseModel):
+    collection_status: Literal["collection", "non_collection", "uncertain"]
+    event_effect: Literal["new", "confirmed", "reopened", "closed", "no_change"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason_codes: List[str] = []
+    evidence_message_ordinals: List[int] = []
+    tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    is_fallback: bool = False
+    ai_audit: Optional[AIAuditMetadata] = None
+
+
 class PersonaResult(BaseModel):
     """Generated persona for a single contact."""
 
@@ -421,6 +451,7 @@ class HealthResponse(BaseModel):
     version: str
     provider: str  # "vertex", "openai", etc.
     model: str
+    worker_class: str = "medium"
     fallback_provider: Optional[str] = None
     fallback_model: Optional[str] = None
     fallback_count: int = 0

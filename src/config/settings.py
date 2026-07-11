@@ -31,6 +31,18 @@ class Settings(BaseSettings):
     api_port: int = 8001
     debug: bool = False
     enable_api_docs: bool = False
+    # Set by the ECS class task definitions. This is deliberately surfaced as
+    # response telemetry so backend audit records can prove which capacity
+    # class handled a paid model invocation.
+    ai_engine_class: str = "medium"
+
+    @field_validator("ai_engine_class")
+    @classmethod
+    def validate_ai_engine_class(cls, value: str) -> str:
+        normalized = str(value or "medium").strip().lower()
+        if normalized not in {"medium", "large", "xlarge"}:
+            raise ValueError("AI_ENGINE_CLASS must be medium, large, or xlarge")
+        return normalized
 
     @field_validator("debug", mode="before")
     @classmethod

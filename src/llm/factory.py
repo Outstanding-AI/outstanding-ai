@@ -304,7 +304,12 @@ class LLMProviderWithFallback:
         defect, not a reason to ask a second provider to process customer mail.
         Existing callers retain their historical fallback semantics.
         """
-        if caller not in {"collection_email_event", "historical_collection_thread"}:
+        if caller not in {
+            "collection_email_event",
+            "collection_email_fact_extraction",
+            "collection_chain_identifier",
+            "historical_collection_thread",
+        }:
             return True
         return isinstance(
             error,

@@ -51,6 +51,8 @@ class TestHealthEndpoint:
         assert "uptime_seconds" in data
         assert "provider" not in data
         assert "model" not in data
+        assert data["worker_class"] == "medium"
+        assert response.headers["X-AI-Engine-Class"] == "medium"
 
     @patch("src.api.routes.health.llm_client")
     def test_llm_health_check(self, mock_llm_client, authed_client):
@@ -80,6 +82,7 @@ class TestHealthEndpoint:
         assert data["fallback_provider"] == "openai"
         assert data["fallback_model"] == "gpt-5-mini"
         assert data["primary_failures_by_caller"] == {}
+        assert data["worker_class"] == "medium"
         assert "uptime_seconds" in data
 
 

@@ -82,6 +82,23 @@ class CollectionEmailEventRequest(BaseModel):
     chain_status: dict[str, Any] = Field(default_factory=dict)
 
 
+class CollectionEmailFactExtractionRequest(BaseModel):
+    """One message and bounded email-native context for fact extraction only."""
+
+    current_message: dict[str, Any]
+    prior_messages: list[dict[str, Any]] = Field(default_factory=list, max_length=6)
+
+
+class CollectionChainIdentificationRequest(BaseModel):
+    """Bounded current event evidence used only to identify a collection chain."""
+
+    current_message: dict[str, Any]
+    prior_messages: list[dict[str, Any]] = Field(default_factory=list, max_length=6)
+    extracted_facts: dict[str, Any] = Field(default_factory=dict)
+    reconciled_scope: list[dict[str, Any]] = Field(default_factory=list, max_length=30)
+    prior_chain_status: dict[str, Any] = Field(default_factory=dict)
+
+
 class FollowUpContext(BaseModel):
     """Verification claim/match context for queued follow-up drafts.
 

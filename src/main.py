@@ -32,8 +32,10 @@ from src.api.routes import (
     classify,
     classify_collection_email_event,
     classify_historical_collection_thread,
+    extract_collection_email_facts,
     generate,
     health,
+    identify_collection_chain,
     persona,
     sent_scope,
 )
@@ -103,6 +105,7 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     model = settings.model_for_provider()
     logger.info(f"Provider: {settings.llm_provider}, Model: {model}")
+    logger.info("ECS AI worker class: %s", settings.ai_engine_class)
     logger.info("Fallback provider config: provider=openai model=%s", settings.openai_model)
     logger.info("Provider readiness: %s", settings.provider_status())
     logger.info(f"Port: {settings.api_port}")
@@ -251,6 +254,8 @@ if IDLE_SHUTDOWN_SECONDS > 0:
 app.include_router(health.router, tags=["Health"])
 app.include_router(classify.router, tags=["Classification"])
 app.include_router(classify_collection_email_event.router, tags=["Classification"])
+app.include_router(extract_collection_email_facts.router, tags=["Classification"])
+app.include_router(identify_collection_chain.router, tags=["Classification"])
 app.include_router(classify_historical_collection_thread.router, tags=["Classification"])
 app.include_router(generate.router, tags=["Generation"])
 app.include_router(sent_scope.router, tags=["Sent Scope"])

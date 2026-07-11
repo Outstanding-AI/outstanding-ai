@@ -17,6 +17,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from src.api.models.responses import HealthResponse
+from src.config.settings import settings
 from src.llm.factory import llm_client
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class ShallowHealthResponse(BaseModel):
 
     status: str = "ok"
     version: str
+    worker_class: str
     uptime_seconds: float
 
 
@@ -68,6 +70,7 @@ async def health_check() -> ShallowHealthResponse:
     return ShallowHealthResponse(
         status="ok",
         version="0.1.0",
+        worker_class=settings.ai_engine_class,
         uptime_seconds=round(uptime, 2),
     )
 
@@ -105,5 +108,6 @@ async def llm_health_check() -> HealthResponse:
         ),
         model_available=primary_healthy,
         fallback_available=fallback_status == "healthy",
+        worker_class=settings.ai_engine_class,
         uptime_seconds=round(uptime, 2),
     )

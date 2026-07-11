@@ -293,7 +293,11 @@ async def test_factory_falls_back_to_openai():
 
 
 @pytest.mark.asyncio
-async def test_collection_email_schema_failure_does_not_fallback_to_openai():
+@pytest.mark.parametrize(
+    "caller",
+    ["collection_email_event", "collection_email_fact_extraction", "collection_chain_identifier"],
+)
+async def test_collection_email_schema_failure_does_not_fallback_to_openai(caller):
     """Schema/configuration failures must fail closed before a second provider sees mail."""
     with patch("src.llm.factory.VertexProvider") as mock_vertex:
         with patch("src.llm.factory.OpenAIProvider") as mock_openai:
@@ -306,7 +310,7 @@ async def test_collection_email_schema_failure_does_not_fallback_to_openai():
             client = LLMProviderWithFallback(primary_provider="vertex", fallback_provider="openai")
 
             with pytest.raises(LLMStructuredOutputError, match="invalid response schema"):
-                await client.complete("sys", "user", caller="collection_email_event")
+                await client.complete("sys", "user", caller=caller)
 
     assert mock_openai.return_value.complete.await_count == 0
 

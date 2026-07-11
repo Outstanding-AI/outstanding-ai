@@ -34,7 +34,9 @@ from .sent_scope import (
 from .validation import (
     PROMPT_INJECTION_PATTERNS,
     ClassifyRequest,
+    CollectionChainIdentificationRequest,
     CollectionEmailEventRequest,
+    CollectionEmailFactExtractionRequest,
     GenerateDraftRequest,
     HistoricalCollectionThreadRequest,
 )
@@ -69,7 +71,9 @@ __all__ = [
     "SentDraftInvoiceCandidate",
     # Validation / Requests
     "ClassifyRequest",
+    "CollectionChainIdentificationRequest",
     "CollectionEmailEventRequest",
+    "CollectionEmailFactExtractionRequest",
     "HistoricalCollectionThreadRequest",
     "GenerateDraftRequest",
     "PROMPT_INJECTION_PATTERNS",

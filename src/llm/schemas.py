@@ -500,6 +500,32 @@ class CollectionEmailEventLLMResponse(BaseModel):
         return normalized
 
 
+class CollectionEmailFactExtractionLLMResponse(BaseModel):
+    """Strict raw-message fact extraction; this does not identify a chain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_assertions: list[str] = Field(default_factory=list, max_length=20)
+    amount_assertions: list[CollectionEmailAmountAssertion] = Field(
+        default_factory=list, max_length=20
+    )
+    date_assertions: list[CollectionEmailDateAssertion] = Field(default_factory=list, max_length=20)
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason_codes: list[str] = Field(default_factory=list, max_length=20)
+
+
+class CollectionChainIdentificationLLMResponse(BaseModel):
+    """Strict relevance decision for a bounded chain event after reconciliation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    collection_status: Literal["collection", "non_collection", "uncertain"]
+    event_effect: Literal["new", "confirmed", "reopened", "closed", "no_change"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason_codes: list[str] = Field(default_factory=list, max_length=20)
+    evidence_message_ordinals: list[int] = Field(default_factory=list, max_length=20)
+
+
 class ChainSelectionTieBreakLLMResponse(BaseModel):
     """Strict response for bounded pre-draft route tie-breaking."""
 

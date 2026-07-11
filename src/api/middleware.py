@@ -15,6 +15,8 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse as StarletteJSONResponse
 
+from src.config.settings import settings
+
 logger = logging.getLogger(__name__)
 
 # Context variable to store request ID for access anywhere in the request lifecycle
@@ -75,6 +77,10 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
             # Add request ID to response headers
             response.headers["X-Request-ID"] = request_id
+            # Capacity class is operational telemetry only. The backend stores
+            # it alongside token/cost telemetry to prove the ECS task that
+            # served an AI call without exposing request content.
+            response.headers["X-AI-Engine-Class"] = settings.ai_engine_class
 
             # Log completed request
             logger.info(

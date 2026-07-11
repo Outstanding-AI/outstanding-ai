@@ -2,7 +2,7 @@
 
 Stateless FastAPI microservice (`title="Outstanding AI Engine"`, `version=0.1.0`, default port **8001**, Python >= 3.12). Called exclusively by the Django backend over HTTP (with circuit breaker). Verified against source.
 
-- Contracts pin: `solvix-contracts==0.12.28` (`pyproject.toml`). Request models extend the contracts case-context bases (`CaseContextV2`, `PartyInfoV3`, `BehaviorInfoV3`, `ObligationInfoV3` + V3 history blocks).
+- Contracts pin: `solvix-contracts==0.12.40` (`pyproject.toml`). Request models extend the contracts case-context bases (`CaseContextV2`, `PartyInfoV3`, `BehaviorInfoV3`, `ObligationInfoV3` + V3 history blocks).
 - Repo-local Pydantic response schemas in the **backend** mirror (`Solvix/services/ai_engine/schemas.py`) are warn-only — they never block.
 
 _Last updated: 2026-06-14._
@@ -36,11 +36,20 @@ Other app-level middleware:
 | GET | `/health` | — | `ShallowHealthResponse` | none | Health |
 | GET | `/health/llm` | — | `HealthResponse` | none (bearer auth required) | Health |
 | POST | `/classify` | `ClassifyRequest` | `ClassifyResponse` | `rate_limit_classify` (100/minute) | Classification |
+| POST | `/extract-collection-email-facts` | `CollectionEmailFactExtractionRequest` | `CollectionEmailFactExtractionResponse` | `rate_limit_classify` | Collection email shadow |
+| POST | `/identify-collection-chain` | `CollectionChainIdentificationRequest` | `CollectionChainIdentificationResponse` | `rate_limit_classify` | Collection email shadow |
 | POST | `/generate-draft` | `GenerateDraftRequest` | `GenerateDraftResponse` | `rate_limit_generate` (100/minute) | Generation |
 | POST | `/generate-draft-from-manifest` | `DraftGenerationHandoff` | `GenerateDraftFromManifestResponse` | `rate_limit_generate` | Generation |
 | POST | `/analyze-sent-draft-scope` | `AnalyzeSentDraftScopeRequest` | `AnalyzeSentDraftScopeResponse` | `rate_limit_classify` | Sent Scope |
 | POST | `/generate-persona` | `GeneratePersonaRequest` | `GeneratePersonaResponse` | `rate_limit_generate` | Persona |
 | POST | `/refine-persona` | `RefinePersonaRequest` | `RefinePersonaResponse` | `rate_limit_generate` | Persona |
+
+Every response also carries the safe `X-AI-Engine-Class` header (`medium`,
+`large`, or `xlarge`). The backend stores requested and served class in the
+sanitized LLM audit metadata alongside provider, tokens, cost, and latency.
+Class-specific backend routing is valid only when each class has a distinct
+service-discovery endpoint; otherwise the backend intentionally uses the
+single medium service.
 
 > Gate evaluation is **not** an AI Engine endpoint. The historical `/evaluate-gates` route + `GateEvaluator` were deleted on 2026-04-26. All 10 compliance gates (G1–G9 + `workflow_hold`) are evaluated in the Django backend (`Solvix/services/gate_checker.py`). A generic `GateResult` model survives in `responses.py` but no gate route exists.
 
@@ -283,6 +292,17 @@ The bidirectional Stage 1B–3B shadow uses prompt template `v2` on the same
 mode. It supplies a single chronological thread containing debtor inbound,
 manual internal outbound, system-generated outbound, and unknown roles. It
 still returns only the three relevance labels and remains downstream-disabled.
+
+The collection-email status foundation adds two bounded event endpoints.
+`/extract-collection-email-facts` extracts asserted invoice references,
+amounts, and due dates from one message plus bounded prior context.  Its output
+is reconciled by the backend/ETL against Sage before it can influence chain
+state. `/identify-collection-chain` receives that event, bounded context, and
+reconciliation outcome codes to decide only `collection`, `non_collection`, or
+`uncertain` and the event effect. Neither endpoint receives debtor policy or
+can choose a recipient, route, or draft. Both are Vertex-primary, use OpenAI
+only for transient provider failures, and return audited token/cost/latency
+telemetry.
 
 The same endpoint accepts `mode=chain_selection_tiebreak` only for a bounded
 Stage 4 tie-break after deterministic candidate eligibility. The response may
