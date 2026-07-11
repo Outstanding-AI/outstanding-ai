@@ -10,9 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from google.api_core.exceptions import ResourceExhausted
+from google.genai.errors import ClientError as VertexClientError
 from pydantic import BaseModel
 
-from src.llm.base import LLMRateLimitedError, LLMResponse
+from src.llm.base import LLMRateLimitedError, LLMResponse, LLMStructuredOutputError
 from src.llm.factory import LLMProviderWithFallback
 from src.llm.vertex_provider import VertexProvider
 
@@ -33,6 +34,26 @@ def _fake_response(*, parsed=None, text="", prompt_tokens=12, completion_tokens=
         usage_metadata=usage_metadata,
         response_id="resp-123",
     )
+
+
+@pytest.mark.asyncio
+async def test_vertex_client_schema_rejection_is_structured_failure(monkeypatch):
+    """A Vertex 4xx must fail closed instead of triggering OpenAI fallback."""
+    monkeypatch.setattr(VertexProvider, "_build_credentials", lambda self: object())
+    generate = AsyncMock(
+        side_effect=VertexClientError(400, {"error": {"status": "INVALID_ARGUMENT"}})
+    )
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate), aclose=AsyncMock())
+    )
+    with patch("src.llm.vertex_provider.Client", return_value=fake_client):
+        provider = VertexProvider()
+        with pytest.raises(LLMStructuredOutputError, match="INVALID_ARGUMENT"):
+            await provider.complete(
+                "sys", "user", response_schema=_Schema, caller="collection_email_event"
+            )
+
+    assert generate.await_count == 1
 
 
 def test_vertex_provider_builds_explicit_wif_credentials(monkeypatch, tmp_path):
@@ -269,6 +290,25 @@ async def test_factory_falls_back_to_openai():
     assert response.is_fallback is True
     assert client.fallback_count == 1
     assert client.get_failure_metrics()["primary_failures_by_caller"] == {"draft_generation": 1}
+
+
+@pytest.mark.asyncio
+async def test_collection_email_schema_failure_does_not_fallback_to_openai():
+    """Schema/configuration failures must fail closed before a second provider sees mail."""
+    with patch("src.llm.factory.VertexProvider") as mock_vertex:
+        with patch("src.llm.factory.OpenAIProvider") as mock_openai:
+            mock_vertex.return_value.complete = AsyncMock(
+                side_effect=LLMStructuredOutputError("invalid response schema")
+            )
+            mock_vertex.return_value.provider_name = "vertex"
+            mock_openai.return_value.complete = AsyncMock()
+            mock_openai.return_value.provider_name = "openai"
+            client = LLMProviderWithFallback(primary_provider="vertex", fallback_provider="openai")
+
+            with pytest.raises(LLMStructuredOutputError, match="invalid response schema"):
+                await client.complete("sys", "user", caller="collection_email_event")
+
+    assert mock_openai.return_value.complete.await_count == 0
 
 
 @pytest.mark.asyncio

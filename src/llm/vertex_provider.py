@@ -11,6 +11,7 @@ from google.api_core.exceptions import InternalServerError, ResourceExhausted, S
 from google.auth import aws as google_auth_aws
 from google.auth import default as google_auth_default
 from google.genai import Client, types
+from google.genai.errors import ClientError as VertexClientError
 from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
@@ -195,6 +196,23 @@ class VertexProvider(BaseLLMProvider):
                 exc_info=True,
             )
             raise LLMProviderUnavailableError(str(exc)) from exc
+        except VertexClientError as exc:
+            # 4xx requests, including unsupported response schemas, are
+            # deterministic request/configuration defects.  They must fail
+            # closed rather than consuming the OpenAI fallback budget.
+            logger.error(
+                "Vertex provider rejected request",
+                extra={
+                    "caller": caller,
+                    "provider": "vertex",
+                    "model": self._model,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "structured": bool(response_schema),
+                },
+                exc_info=True,
+            )
+            raise LLMStructuredOutputError(str(exc)) from exc
         except ValueError as exc:
             logger.error(
                 "Vertex provider returned unusable output",

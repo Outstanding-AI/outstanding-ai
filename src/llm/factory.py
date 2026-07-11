@@ -146,6 +146,18 @@ class LLMProviderWithFallback:
                 exc_info=True,
             )
 
+            if not self._fallback_is_permitted(caller=caller, error=e):
+                logger.error(
+                    "Primary failure is deterministic; fallback is forbidden",
+                    extra={
+                        "caller": caller,
+                        "metric_type": "llm_primary_failed",
+                        "provider": self.primary.provider_name,
+                        "error_type": type(e).__name__,
+                    },
+                )
+                raise
+
             if not self.fallback_enabled:
                 logger.error("No fallback provider configured, raising error")
                 raise
@@ -283,6 +295,21 @@ class LLMProviderWithFallback:
             return None
         timeout = float(settings.llm_sent_scope_provider_timeout_seconds or 0)
         return max(1.0, timeout) if timeout > 0 else None
+
+    @staticmethod
+    def _fallback_is_permitted(*, caller: str, error: Exception) -> bool:
+        """Keep email-semantic fallback strictly to transient provider faults.
+
+        A malformed response schema or invalid structured output is a release
+        defect, not a reason to ask a second provider to process customer mail.
+        Existing callers retain their historical fallback semantics.
+        """
+        if caller not in {"collection_email_event", "historical_collection_thread"}:
+            return True
+        return isinstance(
+            error,
+            (LLMRateLimitedError, LLMProviderUnavailableError, asyncio.TimeoutError),
+        )
 
     def _raise_if_cooling_down(self, provider: str, caller: str) -> None:
         until = self._cooldowns.get(self._cooldown_key(provider, caller))

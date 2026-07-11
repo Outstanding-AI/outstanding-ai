@@ -6,6 +6,18 @@ import pytest
 from src.api.models.requests import CollectionEmailEventRequest
 from src.engine.collection_email_event_classifier import CollectionEmailEventClassifier
 from src.llm.base import LLMResponse
+from src.llm.schemas import CollectionEmailEventLLMResponse
+
+
+def test_collection_email_event_schema_is_strict_and_provider_compatible():
+    """Do not reintroduce open-ended ``dict`` items into provider schemas."""
+    schema = CollectionEmailEventLLMResponse.model_json_schema()
+    amount_ref = schema["properties"]["amount_assertions"]["items"]["$ref"]
+    date_ref = schema["properties"]["date_assertions"]["items"]["$ref"]
+
+    assert schema["additionalProperties"] is False
+    assert schema["$defs"][amount_ref.rsplit("/", 1)[-1]]["additionalProperties"] is False
+    assert schema["$defs"][date_ref.rsplit("/", 1)[-1]]["additionalProperties"] is False
 
 
 @pytest.mark.asyncio
@@ -22,8 +34,21 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
                     "semantic_classification": "PROMISE_TO_PAY",
                     "secondary_intents": [],
                     "invoice_assertions": ["INV-1"],
-                    "amount_assertions": [],
-                    "date_assertions": [],
+                    "amount_assertions": [
+                        {
+                            "invoice_ref": "INV-1",
+                            "amount": 100.0,
+                            "currency": "GBP",
+                            "assertion_type": "promised_payment",
+                        }
+                    ],
+                    "date_assertions": [
+                        {
+                            "invoice_ref": "INV-1",
+                            "date_value": "2026-07-15",
+                            "assertion_type": "promise_date",
+                        }
+                    ],
                     "reason_codes": ["debtor_payment_commitment"],
                     "confidence": 0.91,
                 }
@@ -42,3 +67,11 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
 
     assert result.semantic_classification == "PROMISE_TO_PAY"
     assert result.lifecycle_status == "pending_financial_confirmation"
+    assert result.amount_assertions == [
+        {
+            "invoice_ref": "INV-1",
+            "amount": 100.0,
+            "currency": "GBP",
+            "assertion_type": "promised_payment",
+        }
+    ]

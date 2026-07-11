@@ -20,7 +20,7 @@ from src.llm.schemas import CollectionEmailEventLLMResponse
 from .audit import build_ai_audit
 
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v1"
+PROMPT_TEMPLATE_VERSION = "v2"
 
 _SYSTEM_PROMPT = """You classify one accounts-receivable email-chain event.
 Decide only collection relevance, email lifecycle, and debtor-response facts.
@@ -71,8 +71,10 @@ class CollectionEmailEventClassifier:
             semantic_classification=parsed.semantic_classification,
             secondary_intents=parsed.secondary_intents,
             invoice_assertions=parsed.invoice_assertions,
-            amount_assertions=parsed.amount_assertions,
-            date_assertions=parsed.date_assertions,
+            amount_assertions=[
+                item.model_dump(exclude_none=True) for item in parsed.amount_assertions
+            ],
+            date_assertions=[item.model_dump(exclude_none=True) for item in parsed.date_assertions],
             reason_codes=parsed.reason_codes,
             confidence=parsed.confidence,
             tokens_used=response.usage.get("total_tokens", 0),

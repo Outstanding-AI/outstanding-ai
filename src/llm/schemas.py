@@ -424,6 +424,45 @@ class HistoricalCollectionThreadLLMResponse(BaseModel):
         return [item.model_dump(exclude_none=True) for item in self.intent_details]
 
 
+class CollectionEmailAmountAssertion(BaseModel):
+    """One bounded monetary claim extracted from an email event.
+
+    ``dict[str, object]`` produced an open-ended JSON schema.  Neither Vertex
+    nor OpenAI can serve that safely as a strict response schema, so the
+    assertion deliberately exposes only the fields Stage 4 can reconcile.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_ref: Optional[str] = Field(default=None, max_length=80)
+    amount: Optional[float] = None
+    currency: Optional[str] = Field(default=None, max_length=8)
+    assertion_type: Literal[
+        "claimed_paid",
+        "claimed_due",
+        "promised_payment",
+        "disputed_amount",
+        "remittance_amount",
+        "unknown",
+    ] = "unknown"
+
+
+class CollectionEmailDateAssertion(BaseModel):
+    """One bounded date claim extracted from an email event."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_ref: Optional[str] = Field(default=None, max_length=80)
+    date_value: Optional[str] = Field(default=None, max_length=40)
+    assertion_type: Literal[
+        "promise_date",
+        "payment_date",
+        "due_date",
+        "remittance_date",
+        "other",
+    ] = "other"
+
+
 class CollectionEmailEventLLMResponse(BaseModel):
     """Strict, email-native semantic output for one collection-chain event."""
 
@@ -441,8 +480,10 @@ class CollectionEmailEventLLMResponse(BaseModel):
     semantic_classification: Optional[str] = Field(default=None, max_length=80)
     secondary_intents: list[str] = Field(default_factory=list, max_length=12)
     invoice_assertions: list[str] = Field(default_factory=list, max_length=20)
-    amount_assertions: list[dict[str, object]] = Field(default_factory=list, max_length=20)
-    date_assertions: list[dict[str, object]] = Field(default_factory=list, max_length=20)
+    amount_assertions: list[CollectionEmailAmountAssertion] = Field(
+        default_factory=list, max_length=20
+    )
+    date_assertions: list[CollectionEmailDateAssertion] = Field(default_factory=list, max_length=20)
     reason_codes: list[str] = Field(default_factory=list, max_length=20)
     confidence: float = Field(ge=0.0, le=1.0)
 
