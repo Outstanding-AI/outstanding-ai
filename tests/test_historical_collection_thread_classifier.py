@@ -63,6 +63,40 @@ def test_historical_collection_routes_vertex_primary_with_openai_fallback():
 
 
 @pytest.mark.asyncio
+async def test_bidirectional_relevance_uses_v2_prompt_and_role_contract():
+    request = HistoricalCollectionThreadRequest(
+        mode="thread_collection_relevance",
+        prior_messages_summary=[
+            {
+                "ordinal": 1,
+                "direction": "outbound",
+                "role": "system_generated_outbound",
+                "body": "Reminder",
+            },
+            {"ordinal": 2, "direction": "inbound", "role": "debtor_inbound", "body": "We will pay"},
+        ],
+        guardrails={"bidirectional_shadow": True},
+    )
+    with patch(
+        "src.engine.historical_collection_thread_classifier.historical_llm_client.complete",
+        new_callable=AsyncMock,
+    ) as mock_complete:
+        mock_complete.return_value = _llm_response(
+            {
+                "relevance_label": "collection_related",
+                "confidence": 0.9,
+                "signal_codes": ["authored_collection_activity"],
+                "reason": "Outbound reminder followed by debtor response.",
+                "evidence_message_ordinals": [1, 2],
+            }
+        )
+        result = await HistoricalCollectionThreadClassifier().classify(request)
+    assert result.relevance_label == "collection_related"
+    assert result.ai_audit.prompt_template_version == "v2"
+    assert "debtor_inbound" in mock_complete.call_args.kwargs["user_prompt"]
+
+
+@pytest.mark.asyncio
 async def test_message_protocol_classifies_reply_response_not_escalation():
     request = HistoricalCollectionThreadRequest(
         mode="message_protocol",

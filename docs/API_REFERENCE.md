@@ -279,6 +279,10 @@ The `/classify-historical-collection-thread` endpoint accepts
 returns only `collection_related`, `non_collection`, or `uncertain` relevance
 evidence; it does not classify promises, disputes, remittances, or create
 draft/routing decisions.
+The bidirectional Stage 1B–3B shadow uses prompt template `v2` on the same
+mode. It supplies a single chronological thread containing debtor inbound,
+manual internal outbound, system-generated outbound, and unknown roles. It
+still returns only the three relevance labels and remains downstream-disabled.
 
 The same endpoint accepts `mode=chain_selection_tiebreak` only for a bounded
 Stage 4 tie-break after deterministic candidate eligibility. The response may

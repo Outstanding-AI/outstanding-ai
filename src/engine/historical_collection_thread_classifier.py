@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "historical_collection_thread"
 PROMPT_TEMPLATE_VERSION = "v1"
+BIDIRECTIONAL_PROMPT_TEMPLATE_VERSION = "v2"
 
 
 historical_llm_client = LLMProviderWithFallback()
@@ -40,6 +41,12 @@ overdue/payment follow-up, or a debtor response to that collection purpose. Invo
 statement mentions alone are insufficient. Ignore quoted or forwarded text as authored
 intent. Auto-replies, bounces, internal-only traffic, supplier/unrelated traffic, generic
 acknowledgements, and insufficient or mixed evidence must be non_collection or uncertain.
+When bidirectional_shadow is true, treat inbound messages from the debtor as role
+``debtor_inbound``, manual internal outbound messages as ``internal_manual_outbound``,
+messages correlated to an Outstanding AI draft as ``system_generated_outbound``, and
+unresolvable messages as ``unknown``. Use both directions chronologically; an outbound
+message is authored collection activity only when its role and content support that
+purpose. Never infer authorship from quoted text.
 Do not classify promises, disputes, remittances, insolvency, commitments, recipients, drafts,
 chase policy, or active-thread selection in this mode. Current Sage status is context only and
 does not prove historical collection purpose.
@@ -80,6 +87,12 @@ class HistoricalCollectionThreadClassifier:
                 payload=json.dumps(prompt_input, ensure_ascii=True, sort_keys=True, default=str),
             )
             response_schema = HistoricalCollectionThreadLLMResponse
+        prompt_version = (
+            BIDIRECTIONAL_PROMPT_TEMPLATE_VERSION
+            if request.mode == "thread_collection_relevance"
+            and bool((request.guardrails or {}).get("bidirectional_shadow"))
+            else PROMPT_TEMPLATE_VERSION
+        )
         response = await historical_llm_client.complete(
             system_prompt=SYSTEM_PROMPT,
             user_prompt=user_prompt,
@@ -121,7 +134,7 @@ class HistoricalCollectionThreadClassifier:
                 ai_audit=build_ai_audit(
                     response=response,
                     prompt_template_id="chain_selection_tiebreak",
-                    prompt_template_version=PROMPT_TEMPLATE_VERSION,
+                    prompt_template_version=prompt_version,
                     system_prompt=SYSTEM_PROMPT,
                     user_prompt=user_prompt,
                     prompt_input=prompt_input,
@@ -181,7 +194,7 @@ class HistoricalCollectionThreadClassifier:
                     if request.mode == "thread_collection_relevance"
                     else PROMPT_TEMPLATE_ID
                 ),
-                prompt_template_version=PROMPT_TEMPLATE_VERSION,
+                prompt_template_version=prompt_version,
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 prompt_input=prompt_input,
