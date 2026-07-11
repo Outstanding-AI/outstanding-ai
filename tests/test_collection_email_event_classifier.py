@@ -3,8 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.api.errors import LLMResponseInvalidError
 from src.api.models.requests import CollectionEmailEventRequest
-from src.engine.collection_email_event_classifier import CollectionEmailEventClassifier
+from src.engine.collection_email_event_classifier import (
+    _SYSTEM_PROMPT,
+    CollectionEmailEventClassifier,
+)
 from src.llm.base import LLMResponse
 from src.llm.schemas import CollectionEmailEventLLMResponse
 
@@ -28,6 +32,43 @@ def test_collection_email_event_schema_rejects_unrecognised_output_fields():
             confidence=0.9,
             unexpected_provider_field="must_fail_closed",
         )
+
+
+@pytest.mark.asyncio
+async def test_collection_email_event_invalid_json_reports_only_sanitized_locations():
+    classifier = CollectionEmailEventClassifier()
+    classifier._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "relevance_status": "collection",
+                    "lifecycle_status": "not_a_lifecycle",
+                    "confidence": 0.9,
+                }
+            ),
+            provider="vertex",
+            model="gemini-2.5-flash",
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        )
+    )
+
+    with pytest.raises(LLMResponseInvalidError) as raised:
+        await classifier.classify(
+            CollectionEmailEventRequest(
+                mode="initial_chain",
+                current_message={"body": "synthetic body must not appear in error details"},
+            )
+        )
+
+    assert raised.value.details == {
+        "mode": "initial_chain",
+        "validation_errors": [
+            {"location": "lifecycle_status", "type": "literal_error"},
+        ],
+    }
+    assert "synthetic body" not in json.dumps(raised.value.details)
+    assert "date_value" in _SYSTEM_PROMPT
+    assert "pending_financial_confirmation" in _SYSTEM_PROMPT
 
 
 @pytest.mark.asyncio

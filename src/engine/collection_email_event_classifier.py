@@ -7,6 +7,7 @@ classifies one chronological event and a bounded set of prior email evidence.
 from __future__ import annotations
 
 import json
+import logging
 
 from pydantic import ValidationError
 
@@ -19,8 +20,10 @@ from src.llm.schemas import CollectionEmailEventLLMResponse
 
 from .audit import build_ai_audit
 
+logger = logging.getLogger(__name__)
+
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v3"
+PROMPT_TEMPLATE_VERSION = "v4"
 
 _SYSTEM_PROMPT = """You classify one accounts-receivable email-chain event.
 Decide only collection relevance, email lifecycle, and debtor-response facts.
@@ -34,10 +37,28 @@ REMITTANCE_ADVICE, ALREADY_PAID, or UNCLEAR).
 For a known collection chain, preserve collection relevance unless this event
 explicitly closes or reopens the email conversation. A debtor payment or
 promise claim is pending_financial_confirmation, never proof of payment.
-Return a JSON object only, with exactly these keys: relevance_status,
-lifecycle_status, semantic_classification, secondary_intents,
-invoice_assertions, amount_assertions, date_assertions, reason_codes, and
-confidence.  Do not add keys or prose outside that JSON object."""
+Return a JSON object only, with exactly these keys and types:
+{
+  "relevance_status": "collection" | "non_collection" | "uncertain",
+  "lifecycle_status": "active" | "awaiting_debtor_response" |
+      "pending_financial_confirmation" | "closed_by_email" | "uncertain" |
+      "not_applicable",
+  "semantic_classification": an existing uppercase debtor-response taxonomy
+      value or null,
+  "secondary_intents": [uppercase taxonomy values],
+  "invoice_assertions": ["invoice reference"],
+  "amount_assertions": [{"invoice_ref": string-or-null, "amount":
+      number-or-null, "currency": string-or-null, "assertion_type":
+      "claimed_paid" | "claimed_due" | "promised_payment" |
+      "disputed_amount" | "remittance_amount" | "unknown"}],
+  "date_assertions": [{"invoice_ref": string-or-null, "date_value":
+      string-or-null, "assertion_type": "promise_date" | "payment_date" |
+      "due_date" | "remittance_date" | "other"}],
+  "reason_codes": ["controlled_snake_case_code"],
+  "confidence": number from 0 through 1
+}
+Use [] or null when a field has no evidence. Do not add keys or prose outside
+that JSON object."""
 
 _USER_PROMPT = """Mode: {mode}\n\nEmail event evidence:\n{payload}"""
 
@@ -68,9 +89,28 @@ class CollectionEmailEventClassifier:
         try:
             parsed = CollectionEmailEventLLMResponse(**json.loads(response.content))
         except (ValidationError, ValueError, TypeError) as exc:
+            validation_errors = []
+            if isinstance(exc, ValidationError):
+                validation_errors = [
+                    {
+                        "location": ".".join(str(part) for part in error.get("loc", ())),
+                        "type": str(error.get("type") or "validation_error"),
+                    }
+                    for error in exc.errors()[:8]
+                ]
+            # Keep diagnostics useful without recording model output, prompt
+            # text, or customer content in application logs or API errors.
+            logger.warning(
+                "Collection-email event response failed strict validation",
+                extra={
+                    "mode": request.mode,
+                    "validation_errors": validation_errors,
+                    "error_type": type(exc).__name__,
+                },
+            )
             raise LLMResponseInvalidError(
                 message="LLM returned invalid collection-email event response",
-                details={"mode": request.mode},
+                details={"mode": request.mode, "validation_errors": validation_errors},
             ) from exc
         return CollectionEmailEventResponse(
             relevance_status=parsed.relevance_status,
