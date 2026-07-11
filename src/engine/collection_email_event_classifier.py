@@ -20,7 +20,7 @@ from src.llm.schemas import CollectionEmailEventLLMResponse
 from .audit import build_ai_audit
 
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v2"
+PROMPT_TEMPLATE_VERSION = "v3"
 
 _SYSTEM_PROMPT = """You classify one accounts-receivable email-chain event.
 Decide only collection relevance, email lifecycle, and debtor-response facts.
@@ -34,7 +34,10 @@ REMITTANCE_ADVICE, ALREADY_PAID, or UNCLEAR).
 For a known collection chain, preserve collection relevance unless this event
 explicitly closes or reopens the email conversation. A debtor payment or
 promise claim is pending_financial_confirmation, never proof of payment.
-Return strict JSON only."""
+Return a JSON object only, with exactly these keys: relevance_status,
+lifecycle_status, semantic_classification, secondary_intents,
+invoice_assertions, amount_assertions, date_assertions, reason_codes, and
+confidence.  Do not add keys or prose outside that JSON object."""
 
 _USER_PROMPT = """Mode: {mode}\n\nEmail event evidence:\n{payload}"""
 
@@ -55,7 +58,11 @@ class CollectionEmailEventClassifier:
             system_prompt=_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=settings.classification_temperature,
-            response_schema=CollectionEmailEventLLMResponse,
+            # Vertex rejects this otherwise-valid nested JSON Schema because
+            # it exceeds its serving-state budget. JSON mode plus strict
+            # Pydantic parsing preserves the contract without sending a
+            # provider-native schema that either provider cannot serve.
+            json_mode=True,
             caller="collection_email_event",
         )
         try:

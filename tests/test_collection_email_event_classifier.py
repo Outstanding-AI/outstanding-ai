@@ -9,8 +9,8 @@ from src.llm.base import LLMResponse
 from src.llm.schemas import CollectionEmailEventLLMResponse
 
 
-def test_collection_email_event_schema_is_strict_and_provider_compatible():
-    """Do not reintroduce open-ended ``dict`` items into provider schemas."""
+def test_collection_email_event_schema_is_strict_for_post_provider_validation():
+    """Do not reintroduce open-ended ``dict`` items into validated output."""
     schema = CollectionEmailEventLLMResponse.model_json_schema()
     amount_ref = schema["properties"]["amount_assertions"]["items"]["$ref"]
     date_ref = schema["properties"]["date_assertions"]["items"]["$ref"]
@@ -18,6 +18,16 @@ def test_collection_email_event_schema_is_strict_and_provider_compatible():
     assert schema["additionalProperties"] is False
     assert schema["$defs"][amount_ref.rsplit("/", 1)[-1]]["additionalProperties"] is False
     assert schema["$defs"][date_ref.rsplit("/", 1)[-1]]["additionalProperties"] is False
+
+
+def test_collection_email_event_schema_rejects_unrecognised_output_fields():
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        CollectionEmailEventLLMResponse(
+            relevance_status="collection",
+            lifecycle_status="active",
+            confidence=0.9,
+            unexpected_provider_field="must_fail_closed",
+        )
 
 
 @pytest.mark.asyncio
@@ -67,6 +77,8 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
 
     assert result.semantic_classification == "PROMISE_TO_PAY"
     assert result.lifecycle_status == "pending_financial_confirmation"
+    assert classifier._client.complete.await_args.kwargs["json_mode"] is True
+    assert "response_schema" not in classifier._client.complete.await_args.kwargs
     assert result.amount_assertions == [
         {
             "invoice_ref": "INV-1",
