@@ -47,7 +47,7 @@ class HistoricalCollectionThreadRequest(BaseModel):
     """Request to classify historical protocol, adjudication, or thread relevance evidence."""
 
     mode: str = Field(
-        pattern="^(message_protocol|debtor_thread_adjudication|thread_collection_relevance)$"
+        pattern="^(message_protocol|debtor_thread_adjudication|thread_collection_relevance|chain_selection_tiebreak)$"
     )
     message: Optional[dict[str, Any]] = None
     prior_messages_summary: Optional[list[dict[str, Any]]] = Field(default_factory=list)

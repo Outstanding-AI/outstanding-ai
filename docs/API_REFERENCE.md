@@ -280,6 +280,13 @@ returns only `collection_related`, `non_collection`, or `uncertain` relevance
 evidence; it does not classify promises, disputes, remittances, or create
 draft/routing decisions.
 
+The same endpoint accepts `mode=chain_selection_tiebreak` only for a bounded
+Stage 4 tie-break after deterministic candidate eligibility. The response may
+select one supplied candidate key or abstain; it cannot invent invoice scope,
+policy, recipients, provider identifiers, or draft content. The call is
+Vertex-primary with OpenAI fallback and its token, cost, latency, provider, and
+prompt hashes are returned through the normal `ai_audit` contract.
+
 - **Primary: Vertex AI** (`gemini-2.5-flash` @ `europe-west2`, temperature 0.3). `google-genai` builds a **new `Client` per call**; credentials via AWS→GCP Workload Identity Federation (ECS task-role supplier) in production, ADC locally. Structured output via `response_schema` + `response_mime_type="application/json"`. Retry: tenacity `stop_after_attempt(LLM_MAX_RETRIES=3)`, `wait_exponential(min=2, max=30)`, on `(InternalServerError, ResourceExhausted, ServiceUnavailable)`.
 - **Fallback: OpenAI** (`gpt-5-mini`, temperature 0.3, LangChain `ChatOpenAI`). Disabled if it equals the primary or `OPENAI_API_KEY` is unset. Same tenacity retry shape. **No application-level max-token cap** is set (`OPENAI_MAX_TOKENS`/`VERTEX_MAX_TOKENS` env vars were removed 2026-04-29).
 - **Anthropic: disabled.** `_create_provider("anthropic")` raises `ValueError` ("disabled until it supports no application-level max token cap"), and the production settings validator rejects `LLM_PROVIDER=anthropic`. `anthropic_provider.py` still exists (defaults `claude-sonnet-4-20250514` / classification `claude-haiku-4-5-20251001`) but is unreachable via the factory.

@@ -243,6 +243,8 @@ class HistoricalCollectionThreadResponse(BaseModel):
     signal_codes: List[str] = []
     evidence_message_ordinals: List[int] = []
     abstention_reason: Optional[str] = None
+    selected_candidate_key: Optional[str] = None
+    selection_action: Optional[str] = None
 
 
 class PersonaResult(BaseModel):

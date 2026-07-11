@@ -198,3 +198,37 @@ async def test_thread_relevance_rejects_message_intent_fields():
         )
         with pytest.raises(Exception, match="message/adjudication fields"):
             await HistoricalCollectionThreadClassifier().classify(request)
+
+
+@pytest.mark.asyncio
+async def test_chain_selection_tiebreak_returns_only_supplied_candidate():
+    request = HistoricalCollectionThreadRequest(
+        mode="chain_selection_tiebreak",
+        candidate_threads=[
+            {
+                "candidate_key": "route-a",
+                "invoice_scope_hash": "scope-a",
+                "evidence_ordinals": [1, 2],
+            },
+            {"candidate_key": "route-b", "invoice_scope_hash": "scope-a", "evidence_ordinals": [3]},
+        ],
+    )
+    with patch(
+        "src.engine.historical_collection_thread_classifier.historical_llm_client.complete",
+        new_callable=AsyncMock,
+    ) as mock_complete:
+        mock_complete.return_value = _llm_response(
+            {
+                "selected_candidate_key": "route-a",
+                "action": "continue_existing_chain",
+                "confidence": 0.88,
+                "reason_codes": ["latest_exact_anchor"],
+                "evidence_message_ordinals": [1, 2],
+                "reason": "The supplied route has the strongest exact continuity evidence.",
+            }
+        )
+        result = await HistoricalCollectionThreadClassifier().classify(request)
+
+    assert result.selected_candidate_key == "route-a"
+    assert result.selection_action == "continue_existing_chain"
+    assert result.tokens_used == 20

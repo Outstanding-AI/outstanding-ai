@@ -424,6 +424,22 @@ class HistoricalCollectionThreadLLMResponse(BaseModel):
         return [item.model_dump(exclude_none=True) for item in self.intent_details]
 
 
+class ChainSelectionTieBreakLLMResponse(BaseModel):
+    """Strict response for bounded pre-draft route tie-breaking."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    selected_candidate_key: Optional[str] = Field(default=None, max_length=160)
+    action: Literal["continue_existing_chain", "new_collection_chain", "abstain_manual_review"] = (
+        "abstain_manual_review"
+    )
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason_codes: list[str] = Field(default_factory=list, max_length=20)
+    evidence_message_ordinals: list[int] = Field(default_factory=list, max_length=50)
+    reason: str = Field(default="", max_length=800)
+    abstention_reason: Optional[str] = Field(default=None, max_length=120)
+
+
 class DraftReasoningResponse(BaseModel):
     """Structured reasoning from the LLM about its draft generation decisions."""
 
