@@ -55,7 +55,7 @@ def test_chain_identifier_contract_is_bounded_and_strict():
 
 
 @pytest.mark.asyncio
-async def test_fact_extractor_uses_the_closed_provider_schema():
+async def test_fact_extractor_uses_json_mode_and_a_closed_post_provider_normalizer():
     from src.engine.collection_email_fact_extractor import CollectionEmailFactExtractor
 
     extractor = CollectionEmailFactExtractor()
@@ -80,15 +80,12 @@ async def test_fact_extractor_uses_the_closed_provider_schema():
         CollectionEmailFactExtractionRequest(current_message={"body": "synthetic"})
     )
 
-    assert (
-        extractor._client.complete.await_args.kwargs["response_schema"]
-        is CollectionEmailFactExtractionLLMResponse
-    )
-    assert "json_mode" not in extractor._client.complete.await_args.kwargs
+    assert extractor._client.complete.await_args.kwargs["json_mode"] is True
+    assert "response_schema" not in extractor._client.complete.await_args.kwargs
 
 
 @pytest.mark.asyncio
-async def test_chain_identifier_uses_the_closed_provider_schema():
+async def test_chain_identifier_uses_json_mode_and_a_closed_post_provider_normalizer():
     from src.engine.collection_chain_identifier import CollectionChainIdentifier
 
     identifier = CollectionChainIdentifier()
@@ -113,8 +110,37 @@ async def test_chain_identifier_uses_the_closed_provider_schema():
         CollectionChainIdentificationRequest(current_message={"body": "synthetic"})
     )
 
-    assert (
-        identifier._client.complete.await_args.kwargs["response_schema"]
-        is CollectionChainIdentificationLLMResponse
+    assert identifier._client.complete.await_args.kwargs["json_mode"] is True
+    assert "response_schema" not in identifier._client.complete.await_args.kwargs
+
+
+def test_fact_normalizer_accepts_only_documented_aliases_and_conservative_defaults():
+    from src.engine.collection_email_fact_extractor import _canonical_fact_response_object
+
+    normalized = _canonical_fact_response_object(
+        json.dumps(
+            {
+                "invoice_refs": ["INV-1"],
+                "amounts": [],
+                "dates": [],
+                "reasons": ["explicit_invoice"],
+            }
+        )
     )
-    assert "json_mode" not in identifier._client.complete.await_args.kwargs
+
+    assert normalized["invoice_assertions"] == ["INV-1"]
+    assert normalized["confidence"] == 0.0
+    with pytest.raises(ValueError, match="unknown_fields"):
+        _canonical_fact_response_object(json.dumps({"summary": "not an allowed fact field"}))
+
+
+def test_chain_normalizer_abstains_when_the_lifecycle_effect_is_missing():
+    from src.engine.collection_chain_identifier import _canonical_chain_response_object
+
+    normalized = _canonical_chain_response_object(
+        json.dumps({"relevance_label": "collection_related", "reason_codes": []})
+    )
+
+    assert normalized["collection_status"] == "uncertain"
+    assert normalized["event_effect"] == "no_change"
+    assert "missing_event_effect_abstention" in normalized["reason_codes"]

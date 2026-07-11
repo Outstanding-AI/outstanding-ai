@@ -21,7 +21,54 @@ PROMPT_TEMPLATE_VERSION = "v2"
 _SYSTEM_PROMPT = """Decide only whether a bounded email-chain event establishes, confirms, reopens, closes, or leaves uncertain a collection-related chain.
 Use the current message, exact/bounded prior email context, extracted email facts, and reconciled scope outcome codes. Reconciled outcomes are facts about matching, not proof of collection relevance. Ignore quoted or forwarded text as authored intent.
 Do not classify debtor promises/disputes/remittances, do not decide Sage truth, policy, recipients, routing, or drafting.
-Return only strict JSON with collection_status, event_effect, confidence, reason_codes, and evidence_message_ordinals."""
+Return only strict JSON with collection_status, event_effect, confidence, reason_codes, and evidence_message_ordinals.
+Always include all five keys. If insufficient email evidence exists, return:
+{"collection_status":"uncertain","event_effect":"no_change","confidence":0.0,"reason_codes":["insufficient_email_evidence"],"evidence_message_ordinals":[]}
+collection_status is collection, non_collection, or uncertain. event_effect is
+new, confirmed, reopened, closed, or no_change. evidence_message_ordinals is a
+list of the bounded-context message ordinals only.
+Do not add prose or any other key."""
+
+_CHAIN_KEYS = {
+    "collection_status",
+    "relevance_label",
+    "event_effect",
+    "confidence",
+    "reason_codes",
+    "evidence_message_ordinals",
+}
+
+
+def _canonical_chain_response_object(content: object) -> dict:
+    """Fail closed while adapting the documented historical relevance aliases."""
+
+    raw = _parse_response_object(content)
+    if set(raw) - _CHAIN_KEYS:
+        raise ValueError("collection_chain_identifier_unknown_fields")
+    status = raw.get("collection_status", raw.get("relevance_label"))
+    status = {
+        "collection_related": "collection",
+        "non_collection": "non_collection",
+        "uncertain": "uncertain",
+    }.get(status, status)
+    effect = raw.get("event_effect")
+    reasons = raw.get("reason_codes") or []
+    if not isinstance(reasons, list):
+        raise ValueError("collection_chain_identifier_reason_codes_must_be_list")
+    ordinals = raw.get("evidence_message_ordinals") or []
+    if not isinstance(ordinals, list):
+        raise ValueError("collection_chain_identifier_ordinals_must_be_list")
+    if effect is None:
+        # Missing lifecycle effect must never activate or close a chain.
+        status, effect = "uncertain", "no_change"
+        reasons = [*reasons, "missing_event_effect_abstention"]
+    return {
+        "collection_status": status,
+        "event_effect": effect,
+        "confidence": raw.get("confidence", 0.0),
+        "reason_codes": reasons,
+        "evidence_message_ordinals": ordinals,
+    }
 
 
 class CollectionChainIdentifier:
@@ -39,15 +86,14 @@ class CollectionChainIdentifier:
             system_prompt=_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=settings.classification_temperature,
-            # The identifier response is deliberately small and closed, so it
-            # can use provider-native structured output without exposing the
-            # broader event-classifier schema to Vertex.
-            response_schema=CollectionChainIdentificationLLMResponse,
+            # Keep this aligned with fact extraction: Vertex may reject even
+            # bounded nested schemas under its serving-state limit.
+            json_mode=True,
             caller="collection_chain_identifier",
         )
         try:
             parsed = CollectionChainIdentificationLLMResponse(
-                **_parse_response_object(response.content)
+                **_canonical_chain_response_object(response.content)
             )
         except (ValidationError, ValueError, TypeError) as exc:
             raise LLMResponseInvalidError(
