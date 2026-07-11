@@ -14,7 +14,7 @@ from src.llm.factory import LLMProviderWithFallback
 from src.llm.schemas import CollectionEmailFactExtractionLLMResponse
 
 from .audit import build_ai_audit
-from .collection_email_event_classifier import _parse_response_object
+from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "collection_email_fact_extraction"
 PROMPT_TEMPLATE_VERSION = "v2"
@@ -43,7 +43,11 @@ class CollectionEmailFactExtractor:
             system_prompt=_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=settings.classification_temperature,
-            json_mode=True,
+            # This is intentionally a small, closed provider schema.  Unlike
+            # the richer event response it stays inside Vertex's supported
+            # structured-output budget and prevents generic JSON from reaching
+            # the post-provider parser in an invalid shape.
+            response_schema=CollectionEmailFactExtractionLLMResponse,
             caller="collection_email_fact_extraction",
         )
         try:
@@ -53,7 +57,10 @@ class CollectionEmailFactExtractor:
         except (ValidationError, ValueError, TypeError) as exc:
             raise LLMResponseInvalidError(
                 message="LLM returned invalid collection-email fact response",
-                details={"operation": "collection_email_fact_extraction"},
+                details={
+                    "operation": "collection_email_fact_extraction",
+                    "telemetry": _invalid_response_telemetry(response),
+                },
             ) from exc
         return CollectionEmailFactExtractionResponse(
             invoice_assertions=parsed.invoice_assertions,

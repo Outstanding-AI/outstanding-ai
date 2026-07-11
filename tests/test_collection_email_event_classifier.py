@@ -76,11 +76,17 @@ async def test_collection_email_event_invalid_json_reports_only_sanitized_locati
             )
         )
 
-    assert raised.value.details == {
-        "mode": "initial_chain",
-        "validation_errors": [
-            {"location": "lifecycle_status", "type": "literal_error"},
-        ],
+    assert raised.value.details["mode"] == "initial_chain"
+    assert raised.value.details["validation_errors"] == [
+        {"location": "lifecycle_status", "type": "literal_error"},
+    ]
+    assert raised.value.details["telemetry"] == {
+        "provider": "vertex",
+        "model": "gemini-2.5-flash",
+        "is_fallback": False,
+        "tokens_used": 15,
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
     }
     assert "synthetic body" not in json.dumps(raised.value.details)
     assert "date_value" in _SYSTEM_PROMPT

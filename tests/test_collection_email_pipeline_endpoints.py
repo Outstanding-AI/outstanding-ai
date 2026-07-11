@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
+from unittest.mock import AsyncMock
+
 import pytest
 
 from src.api.models.requests import (
     CollectionChainIdentificationRequest,
     CollectionEmailFactExtractionRequest,
 )
+from src.llm.base import LLMResponse
 from src.llm.schemas import (
     CollectionChainIdentificationLLMResponse,
     CollectionEmailFactExtractionLLMResponse,
@@ -48,3 +52,69 @@ def test_chain_identifier_contract_is_bounded_and_strict():
             event_effect="route_to_this_thread",
             confidence=0.9,
         )
+
+
+@pytest.mark.asyncio
+async def test_fact_extractor_uses_the_closed_provider_schema():
+    from src.engine.collection_email_fact_extractor import CollectionEmailFactExtractor
+
+    extractor = CollectionEmailFactExtractor()
+    extractor._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "invoice_assertions": [],
+                    "amount_assertions": [],
+                    "date_assertions": [],
+                    "confidence": 0.0,
+                    "reason_codes": ["no_explicit_invoice_fact"],
+                }
+            ),
+            provider="vertex",
+            model="gemini-2.5-flash",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+    )
+
+    await extractor.extract(
+        CollectionEmailFactExtractionRequest(current_message={"body": "synthetic"})
+    )
+
+    assert (
+        extractor._client.complete.await_args.kwargs["response_schema"]
+        is CollectionEmailFactExtractionLLMResponse
+    )
+    assert "json_mode" not in extractor._client.complete.await_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_chain_identifier_uses_the_closed_provider_schema():
+    from src.engine.collection_chain_identifier import CollectionChainIdentifier
+
+    identifier = CollectionChainIdentifier()
+    identifier._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "collection_status": "uncertain",
+                    "event_effect": "no_change",
+                    "confidence": 0.0,
+                    "reason_codes": ["insufficient_email_evidence"],
+                    "evidence_message_ordinals": [],
+                }
+            ),
+            provider="vertex",
+            model="gemini-2.5-flash",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+    )
+
+    await identifier.identify(
+        CollectionChainIdentificationRequest(current_message={"body": "synthetic"})
+    )
+
+    assert (
+        identifier._client.complete.await_args.kwargs["response_schema"]
+        is CollectionChainIdentificationLLMResponse
+    )
+    assert "json_mode" not in identifier._client.complete.await_args.kwargs

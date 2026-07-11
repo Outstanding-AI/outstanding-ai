@@ -14,7 +14,7 @@ from src.llm.factory import LLMProviderWithFallback
 from src.llm.schemas import CollectionChainIdentificationLLMResponse
 
 from .audit import build_ai_audit
-from .collection_email_event_classifier import _parse_response_object
+from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "collection_chain_identifier"
 PROMPT_TEMPLATE_VERSION = "v2"
@@ -39,7 +39,10 @@ class CollectionChainIdentifier:
             system_prompt=_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=settings.classification_temperature,
-            json_mode=True,
+            # The identifier response is deliberately small and closed, so it
+            # can use provider-native structured output without exposing the
+            # broader event-classifier schema to Vertex.
+            response_schema=CollectionChainIdentificationLLMResponse,
             caller="collection_chain_identifier",
         )
         try:
@@ -49,7 +52,10 @@ class CollectionChainIdentifier:
         except (ValidationError, ValueError, TypeError) as exc:
             raise LLMResponseInvalidError(
                 message="LLM returned invalid collection-chain identifier response",
-                details={"operation": "collection_chain_identifier"},
+                details={
+                    "operation": "collection_chain_identifier",
+                    "telemetry": _invalid_response_telemetry(response),
+                },
             ) from exc
         return CollectionChainIdentificationResponse(
             collection_status=parsed.collection_status,

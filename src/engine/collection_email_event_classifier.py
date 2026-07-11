@@ -92,6 +92,25 @@ def _parse_response_object(content: str) -> dict:
     return parsed
 
 
+def _invalid_response_telemetry(response) -> dict[str, object]:
+    """Keep billable model telemetry when strict output parsing fails.
+
+    No model text, prompts, addresses, or request payloads are included. The
+    backend uses this safe envelope to settle the reserved budget and write a
+    failed LLM audit row instead of recording paid invalid output as zero cost.
+    """
+
+    usage = response.usage if isinstance(getattr(response, "usage", None), dict) else {}
+    return {
+        "provider": str(getattr(response, "provider", "unknown") or "unknown"),
+        "model": str(getattr(response, "model", "unknown") or "unknown"),
+        "is_fallback": bool(getattr(response, "is_fallback", False)),
+        "tokens_used": int(usage.get("total_tokens") or 0),
+        "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+        "completion_tokens": int(usage.get("completion_tokens") or 0),
+    }
+
+
 class CollectionEmailEventClassifier:
     def __init__(self) -> None:
         self._client = LLMProviderWithFallback(
@@ -141,7 +160,11 @@ class CollectionEmailEventClassifier:
             )
             raise LLMResponseInvalidError(
                 message="LLM returned invalid collection-email event response",
-                details={"mode": request.mode, "validation_errors": validation_errors},
+                details={
+                    "mode": request.mode,
+                    "validation_errors": validation_errors,
+                    "telemetry": _invalid_response_telemetry(response),
+                },
             ) from exc
         return CollectionEmailEventResponse(
             relevance_status=parsed.relevance_status,
