@@ -17,7 +17,7 @@ from .audit import build_ai_audit
 from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "collection_email_fact_extraction"
-PROMPT_TEMPLATE_VERSION = "v2"
+PROMPT_TEMPLATE_VERSION = "v3"
 _SYSTEM_PROMPT = """Extract only invoice references, monetary assertions, and date assertions from one email event.
 Use the current message and bounded prior context only to resolve references. Ignore quoted/forwarded text as authored intent.
 Do not decide whether the chain is collection-related, do not classify a debtor response, and do not infer Sage truth, policy,
@@ -30,7 +30,8 @@ the deterministic reconciler can abstain or use its unique combined fallback.
 Always include all five keys. When the authored message contains no asserted
 invoice, amount, or date, return exactly this shape:
 {"invoice_assertions":[],"amount_assertions":[],"date_assertions":[],"confidence":0.0,"reason_codes":["no_explicit_fact"]}
-Each amount_assertions item has only invoice_ref (string or null), amount
+invoice_assertions is a list of invoice-reference strings only. Each
+amount_assertions item has only invoice_ref (string or null), amount
 (number or null), currency (string or null), and assertion_type
 (claimed_paid, claimed_due, promised_payment, disputed_amount,
 remittance_amount, or unknown). Each date_assertions item has only invoice_ref
