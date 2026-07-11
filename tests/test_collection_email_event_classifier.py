@@ -24,6 +24,22 @@ def test_collection_email_event_schema_is_strict_for_post_provider_validation():
     assert schema["$defs"][date_ref.rsplit("/", 1)[-1]]["additionalProperties"] is False
 
 
+def test_collection_email_event_reuses_per_intent_debtor_response_scope():
+    parsed = CollectionEmailEventLLMResponse(
+        relevance_status="collection",
+        lifecycle_status="pending_financial_confirmation",
+        semantic_classification="ALREADY_PAID",
+        secondary_intents=["PROMISE_TO_PAY"],
+        intent_details=[
+            {"intent": "ALREADY_PAID", "extracted_data": {"invoice_refs": ["INV-A"]}},
+            {"intent": "PROMISE_TO_PAY", "extracted_data": {"invoice_refs": ["INV-B"]}},
+        ],
+        confidence=0.9,
+    )
+    assert parsed.intent_details[0].extracted_data.invoice_refs == ["INV-A"]
+    assert parsed.intent_details[1].extracted_data.invoice_refs == ["INV-B"]
+
+
 def test_collection_email_event_schema_rejects_unrecognised_output_fields():
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         CollectionEmailEventLLMResponse(
@@ -106,6 +122,16 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
                     "lifecycle_status": "pending_financial_confirmation",
                     "semantic_classification": "PROMISE_TO_PAY",
                     "secondary_intents": [],
+                    "intent_details": [
+                        {
+                            "intent": "PROMISE_TO_PAY",
+                            "extracted_data": {
+                                "invoice_refs": ["INV-1"],
+                                "promise_amount": 100.0,
+                                "promise_date": "2026-07-15",
+                            },
+                        }
+                    ],
                     "invoice_assertions": ["INV-1"],
                     "amount_assertions": [
                         {
@@ -140,6 +166,7 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
 
     assert result.semantic_classification == "PROMISE_TO_PAY"
     assert result.lifecycle_status == "pending_financial_confirmation"
+    assert result.intent_details[0].extracted_data.invoice_refs == ["INV-1"]
     assert classifier._client.complete.await_args.kwargs["json_mode"] is True
     assert "response_schema" not in classifier._client.complete.await_args.kwargs
     assert result.amount_assertions == [

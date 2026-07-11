@@ -479,6 +479,7 @@ class CollectionEmailEventLLMResponse(BaseModel):
     ]
     semantic_classification: Optional[str] = Field(default=None, max_length=80)
     secondary_intents: list[str] = Field(default_factory=list, max_length=12)
+    intent_details: list[IntentDetailLLM] = Field(default_factory=list, max_length=12)
     invoice_assertions: list[str] = Field(default_factory=list, max_length=20)
     amount_assertions: list[CollectionEmailAmountAssertion] = Field(
         default_factory=list, max_length=20
@@ -498,6 +499,26 @@ class CollectionEmailEventLLMResponse(BaseModel):
                 "semantic_classification must use the existing debtor-response taxonomy"
             )
         return normalized
+
+    @model_validator(mode="after")
+    def validate_collection_intent_details(self) -> "CollectionEmailEventLLMResponse":
+        if not self.intent_details:
+            return self
+        if not self.semantic_classification:
+            raise ValueError("intent_details require semantic_classification")
+        primary = str(self.semantic_classification).upper()
+        if str(self.intent_details[0].intent).upper() != primary:
+            raise ValueError("intent_details[0].intent must match semantic_classification")
+        expected = [primary, *(str(value).upper() for value in self.secondary_intents)]
+        actual = [str(detail.intent).upper() for detail in self.intent_details]
+        if actual != expected:
+            raise ValueError("intent_details must align with primary and secondary intents")
+        for detail in self.intent_details:
+            normalized = str(detail.intent).upper()
+            if normalized not in CLASSIFICATION_CATEGORIES:
+                raise ValueError("intent_details must use debtor-response taxonomy")
+            detail.intent = normalized
+        return self
 
 
 class CollectionEmailFactExtractionLLMResponse(BaseModel):

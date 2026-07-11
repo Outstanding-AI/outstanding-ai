@@ -17,12 +17,15 @@ from .audit import build_ai_audit
 from .collection_email_event_classifier import _parse_response_object
 
 PROMPT_TEMPLATE_ID = "collection_email_fact_extraction"
-PROMPT_TEMPLATE_VERSION = "v1"
+PROMPT_TEMPLATE_VERSION = "v2"
 _SYSTEM_PROMPT = """Extract only invoice references, monetary assertions, and date assertions from one email event.
 Use the current message and bounded prior context only to resolve references. Ignore quoted/forwarded text as authored intent.
 Do not decide whether the chain is collection-related, do not classify a debtor response, and do not infer Sage truth, policy,
 recipients, a route, or a draft. Return only strict JSON with keys invoice_assertions, amount_assertions, date_assertions,
-confidence, and reason_codes."""
+confidence, and reason_codes. Bind amount and due-date assertions to an
+invoice_ref only when the authored text supports that relationship. Never
+invent a pairing. Preserve unbound amount-only and due-date-only assertions so
+the deterministic reconciler can abstain or use its unique combined fallback."""
 
 
 class CollectionEmailFactExtractor:

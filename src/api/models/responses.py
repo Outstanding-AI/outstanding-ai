@@ -252,6 +252,7 @@ class CollectionEmailEventResponse(BaseModel):
     lifecycle_status: str
     semantic_classification: Optional[str] = None
     secondary_intents: List[str] = []
+    intent_details: List[IntentDetail] = []
     invoice_assertions: List[str] = []
     amount_assertions: List[dict] = []
     date_assertions: List[dict] = []

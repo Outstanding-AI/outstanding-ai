@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from src.api.errors import LLMResponseInvalidError
 from src.api.models.requests import CollectionEmailEventRequest
 from src.api.models.responses import CollectionEmailEventResponse
+from src.config.constants import CLASSIFICATION_CATEGORIES
 from src.config.settings import settings
 from src.llm.factory import LLMProviderWithFallback
 from src.llm.schemas import CollectionEmailEventLLMResponse
@@ -23,16 +24,21 @@ from .audit import build_ai_audit
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v4"
+PROMPT_TEMPLATE_VERSION = "v5"
 
-_SYSTEM_PROMPT = """You classify one accounts-receivable email-chain event.
+_CONTROLLED_TAXONOMY = ", ".join(sorted(CLASSIFICATION_CATEGORIES))
+_SYSTEM_PROMPT = (
+    """You classify one accounts-receivable email-chain event.
 Decide only collection relevance, email lifecycle, and debtor-response facts.
 Use the current message and bounded prior email context; quoted or forwarded
 text is not authored intent. Do not use or infer Sage balances, payment state,
 debtor policy, recipients, draft routing, or a collection chain choice.
-When semantic_classification is present, use the existing controlled debtor
-response taxonomy exactly (for example PROMISE_TO_PAY, DISPUTE,
-REMITTANCE_ADVICE, ALREADY_PAID, or UNCLEAR).
+When semantic_classification is present, use exactly one value from the same
+controlled debtor-response taxonomy as the operational classifier:
+"""
+    + _CONTROLLED_TAXONOMY
+    + ".\n"
+    + """
 
 For a known collection chain, preserve collection relevance unless this event
 explicitly closes or reopens the email conversation. A debtor payment or
@@ -46,6 +52,9 @@ Return a JSON object only, with exactly these keys and types:
   "semantic_classification": an existing uppercase debtor-response taxonomy
       value or null,
   "secondary_intents": [uppercase taxonomy values],
+  "intent_details": [{"intent": uppercase taxonomy value,
+      "extracted_data": {"invoice_refs": [strings], and only the controlled
+      fields belonging to this intent}}],
   "invoice_assertions": ["invoice reference"],
   "amount_assertions": [{"invoice_ref": string-or-null, "amount":
       number-or-null, "currency": string-or-null, "assertion_type":
@@ -58,7 +67,12 @@ Return a JSON object only, with exactly these keys and types:
   "confidence": number from 0 through 1
 }
 Use [] or null when a field has no evidence. Do not add keys or prose outside
-that JSON object."""
+that JSON object. When more than one intent exists, keep every intent's invoice
+references and amount/date facts isolated in its own intent_details entry. The
+first intent_details entry must match semantic_classification. This is the same
+debtor-response taxonomy and per-intent extraction contract used by the
+operational debtor-response classifier."""
+)
 
 _USER_PROMPT = """Mode: {mode}\n\nEmail event evidence:\n{payload}"""
 
@@ -134,6 +148,7 @@ class CollectionEmailEventClassifier:
             lifecycle_status=parsed.lifecycle_status,
             semantic_classification=parsed.semantic_classification,
             secondary_intents=parsed.secondary_intents,
+            intent_details=[item.model_dump(exclude_none=True) for item in parsed.intent_details],
             invoice_assertions=parsed.invoice_assertions,
             amount_assertions=[
                 item.model_dump(exclude_none=True) for item in parsed.amount_assertions

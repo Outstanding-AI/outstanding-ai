@@ -36,6 +36,7 @@ Other app-level middleware:
 | GET | `/health` | — | `ShallowHealthResponse` | none | Health |
 | GET | `/health/llm` | — | `HealthResponse` | none (bearer auth required) | Health |
 | POST | `/classify` | `ClassifyRequest` | `ClassifyResponse` | `rate_limit_classify` (100/minute) | Classification |
+| POST | `/classify-collection-email-event` | `CollectionEmailEventRequest` | `CollectionEmailEventResponse` | `rate_limit_classify` | Collection email shadow |
 | POST | `/extract-collection-email-facts` | `CollectionEmailFactExtractionRequest` | `CollectionEmailFactExtractionResponse` | `rate_limit_classify` | Collection email shadow |
 | POST | `/identify-collection-chain` | `CollectionChainIdentificationRequest` | `CollectionChainIdentificationResponse` | `rate_limit_classify` | Collection email shadow |
 | POST | `/generate-draft` | `GenerateDraftRequest` | `GenerateDraftResponse` | `rate_limit_generate` (100/minute) | Generation |
@@ -304,6 +305,14 @@ can choose a recipient, route, or draft. Both are Vertex-primary, use OpenAI
 only for transient provider failures, and return audited token/cost/latency
 telemetry.
 
+`/classify-collection-email-event` runs only for an inbound event after its
+chain is confirmed as collection. It reuses the operational debtor-response
+taxonomy and per-intent extraction contract without executing operational
+side effects. Multi-intent replies return one `intent_details` entry per
+intent so invoice A payment evidence cannot be conflated with invoice B
+promise evidence. Its email-native lifecycle value is persisted as revised
+chain-identifier evidence before deterministic status reduction.
+
 The same endpoint accepts `mode=chain_selection_tiebreak` only for a bounded
 Stage 4 tie-break after deterministic candidate eligibility. The response may
 select one supplied candidate key or abstain; it cannot invent invoice scope,
@@ -315,7 +324,7 @@ prompt hashes are returned through the normal `ai_audit` contract.
 - **Fallback: OpenAI** (`gpt-5-mini`, temperature 0.3, LangChain `ChatOpenAI`). Disabled if it equals the primary or `OPENAI_API_KEY` is unset. Same tenacity retry shape. **No application-level max-token cap** is set (`OPENAI_MAX_TOKENS`/`VERTEX_MAX_TOKENS` env vars were removed 2026-04-29).
 - **Anthropic: disabled.** `_create_provider("anthropic")` raises `ValueError` ("disabled until it supports no application-level max token cap"), and the production settings validator rejects `LLM_PROVIDER=anthropic`. `anthropic_provider.py` still exists (defaults `claude-sonnet-4-20250514` / classification `claude-haiku-4-5-20251001`) but is unreachable via the factory.
 
-Fallback behaviour: `complete()` tries primary → on any exception falls back to OpenAI (`model_copy(update={"is_fallback": True})`). Both failing raises `LLMFallbackExhaustedError`. A per-`(provider, caller)` **cooldown** of `LLM_FALLBACK_COOLDOWN_SECONDS` (300s) is recorded on `LLMRateLimitedError`/`LLMProviderUnavailableError`: a cooling-down primary skips straight to fallback; a cooling-down fallback → `LLMFallbackExhaustedError`. `fallback_count` and `primary_failures_by_caller` are exposed on `/health/llm`.
+Fallback behaviour: `complete()` uses OpenAI only for transient quota, timeout, or provider-infrastructure failures. Authentication/configuration failures and invalid structured output fail closed without fallback. Both transient providers failing raises `LLMFallbackExhaustedError`. A per-`(provider, caller)` **cooldown** of `LLM_FALLBACK_COOLDOWN_SECONDS` (300s) is recorded on `LLMRateLimitedError`/`LLMProviderUnavailableError`: a cooling-down primary skips straight to fallback; a cooling-down fallback → `LLMFallbackExhaustedError`. `fallback_count` and `primary_failures_by_caller` are exposed on `/health/llm`.
 
 No per-call timeout is enforced in engine code (`LLM_TIMEOUT_SECONDS` is declared but unused — vestigial); the backend client's 180s timeout is the effective bound.
 

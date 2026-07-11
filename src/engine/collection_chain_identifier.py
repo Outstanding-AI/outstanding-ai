@@ -17,7 +17,7 @@ from .audit import build_ai_audit
 from .collection_email_event_classifier import _parse_response_object
 
 PROMPT_TEMPLATE_ID = "collection_chain_identifier"
-PROMPT_TEMPLATE_VERSION = "v1"
+PROMPT_TEMPLATE_VERSION = "v2"
 _SYSTEM_PROMPT = """Decide only whether a bounded email-chain event establishes, confirms, reopens, closes, or leaves uncertain a collection-related chain.
 Use the current message, exact/bounded prior email context, extracted email facts, and reconciled scope outcome codes. Reconciled outcomes are facts about matching, not proof of collection relevance. Ignore quoted or forwarded text as authored intent.
 Do not classify debtor promises/disputes/remittances, do not decide Sage truth, policy, recipients, routing, or drafting.
