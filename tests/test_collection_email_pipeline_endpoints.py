@@ -18,9 +18,15 @@ from src.llm.schemas import (
 
 def test_fact_extraction_contract_contains_no_relevance_or_route_fields():
     request = CollectionEmailFactExtractionRequest(
-        current_message={"body": "Invoice INV-1 is overdue"}
+        current_message={"body": "Invoice INV-1 is overdue"},
+        prior_chain_invoice_context={
+            "invoice_candidates": [{"invoice_ref": "INV-1"}],
+            "candidate_count": 1,
+            "is_truncated": False,
+        },
     )
     assert request.prior_messages == []
+    assert request.prior_chain_invoice_context["candidate_count"] == 1
     parsed = CollectionEmailFactExtractionLLMResponse(
         invoice_assertions=["INV-1"],
         amount_assertions=[],
@@ -35,6 +41,7 @@ def test_chain_identifier_contract_is_bounded_and_strict():
     request = CollectionChainIdentificationRequest(
         current_message={"body": "Please settle the invoice"},
         prior_messages=[{"ordinal": index} for index in range(6)],
+        prior_chain_invoice_context={"invoice_candidates": [{"invoice_ref": "INV-1"}]},
         reconciled_scope=[{"mapping_status": "exact"}],
     )
     assert len(request.prior_messages) == 6

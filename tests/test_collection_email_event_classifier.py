@@ -38,6 +38,8 @@ def test_collection_email_event_reuses_per_intent_debtor_response_scope():
     )
     assert parsed.intent_details[0].extracted_data.invoice_refs == ["INV-A"]
     assert parsed.intent_details[1].extracted_data.invoice_refs == ["INV-B"]
+    assert "candidate_count is 1" in _SYSTEM_PROMPT
+    assert "Never assign one promise, dispute, or" in _SYSTEM_PROMPT
 
 
 def test_collection_email_event_schema_rejects_unrecognised_output_fields():

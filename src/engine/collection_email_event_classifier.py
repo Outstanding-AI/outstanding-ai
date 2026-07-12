@@ -24,7 +24,7 @@ from .audit import build_ai_audit
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v5"
+PROMPT_TEMPLATE_VERSION = "v6"
 
 _CONTROLLED_TAXONOMY = ", ".join(sorted(CLASSIFICATION_CATEGORIES))
 _SYSTEM_PROMPT = (
@@ -43,6 +43,18 @@ controlled debtor-response taxonomy as the operational classifier:
 For a known collection chain, preserve collection relevance unless this event
 explicitly closes or reopens the email conversation. A debtor payment or
 promise claim is pending_financial_confirmation, never proof of payment.
+``prior_evidence`` can contain one ``chain_invoice_context`` object. Its
+invoice_candidates are body-free identifiers explicitly established in earlier
+messages from this chain; they are not Sage results. For each response intent:
+use an invoice named in the current authored text first. If the current text is
+deictic (for example, "we will pay it Friday" or "we dispute this") you may
+link it to exactly one candidate only when candidate_count is 1 and
+is_truncated is false; include that invoice in the intent's invoice_refs and
+add ``contextual_single_invoice_link`` to reason_codes. When the candidate set
+is empty, multiple, or truncated, do not guess and leave invoice_refs empty,
+with ``ambiguous_contextual_invoice_scope`` or
+``missing_contextual_invoice_scope``. Never assign one promise, dispute, or
+remittance to every invoice in a chain.
 Return a JSON object only, with exactly these keys and types:
 {
   "relevance_status": "collection" | "non_collection" | "uncertain",

@@ -17,9 +17,14 @@ from .audit import build_ai_audit
 from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "collection_chain_identifier"
-PROMPT_TEMPLATE_VERSION = "v3"
+PROMPT_TEMPLATE_VERSION = "v4"
 _SYSTEM_PROMPT = """Decide only whether a bounded email-chain event establishes, confirms, reopens, closes, or leaves uncertain a collection-related chain.
-Use the current message, exact/bounded prior email context, extracted email facts, and reconciled scope outcome codes. Reconciled outcomes are facts about matching, not proof of collection relevance. Ignore quoted or forwarded text as authored intent.
+Use the current message, exact/bounded prior email context, the body-free prior-chain invoice ledger, extracted email facts, and reconciled scope outcome codes. Reconciled outcomes are facts about matching, not proof of collection relevance. Ignore quoted or forwarded text as authored intent.
+The prior-chain ledger preserves facts from preceding messages, including an
+earlier invoice reference followed by a later promise or dispute response. It
+is context only: do not turn a ledger entry into a Sage claim or a routing
+decision. A chain can be collection-related even when its current invoice
+mapping is unresolved.
 Do not classify debtor promises/disputes/remittances, do not decide Sage truth, policy, recipients, routing, or drafting.
 Return only strict JSON with collection_status, event_effect, confidence, reason_codes, and evidence_message_ordinals.
 Always include all five keys. If insufficient email evidence exists, return:

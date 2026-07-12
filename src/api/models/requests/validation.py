@@ -87,6 +87,10 @@ class CollectionEmailFactExtractionRequest(BaseModel):
 
     current_message: dict[str, Any]
     prior_messages: list[dict[str, Any]] = Field(default_factory=list, max_length=6)
+    # Body-free invoice ledger from earlier messages in this same
+    # conversation. It allows a later deictic response to be linked only when
+    # the prior invoice scope is unambiguous.
+    prior_chain_invoice_context: dict[str, Any] = Field(default_factory=dict)
 
 
 class CollectionChainIdentificationRequest(BaseModel):
@@ -94,6 +98,7 @@ class CollectionChainIdentificationRequest(BaseModel):
 
     current_message: dict[str, Any]
     prior_messages: list[dict[str, Any]] = Field(default_factory=list, max_length=6)
+    prior_chain_invoice_context: dict[str, Any] = Field(default_factory=dict)
     extracted_facts: dict[str, Any] = Field(default_factory=dict)
     reconciled_scope: list[dict[str, Any]] = Field(default_factory=list, max_length=30)
     prior_chain_status: dict[str, Any] = Field(default_factory=dict)

@@ -17,7 +17,7 @@ from .audit import build_ai_audit
 from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "collection_email_fact_extraction"
-PROMPT_TEMPLATE_VERSION = "v3"
+PROMPT_TEMPLATE_VERSION = "v4"
 _SYSTEM_PROMPT = """Extract only invoice references, monetary assertions, and date assertions from one email event.
 Use the current message and bounded prior context only to resolve references. Ignore quoted/forwarded text as authored intent.
 Do not decide whether the chain is collection-related, do not classify a debtor response, and do not infer Sage truth, policy,
@@ -26,6 +26,19 @@ confidence, and reason_codes. Bind amount and due-date assertions to an
 invoice_ref only when the authored text supports that relationship. Never
 invent a pairing. Preserve unbound amount-only and due-date-only assertions so
 the deterministic reconciler can abstain or use its unique combined fallback.
+
+``prior_chain_invoice_context`` is a body-free ledger of invoice references
+explicitly established by *earlier messages in this same chain*. It is not
+Sage data. For a deictic current-message statement such as "we will pay it on
+Friday" or "we dispute that invoice", you may emit one ledger invoice_ref
+only when candidate_count is exactly 1, is_truncated is false, and the current
+authored text clearly adopts that one invoice. Add
+``contextual_single_invoice_link`` to reason_codes. If there are zero,
+multiple, or truncated candidates, do not choose one: leave invoice_assertions
+empty and add ``ambiguous_contextual_invoice_scope`` or
+``missing_contextual_invoice_scope``. Never copy several prior invoice refs,
+never fabricate an identifier, and never use quoted text as the current
+message's assertion.
 
 Always include all five keys. When the authored message contains no asserted
 invoice, amount, or date, return exactly this shape:
