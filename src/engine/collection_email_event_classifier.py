@@ -24,7 +24,7 @@ from .audit import build_ai_audit
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v6"
+PROMPT_TEMPLATE_VERSION = "v7"
 
 _CONTROLLED_TAXONOMY = ", ".join(sorted(CLASSIFICATION_CATEGORIES))
 _SYSTEM_PROMPT = (
@@ -33,6 +33,13 @@ Decide only collection relevance, email lifecycle, and debtor-response facts.
 Use the current message and bounded prior email context; quoted or forwarded
 text is not authored intent. Do not use or infer Sage balances, payment state,
 debtor policy, recipients, draft routing, or a collection chain choice.
+The context is causal: it contains only earlier retained events from this one
+conversation. Never infer an outcome from a later message, from silence, or
+from any fact not present in the current event or explicit prior evidence.
+Treat a manually authored outbound message as authored email evidence. Treat a
+system-generated outbound message only as the supplied deterministic draft fact;
+do not invent its invoice scope. A deleted or unavailable event has no authored
+content and must produce no invoice or debtor-response assertion.
 When semantic_classification is present, use exactly one value from the same
 controlled debtor-response taxonomy as the operational classifier:
 """
