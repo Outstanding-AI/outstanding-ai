@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from pydantic import ValidationError
 
@@ -17,7 +18,7 @@ from .audit import build_ai_audit
 from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "collection_chain_identifier"
-PROMPT_TEMPLATE_VERSION = "v4"
+PROMPT_TEMPLATE_VERSION = "v5"
 _SYSTEM_PROMPT = """Decide only whether a bounded email-chain event establishes, confirms, reopens, closes, or leaves uncertain a collection-related chain.
 Use the current message, exact/bounded prior email context, the body-free prior-chain invoice ledger, extracted email facts, and reconciled scope outcome codes. Reconciled outcomes are facts about matching, not proof of collection relevance. Ignore quoted or forwarded text as authored intent.
 The prior-chain ledger preserves facts from preceding messages, including an
@@ -42,37 +43,101 @@ _CHAIN_KEYS = {
     "reason_codes",
     "evidence_message_ordinals",
 }
+_TRANSPORT_ONLY_CHAIN_KEYS = {"reason", "explanation", "summary"}
+_COLLECTION_STATUS_ALIASES = {
+    "collection": "collection",
+    "collection_related": "collection",
+    "collection-related": "collection",
+    "non_collection": "non_collection",
+    "non-collection": "non_collection",
+    "not_collection": "non_collection",
+    "not-related": "non_collection",
+    "uncertain": "uncertain",
+    "unknown": "uncertain",
+    "insufficient_evidence": "uncertain",
+}
+_EVENT_EFFECT_ALIASES = {
+    "new": "new",
+    "new_chain": "new",
+    "opened": "new",
+    "confirmed": "confirmed",
+    "ongoing": "confirmed",
+    "existing": "confirmed",
+    "reopened": "reopened",
+    "reopen": "reopened",
+    "closed": "closed",
+    "close": "closed",
+    "no_change": "no_change",
+    "no change": "no_change",
+    "unchanged": "no_change",
+    "none": "no_change",
+}
 
 
 def _canonical_chain_response_object(content: object) -> dict:
     """Fail closed while adapting the documented historical relevance aliases."""
 
     raw = _parse_response_object(content)
-    if set(raw) - _CHAIN_KEYS:
+    if set(raw) - _CHAIN_KEYS - _TRANSPORT_ONLY_CHAIN_KEYS:
         raise ValueError("collection_chain_identifier_unknown_fields")
-    status = raw.get("collection_status", raw.get("relevance_label"))
-    status = {
-        "collection_related": "collection",
-        "non_collection": "non_collection",
-        "uncertain": "uncertain",
-    }.get(status, status)
-    effect = raw.get("event_effect")
+    raw_statuses = {
+        str(value).strip().lower()
+        for value in (raw.get("collection_status"), raw.get("relevance_label"))
+        if value not in (None, "")
+    }
+    status = (
+        _COLLECTION_STATUS_ALIASES.get(next(iter(raw_statuses)), "uncertain")
+        if len(raw_statuses) == 1
+        else "uncertain"
+    )
+    effect = _EVENT_EFFECT_ALIASES.get(str(raw.get("event_effect") or "").strip().lower())
     reasons = raw.get("reason_codes") or []
     if not isinstance(reasons, list):
-        raise ValueError("collection_chain_identifier_reason_codes_must_be_list")
+        reasons = [str(reasons)] if isinstance(reasons, str) else []
     ordinals = raw.get("evidence_message_ordinals") or []
     if not isinstance(ordinals, list):
-        raise ValueError("collection_chain_identifier_ordinals_must_be_list")
+        ordinals = []
+    normalized_ordinals = []
+    for ordinal in ordinals:
+        try:
+            parsed = int(ordinal)
+        except (TypeError, ValueError):
+            continue
+        if parsed >= 0:
+            normalized_ordinals.append(parsed)
+    normalized_reasons = [str(reason).strip().lower() for reason in reasons]
+    reasons = [reason for reason in normalized_reasons if re.fullmatch(r"[a-z0-9_]{1,80}", reason)]
+    if len(reasons) != len(normalized_reasons):
+        reasons.append("uncontrolled_reason_code_discarded")
+    reasons = reasons[:20]
+    if not raw_statuses:
+        reasons = [*reasons, "missing_collection_status_abstention"]
+    elif (
+        len(raw_statuses) != 1
+        or status == "uncertain"
+        and next(iter(raw_statuses)) not in _COLLECTION_STATUS_ALIASES
+    ):
+        reasons = [*reasons, "invalid_collection_status_abstention"]
     if effect is None:
-        # Missing lifecycle effect must never activate or close a chain.
+        # An unknown lifecycle effect must never activate or close a chain.
         status, effect = "uncertain", "no_change"
-        reasons = [*reasons, "missing_event_effect_abstention"]
+        reasons = [*reasons, "invalid_event_effect_abstention"]
+    confidence = raw.get("confidence", 0.0)
+    try:
+        confidence = float(confidence)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    if 1.0 < confidence <= 100.0:
+        confidence /= 100.0
+    if not 0.0 <= confidence <= 1.0:
+        confidence = 0.0
+        reasons = [*reasons, "invalid_confidence_abstention"]
     return {
         "collection_status": status,
         "event_effect": effect,
-        "confidence": raw.get("confidence", 0.0),
-        "reason_codes": reasons,
-        "evidence_message_ordinals": ordinals,
+        "confidence": confidence,
+        "reason_codes": reasons[:20],
+        "evidence_message_ordinals": normalized_ordinals[:20],
     }
 
 

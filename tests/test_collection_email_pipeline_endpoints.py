@@ -150,4 +150,36 @@ def test_chain_normalizer_abstains_when_the_lifecycle_effect_is_missing():
 
     assert normalized["collection_status"] == "uncertain"
     assert normalized["event_effect"] == "no_change"
-    assert "missing_event_effect_abstention" in normalized["reason_codes"]
+    assert "invalid_event_effect_abstention" in normalized["reason_codes"]
+
+
+def test_chain_normalizer_safely_canonicalizes_common_json_mode_variants():
+    from src.engine.collection_chain_identifier import _canonical_chain_response_object
+
+    normalized = _canonical_chain_response_object(
+        json.dumps(
+            {
+                "relevance_label": "collection_related",
+                "event_effect": "ongoing",
+                "confidence": 85,
+                "reason_codes": "explicit_payment_request",
+                "evidence_message_ordinals": ["1", "invalid"],
+                "explanation": "transport-only text is discarded",
+            }
+        )
+    )
+
+    assert normalized == {
+        "collection_status": "collection",
+        "event_effect": "confirmed",
+        "confidence": 0.85,
+        "reason_codes": ["explicit_payment_request"],
+        "evidence_message_ordinals": [1],
+    }
+
+    unsafe = _canonical_chain_response_object(
+        json.dumps({"collection_status": "collection", "event_effect": "route_to_this_thread"})
+    )
+    assert unsafe["collection_status"] == "uncertain"
+    assert unsafe["event_effect"] == "no_change"
+    assert "invalid_event_effect_abstention" in unsafe["reason_codes"]
