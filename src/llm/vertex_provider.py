@@ -352,7 +352,14 @@ class VertexProvider(BaseLLMProvider):
             return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         prompt_tokens = getattr(usage_metadata, "prompt_token_count", 0) or 0
-        completion_tokens = getattr(usage_metadata, "candidates_token_count", 0) or 0
+        visible_completion_tokens = getattr(usage_metadata, "candidates_token_count", 0) or 0
+        # Gemini 2.5 thinking tokens are billed at the output-token rate. The
+        # SDK reports them separately from visible candidate tokens, while
+        # ``total_token_count`` includes both. Treat the billable completion
+        # count as visible output + thoughts so cost telemetry is not
+        # understated for collection-email or draft-generation calls.
+        reasoning_tokens = getattr(usage_metadata, "thoughts_token_count", 0) or 0
+        completion_tokens = visible_completion_tokens + reasoning_tokens
         total_tokens = getattr(usage_metadata, "total_token_count", 0) or (
             prompt_tokens + completion_tokens
         )

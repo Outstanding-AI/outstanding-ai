@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExtractedData(BaseModel):
@@ -247,15 +247,58 @@ class HistoricalCollectionThreadResponse(BaseModel):
     selection_action: Optional[str] = None
 
 
+class CollectionEmailAmountAssertionResponse(BaseModel):
+    """Closed transport shape for one extracted monetary assertion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_ref: Optional[str] = Field(default=None, max_length=80)
+    amount: Optional[float] = None
+    currency: Optional[str] = Field(default=None, max_length=8)
+    assertion_type: Literal[
+        "claimed_paid",
+        "claimed_due",
+        "promised_payment",
+        "disputed_amount",
+        "remittance_amount",
+        "unknown",
+    ] = "unknown"
+
+
+class CollectionEmailDateAssertionResponse(BaseModel):
+    """Closed transport shape for one extracted date assertion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_ref: Optional[str] = Field(default=None, max_length=80)
+    date_value: Optional[str] = Field(default=None, max_length=40)
+    assertion_type: Literal[
+        "promise_date",
+        "payment_date",
+        "due_date",
+        "remittance_date",
+        "other",
+    ] = "other"
+
+
 class CollectionEmailEventResponse(BaseModel):
-    relevance_status: str
-    lifecycle_status: str
+    model_config = ConfigDict(extra="forbid")
+
+    relevance_status: Literal["collection", "non_collection", "uncertain"]
+    lifecycle_status: Literal[
+        "active",
+        "awaiting_debtor_response",
+        "pending_financial_confirmation",
+        "closed_by_email",
+        "uncertain",
+        "not_applicable",
+    ]
     semantic_classification: Optional[str] = None
     secondary_intents: List[str] = []
     intent_details: List[IntentDetail] = []
     invoice_assertions: List[str] = []
-    amount_assertions: List[dict] = []
-    date_assertions: List[dict] = []
+    amount_assertions: List[CollectionEmailAmountAssertionResponse] = []
+    date_assertions: List[CollectionEmailDateAssertionResponse] = []
     reason_codes: List[str] = []
     confidence: float = Field(ge=0.0, le=1.0)
     tokens_used: Optional[int] = None
@@ -268,9 +311,11 @@ class CollectionEmailEventResponse(BaseModel):
 
 
 class CollectionEmailFactExtractionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     invoice_assertions: List[str] = []
-    amount_assertions: List[dict] = []
-    date_assertions: List[dict] = []
+    amount_assertions: List[CollectionEmailAmountAssertionResponse] = []
+    date_assertions: List[CollectionEmailDateAssertionResponse] = []
     confidence: float = Field(ge=0.0, le=1.0)
     reason_codes: List[str] = []
     tokens_used: Optional[int] = None
@@ -283,6 +328,8 @@ class CollectionEmailFactExtractionResponse(BaseModel):
 
 
 class CollectionChainIdentificationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     collection_status: Literal["collection", "non_collection", "uncertain"]
     event_effect: Literal["new", "confirmed", "reopened", "closed", "no_change"]
     confidence: float = Field(ge=0.0, le=1.0)

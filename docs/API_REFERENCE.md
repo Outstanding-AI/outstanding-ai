@@ -302,8 +302,9 @@ state. `/identify-collection-chain` receives that event, bounded context, and
 reconciliation outcome codes to decide only `collection`, `non_collection`, or
 `uncertain` and the event effect. Neither endpoint receives debtor policy or
 can choose a recipient, route, or draft. Both are Vertex-primary, use OpenAI
-only for transient provider failures, and return audited token/cost/latency
-telemetry.
+only for transient provider failures, and return provider/model/fallback and
+token audit metadata. The backend records request latency, calculates cost
+from those tokens, and persists the request-log identifier.
 
 `/classify-collection-email-event` runs only for an inbound event after its
 chain is confirmed as collection. It reuses the operational debtor-response
@@ -326,7 +327,17 @@ prompt hashes are returned through the normal `ai_audit` contract.
 
 Fallback behaviour: `complete()` uses OpenAI only for transient quota, timeout, or provider-infrastructure failures. Authentication/configuration failures and invalid structured output fail closed without fallback. Both transient providers failing raises `LLMFallbackExhaustedError`. A per-`(provider, caller)` **cooldown** of `LLM_FALLBACK_COOLDOWN_SECONDS` (300s) is recorded on `LLMRateLimitedError`/`LLMProviderUnavailableError`: a cooling-down primary skips straight to fallback; a cooling-down fallback → `LLMFallbackExhaustedError`. `fallback_count` and `primary_failures_by_caller` are exposed on `/health/llm`.
 
-No per-call timeout is enforced in engine code (`LLM_TIMEOUT_SECONDS` is declared but unused — vestigial); the backend client's 180s timeout is the effective bound.
+For Gemini thinking models, `completion_tokens` is the billable output count:
+visible candidate tokens plus `thoughts_token_count`. This keeps backend cost
+telemetry aligned with Google's output-plus-thinking pricing; `tokens_used`
+continues to use the provider's `total_token_count`.
+
+Collection-email and historical collection callers enforce
+`LLM_TIMEOUT_SECONDS` independently for Vertex and OpenAI. With the default
+60-second provider bound, a timed-out Vertex request can still fall back and
+complete within the backend client's 180-second HTTP deadline. Sent-scope
+analysis retains its dedicated 40-second provider timeout; other legacy callers
+continue to rely on the backend deadline.
 
 Error taxonomy (`src/llm/base.py`): `LLMProviderError → LLMRateLimitedError / LLMProviderUnavailableError / LLMStructuredOutputError / LLMFallbackExhaustedError`.
 
@@ -406,7 +417,7 @@ When `IDLE_SHUTDOWN_SECONDS` > 0 (default `0` = disabled, read in `src/main.py`)
 | `PERSONA_GEN_TEMPERATURE` | `0.7` | |
 | `PERSONA_REFINE_TEMPERATURE` | `0.5` | |
 | `MAX_GUARDRAIL_RETRIES` | `2` | generator retry loop (`retries + 1` attempts) |
-| `LLM_TIMEOUT_SECONDS` | `60` | declared but unreferenced (vestigial) |
+| `LLM_TIMEOUT_SECONDS` | `60` | Per-provider timeout for collection-email and historical collection calls |
 | `LLM_MAX_RETRIES` | `3` | tenacity `stop_after_attempt` |
 | `LLM_FALLBACK_COOLDOWN_SECONDS` | `300` | per-(provider, caller) cooldown |
 | `LOG_LEVEL` | `"INFO"` | |

@@ -17,6 +17,15 @@ from .vertex_provider import VertexProvider
 
 logger = logging.getLogger(__name__)
 
+_COLLECTION_FALLBACK_CALLERS = frozenset(
+    {
+        "collection_email_event",
+        "collection_email_fact_extraction",
+        "collection_chain_identifier",
+        "historical_collection_thread",
+    }
+)
+
 
 class LLMProviderWithFallback:
     """
@@ -291,9 +300,15 @@ class LLMProviderWithFallback:
         return default_seconds
 
     def _provider_timeout_seconds(self, caller: str) -> float | None:
-        if caller != "sent_scope_analysis":
+        if caller == "sent_scope_analysis":
+            timeout = float(settings.llm_sent_scope_provider_timeout_seconds or 0)
+        elif caller in _COLLECTION_FALLBACK_CALLERS:
+            # Bound both the primary and fallback independently. With the
+            # default 60 seconds per provider, Vertex can time out and OpenAI
+            # can still complete inside the backend's 180-second HTTP window.
+            timeout = float(settings.llm_timeout_seconds or 0)
+        else:
             return None
-        timeout = float(settings.llm_sent_scope_provider_timeout_seconds or 0)
         return max(1.0, timeout) if timeout > 0 else None
 
     @staticmethod
@@ -304,12 +319,7 @@ class LLMProviderWithFallback:
         defect, not a reason to ask a second provider to process customer mail.
         Existing callers retain their historical fallback semantics.
         """
-        if caller not in {
-            "collection_email_event",
-            "collection_email_fact_extraction",
-            "collection_chain_identifier",
-            "historical_collection_thread",
-        }:
+        if caller not in _COLLECTION_FALLBACK_CALLERS:
             return True
         return isinstance(
             error,

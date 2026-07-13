@@ -180,7 +180,7 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
     assert result.intent_details[0].extracted_data.invoice_refs == ["INV-1"]
     assert classifier._client.complete.await_args.kwargs["json_mode"] is True
     assert "response_schema" not in classifier._client.complete.await_args.kwargs
-    assert result.amount_assertions == [
+    assert [item.model_dump() for item in result.amount_assertions] == [
         {
             "invoice_ref": "INV-1",
             "amount": 100.0,
