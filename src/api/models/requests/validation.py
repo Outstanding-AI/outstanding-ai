@@ -104,6 +104,18 @@ class CollectionChainIdentificationRequest(BaseModel):
     prior_chain_status: dict[str, Any] = Field(default_factory=dict)
 
 
+class CollectionChainRouteMessageContext(BaseModel):
+    """One bounded chronological message supplied as routing evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message_ordinal: int = Field(ge=1, le=6)
+    message_at: Optional[str] = Field(default=None, max_length=40)
+    direction: Literal["inbound", "outbound", "unknown"] = "unknown"
+    subject: str = Field(default="", max_length=300)
+    authored_text: str = Field(default="", max_length=2000)
+
+
 class CollectionChainRouteCandidateRequest(BaseModel):
     """One already-safe active chain offered to the routing model."""
 
@@ -113,12 +125,28 @@ class CollectionChainRouteCandidateRequest(BaseModel):
     live_status: Literal["live", "awaiting_debtor_response"]
     latest_message_at: Optional[str] = Field(default=None, max_length=40)
     latest_message_direction: Literal["inbound", "outbound", "unknown"] = "unknown"
+    latest_meaningful_message_at: Optional[str] = Field(default=None, max_length=40)
+    latest_meaningful_message_direction: Literal["inbound", "outbound", "unknown"] = "unknown"
+    recent_messages: list[CollectionChainRouteMessageContext] = Field(min_length=1, max_length=6)
     invoice_activity: list["CollectionChainCandidateInvoiceActivity"] = Field(
         default_factory=list, max_length=100
     )
     chain_invoice_count: int = Field(ge=0, le=5000)
     sent_proof: bool
     semantic_signals: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def chronological_context(self) -> "CollectionChainRouteCandidateRequest":
+        ordinals = [message.message_ordinal for message in self.recent_messages]
+        if ordinals != list(range(1, len(ordinals) + 1)):
+            raise ValueError("candidate message context must use contiguous chronological ordinals")
+        latest = self.recent_messages[-1]
+        if (
+            self.latest_message_direction != "unknown"
+            and latest.direction != self.latest_message_direction
+        ):
+            raise ValueError("latest candidate direction must match the final context message")
+        return self
 
 
 class CollectionChainCandidateInvoiceActivity(BaseModel):

@@ -318,13 +318,17 @@ chain-identifier evidence before deterministic status reduction.
 when two or more active collection chains have already passed deterministic
 identity, lifecycle, financial, mailbox, and Graph-parent safety gates. One
 request contains the complete currently chased invoice set plus every supplied
-chain's invoice activity and lifecycle facts. The response must contain exactly
+chain's invoice activity, latest physical/meaningful event metadata, lifecycle
+facts, and at most six chronological message excerpts. The newest physical
+message remains the Graph reply parent; the newest meaningful event remains
+semantic evidence. The response must contain exactly
 one supplied-chain selection or abstention for every invoice; it cannot invent
 invoice scope, policy, recipients, provider identifiers, new chains, or draft
 content. The call is Vertex-primary with OpenAI fallback restricted to
 transient provider failure. Provider, model, fallback status, prompt and
 completion tokens, total tokens, calculated cost, latency, request ID, prompt
 hash, and template version are returned for durable job telemetry.
+The bounded-context router prompt is version `v2`.
 
 - **Primary: Vertex AI** (`gemini-2.5-flash` @ `europe-west2`, temperature 0.3). `google-genai` builds a **new `Client` per call**; credentials via AWS→GCP Workload Identity Federation (ECS task-role supplier) in production, ADC locally. Structured output via `response_schema` + `response_mime_type="application/json"`. Retry: tenacity `stop_after_attempt(LLM_MAX_RETRIES=3)`, `wait_exponential(min=2, max=30)`, on `(InternalServerError, ResourceExhausted, ServiceUnavailable)`.
 - **Fallback: OpenAI** (`gpt-5-mini`, temperature 0.3, LangChain `ChatOpenAI`). Disabled if it equals the primary or `OPENAI_API_KEY` is unset. Same tenacity retry shape. **No application-level max-token cap** is set (`OPENAI_MAX_TOKENS`/`VERTEX_MAX_TOKENS` env vars were removed 2026-04-29).
