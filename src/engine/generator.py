@@ -521,6 +521,28 @@ class DraftGenerator:
                     details={"validation_errors": e.errors()},
                 )
 
+            requires_invoice_table = bool(
+                not request.skip_invoice_table
+                and not request.closure_mode
+                and prompt_ctx.candidate_obligation_ids
+            )
+            if requires_invoice_table and "{INVOICE_TABLE}" not in result.body:
+                if attempt >= settings.max_guardrail_retries:
+                    raise LLMResponseInvalidError(
+                        message="LLM omitted required invoice-table placeholder",
+                        details={"reason": "missing_invoice_table_placeholder"},
+                    )
+                guardrail_feedback = (
+                    "\nCRITICAL CORRECTION: your prior response omitted "
+                    "{INVOICE_TABLE}. For this collection draft, include that "
+                    "exact token once where the invoice table belongs. Do not "
+                    "write invoice rows, amounts, dates, or currency yourself."
+                )
+                logger.warning(
+                    "Retrying draft generation because required invoice-table placeholder was omitted"
+                )
+                continue
+
             # Run guardrails on generated draft body
             guardrail_start = time.perf_counter()
             guardrail_result = guardrail_pipeline.validate(
