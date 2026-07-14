@@ -22,6 +22,7 @@ _COLLECTION_FALLBACK_CALLERS = frozenset(
         "collection_email_event",
         "collection_email_fact_extraction",
         "collection_chain_identifier",
+        "collection_chain_router",
         "historical_collection_thread",
     }
 )
@@ -58,7 +59,12 @@ class LLMProviderWithFallback:
     def primary(self):
         """Lazy-initialize primary provider."""
         if self._primary is None:
-            self._primary = self._create_provider(self.primary_provider_name)
+            try:
+                self._primary = self._create_provider(self.primary_provider_name)
+            except Exception as exc:
+                raise LLMProviderUnavailableError(
+                    f"{self.primary_provider_name} provider initialization failed"
+                ) from exc
         return self._primary
 
     @property
@@ -105,11 +111,14 @@ class LLMProviderWithFallback:
         Tries primary provider first, falls back to secondary on failure.
         """
         start_time = time.perf_counter()
+        primary_name = self.primary_provider_name
 
         try:
-            self._raise_if_cooling_down(self.primary.provider_name, caller)
+            primary = self.primary
+            primary_name = primary.provider_name
+            self._raise_if_cooling_down(primary_name, caller)
             response = await self._complete_with_provider(
-                self.primary,
+                primary,
                 system_prompt,
                 user_prompt,
                 caller=caller,
@@ -138,7 +147,7 @@ class LLMProviderWithFallback:
                 e,
                 (LLMRateLimitedError, LLMProviderUnavailableError, asyncio.TimeoutError),
             ):
-                self._record_cooldown(self.primary.provider_name, caller)
+                self._record_cooldown(primary_name, caller)
             self._primary_failures_by_caller[caller] = (
                 self._primary_failures_by_caller.get(caller, 0) + 1
             )
@@ -147,7 +156,7 @@ class LLMProviderWithFallback:
                 extra={
                     "caller": caller,
                     "metric_type": "llm_primary_failed",
-                    "provider": self.primary.provider_name,
+                    "provider": primary_name,
                     "latency_ms": round(primary_latency_ms, 2),
                     "error": str(e),
                     "error_type": type(e).__name__,
@@ -161,7 +170,7 @@ class LLMProviderWithFallback:
                     extra={
                         "caller": caller,
                         "metric_type": "llm_primary_failed",
-                        "provider": self.primary.provider_name,
+                        "provider": primary_name,
                         "error_type": type(e).__name__,
                     },
                 )

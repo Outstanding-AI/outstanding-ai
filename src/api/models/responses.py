@@ -247,6 +247,34 @@ class HistoricalCollectionThreadResponse(BaseModel):
     selection_action: Optional[str] = None
 
 
+class CollectionChainInvoiceRouteResponse(BaseModel):
+    """One chased invoice's selected route or abstention."""
+
+    invoice_key: str
+    selected_candidate_key: Optional[str] = None
+    action: Literal["continue_existing_chain", "abstain_manual_review"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason_codes: List[str] = Field(default_factory=list)
+    reason: str = ""
+    abstention_reason: Optional[str] = None
+
+
+class CollectionChainRoutingResponse(BaseModel):
+    """Auditable response for a debtor-grain multi-active-chain decision."""
+
+    routes: List[CollectionChainInvoiceRouteResponse]
+    provider: str
+    model: str
+    is_fallback: bool = False
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    tokens_used: int = 0
+    cost_usd: float = 0.0
+    latency_ms: float = 0.0
+    request_id: str
+    ai_audit: Optional[AIAuditMetadata] = None
+
+
 class CollectionEmailAmountAssertionResponse(BaseModel):
     """Closed transport shape for one extracted monetary assertion."""
 

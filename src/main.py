@@ -37,6 +37,7 @@ from src.api.routes import (
     health,
     identify_collection_chain,
     persona,
+    select_collection_chain,
     sent_scope,
 )
 from src.config.settings import settings
@@ -256,6 +257,7 @@ app.include_router(classify.router, tags=["Classification"])
 app.include_router(classify_collection_email_event.router, tags=["Classification"])
 app.include_router(extract_collection_email_facts.router, tags=["Classification"])
 app.include_router(identify_collection_chain.router, tags=["Classification"])
+app.include_router(select_collection_chain.router, tags=["Classification"])
 app.include_router(classify_historical_collection_thread.router, tags=["Classification"])
 app.include_router(generate.router, tags=["Generation"])
 app.include_router(sent_scope.router, tags=["Sent Scope"])

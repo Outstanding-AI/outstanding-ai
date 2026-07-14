@@ -12,7 +12,7 @@ Security:
 import warnings
 from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.config.constants import OBJECTIVE_REGEX, TONE_PREFERENCE_REGEX, TONE_REGEX
 
@@ -102,6 +102,72 @@ class CollectionChainIdentificationRequest(BaseModel):
     extracted_facts: dict[str, Any] = Field(default_factory=dict)
     reconciled_scope: list[dict[str, Any]] = Field(default_factory=list, max_length=30)
     prior_chain_status: dict[str, Any] = Field(default_factory=dict)
+
+
+class CollectionChainRouteCandidateRequest(BaseModel):
+    """One already-safe active chain offered to the routing model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_key: str = Field(min_length=1, max_length=160)
+    live_status: Literal["live", "awaiting_debtor_response"]
+    latest_message_at: Optional[str] = Field(default=None, max_length=40)
+    latest_message_direction: Literal["inbound", "outbound", "unknown"] = "unknown"
+    invoice_activity: list["CollectionChainCandidateInvoiceActivity"] = Field(
+        default_factory=list, max_length=100
+    )
+    chain_invoice_count: int = Field(ge=0, le=5000)
+    sent_proof: bool
+    semantic_signals: list[str] = Field(default_factory=list, max_length=20)
+
+
+class CollectionChainCandidateInvoiceActivity(BaseModel):
+    """One chased invoice's relationship to a candidate chain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_key: str = Field(min_length=1, max_length=160)
+    present_in_chain: bool
+    activity_at: Optional[str] = Field(default=None, max_length=40)
+    activity_origin: Literal["direct", "live_message", "outbound_draft", "indirect", "unknown"] = (
+        "unknown"
+    )
+
+
+class CollectionChainRoutingInvoiceContext(BaseModel):
+    """Closed invoice facts supplied to the route selector."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_key: str = Field(min_length=1, max_length=160)
+    amount_due: Optional[float] = None
+    due_date: Optional[str] = Field(default=None, max_length=40)
+    is_overdue: bool
+
+
+class CollectionChainRoutingRequest(BaseModel):
+    """Choose among two or more deterministically safe active chains."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    routing_unit_key: str = Field(min_length=1, max_length=160)
+    invoices: list[CollectionChainRoutingInvoiceContext] = Field(min_length=1, max_length=100)
+    candidates: list[CollectionChainRouteCandidateRequest] = Field(min_length=2, max_length=20)
+
+    @model_validator(mode="after")
+    def unique_candidate_keys(self) -> "CollectionChainRoutingRequest":
+        keys = [candidate.candidate_key for candidate in self.candidates]
+        if len(keys) != len(set(keys)):
+            raise ValueError("candidate keys must be unique")
+        invoice_keys = [invoice.invoice_key for invoice in self.invoices]
+        if len(invoice_keys) != len(set(invoice_keys)):
+            raise ValueError("invoice keys must be unique")
+        expected = set(invoice_keys)
+        for candidate in self.candidates:
+            activity_keys = [activity.invoice_key for activity in candidate.invoice_activity]
+            if len(activity_keys) != len(set(activity_keys)) or set(activity_keys) != expected:
+                raise ValueError("each candidate must describe every chased invoice exactly once")
+        return self
 
 
 class FollowUpContext(BaseModel):

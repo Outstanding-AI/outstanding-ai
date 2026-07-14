@@ -563,6 +563,28 @@ class ChainSelectionTieBreakLLMResponse(BaseModel):
     abstention_reason: Optional[str] = Field(default=None, max_length=120)
 
 
+class CollectionChainInvoiceRouteLLMResponse(BaseModel):
+    """Strict route decision for one chased invoice."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_key: str = Field(min_length=1, max_length=160)
+    selected_candidate_key: Optional[str] = Field(default=None, max_length=160)
+    action: Literal["continue_existing_chain", "abstain_manual_review"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason_codes: list[str] = Field(default_factory=list, max_length=20)
+    reason: str = Field(default="", max_length=800)
+    abstention_reason: Optional[str] = Field(default=None, max_length=120)
+
+
+class CollectionChainRoutingLLMResponse(BaseModel):
+    """Strict debtor-grain multi-active-chain routing decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    routes: list[CollectionChainInvoiceRouteLLMResponse] = Field(min_length=1, max_length=100)
+
+
 class DraftReasoningResponse(BaseModel):
     """Structured reasoning from the LLM about its draft generation decisions."""
 

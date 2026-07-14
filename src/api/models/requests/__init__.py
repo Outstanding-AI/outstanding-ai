@@ -35,6 +35,7 @@ from .validation import (
     PROMPT_INJECTION_PATTERNS,
     ClassifyRequest,
     CollectionChainIdentificationRequest,
+    CollectionChainRoutingRequest,
     CollectionEmailEventRequest,
     CollectionEmailFactExtractionRequest,
     GenerateDraftRequest,
@@ -72,6 +73,7 @@ __all__ = [
     # Validation / Requests
     "ClassifyRequest",
     "CollectionChainIdentificationRequest",
+    "CollectionChainRoutingRequest",
     "CollectionEmailEventRequest",
     "CollectionEmailFactExtractionRequest",
     "HistoricalCollectionThreadRequest",
