@@ -68,9 +68,11 @@ Concept → file navigation index.
 
 | Concept | File |
 |---------|------|
-| Context hydration coordinator | `src/lake/context_hydrator.py` | coordinates tenant-scoped current-state reads and preserves the public hydration API |
+| Context hydration coordinator | `src/lake/context_hydrator.py` | preserves the public hydration API and coordinates batch results into the V4 request context |
+| Context projection reads | `src/lake/context_reader.py` | identifier-safe serving-source selection plus tenant-scoped/bounded current-view reads and row grouping; it never constructs `CaseContext` |
 | Context evidence normalization | `src/lake/context_evidence.py` | pure Silver-row to `CaseContext` evidence/model transformation; no SQL, HTTP, or provider dependency |
-| Case/thread evidence reads | `src/lake/context_hydrator.py` (`COLLECTION_CASES_CURRENT`, `COLLECTION_CASE_THREADS_CURRENT`, `COLLECTION_THREAD_MESSAGE_INVOICE_EVIDENCE_CURRENT`) |
+| Context contract assembly | `src/lake/context_projection.py` | composes already-read, shaped evidence into the V4 `CaseContext`; no Athena or provider dependency |
+| Case/thread evidence reads | `src/lake/context_reader.py` (`COLLECTION_CASE_THREADS_CURRENT`, `COLLECTION_THREAD_MESSAGE_INVOICE_EVIDENCE_CURRENT`) |
 | Case context model fields | `src/api/models/requests/context.py` |
 
 Hydration rules:
