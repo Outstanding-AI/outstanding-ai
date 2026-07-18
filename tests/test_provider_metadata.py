@@ -79,7 +79,7 @@ class TestProviderMetadata:
             content=json.dumps(
                 {
                     "subject": "Outstanding Balance",
-                    "body": "<p>Dear Customer,</p><p>Please pay.</p>",
+                    "body": "<p>Dear Customer,</p><p>Please see the invoice table below.</p><p>{INVOICE_TABLE}</p>",
                 }
             ),
             model="gpt-4o-mini",

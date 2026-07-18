@@ -291,11 +291,12 @@ class TestDraftGenerator:
         """Test draft generation references specific invoices."""
         sample_generate_draft_request.tone = "firm"
 
-        # Mock LLM response containing invoice numbers
+        # The model supplies the table token; invoice rows remain server-owned.
         mock_response = _make_llm_response(
             {
                 "subject": "Overdue Invoices",
-                "body": "Dear Customer, Please pay invoice INV-12345 immediately. INV-12346 is also overdue.",
+                "body": "Dear Customer, Please see the overdue invoices below. {INVOICE_TABLE}",
+                "invoices_referenced": ["INV-12345", "INV-12346"],
             },
             tokens=150,
         )
@@ -443,14 +444,14 @@ class TestDraftGenerator:
                 mock_complete.return_value = _make_llm_response(
                     {
                         "subject": f"{tone} subject",
-                        "body": f"Body with {tone} tone.",
+                        "body": f"Body with {tone} tone. {{INVOICE_TABLE}}",
                     }
                 )
 
                 result = await generator.generate(sample_generate_draft_request)
 
                 assert result.tone_used == tone
-                assert result.body == f"Body with {tone} tone."
+                assert result.body == f"Body with {tone} tone. {{INVOICE_TABLE}}"
 
     @pytest.mark.asyncio
     async def test_generate_draft_no_invoices(self, generator, sample_generate_draft_request):
@@ -1007,7 +1008,7 @@ class TestGuardrailRetrySemantics:
         mock_response = _make_llm_response(
             {
                 "subject": "Follow-up",
-                "body": "<p>Please settle the overdue balance.</p>",
+                "body": "<p>Please settle the overdue balance.</p><p>{INVOICE_TABLE}</p>",
                 "invoices_referenced": [],
             }
         )
@@ -1048,7 +1049,7 @@ class TestGuardrailRetrySemantics:
         mock_response = _make_llm_response(
             {
                 "subject": "Follow-up",
-                "body": "<p>Please settle the overdue balance.</p>",
+                "body": "<p>Please settle the overdue balance.</p><p>{INVOICE_TABLE}</p>",
                 "invoices_referenced": [],
             }
         )
