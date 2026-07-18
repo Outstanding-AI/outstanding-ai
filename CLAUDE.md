@@ -12,7 +12,7 @@ Stateless AI microservice powering intelligent debt collection workflows.
 
 ## MCP Workflow
 
-After reading workspace `AGENTS.md`, read `/Users/bijitdeka23/Downloads/Solvix_repo/docs/MCP_DEVELOPMENT_WORKFLOW.md` before using MCP tools for local service health, logs, Solvix-specific verification recipes, sync graphs, analysis components, Postgres, MinIO, AWS, Grafana/Loki, or PostHog.
+After reading workspace `AGENTS.md`, read `/Users/bijitdeka23/Downloads/Solvix_repo/docs/MCP_DEVELOPMENT_WORKFLOW.md` before using MCP tools for local service health, logs, Solvix-specific verification recipes, sync graphs, analysis components, Postgres, AWS, Grafana/Loki, or PostHog.
 
 ## Directory Structure
 
