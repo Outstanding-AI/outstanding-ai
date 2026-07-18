@@ -8,171 +8,9 @@ on the generate/retry loop.
 
 import logging
 
-from src.prompts._sanitize import sanitize_delimiter_tags
+from src.prompts import draft_context as _prompt_context
 
 logger = logging.getLogger(__name__)
-
-_PROMISE_TERMINAL_OUTCOMES = {
-    "broken",
-    "cancelled",
-    "canceled",
-    "clear",
-    "cleared",
-    "expired",
-    "expired_unfulfilled",
-    "fulfilled",
-    "kept",
-    "paid",
-    "settled",
-}
-
-
-def _safe_prompt_value(value, *, max_length: int = 240) -> str:
-    text = sanitize_delimiter_tags(str(value or ""))
-    text = " ".join(text.split())
-    return text[:max_length]
-
-
-def _as_dict(value) -> dict:
-    if isinstance(value, dict):
-        return value
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    if hasattr(value, "dict"):
-        return value.dict()
-    return {}
-
-
-def _float_value(value) -> float:
-    try:
-        return float(value or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _candidate_currency(request, obligation) -> str:
-    return (
-        str(
-            getattr(obligation, "currency", None)
-            or getattr(obligation, "currency_code", None)
-            or getattr(obligation, "document_currency_code", None)
-            or getattr(obligation, "base_currency", None)
-            or getattr(request.context.party, "currency", None)
-            or getattr(request.context, "base_currency", "")
-            or ""
-        )
-        .strip()
-        .upper()
-    )
-
-
-def _candidate_amount_after_credit(obligation) -> float:
-    net = getattr(obligation, "net_amount_due_after_credit_native", None)
-    if net is not None:
-        return _float_value(net)
-    return _float_value(getattr(obligation, "amount_due", None))
-
-
-def _recent_history_is_inbound_reply_trigger(request, recent_msgs: list[dict]) -> bool:
-    if getattr(request, "trigger_classification", None):
-        return True
-    if not recent_msgs:
-        return False
-    latest = recent_msgs[0] if isinstance(recent_msgs[0], dict) else {}
-    return str(latest.get("direction") or "").lower() == "inbound" and bool(
-        str(latest.get("classification") or "").strip()
-    )
-
-
-def _format_collection_thread_temporal_lines(request) -> list[str]:
-    evidence = getattr(request.context, "collection_thread_invoice_evidence", None) or []
-    lines: list[str] = []
-    for invoice in evidence[:12]:
-        if not isinstance(invoice, dict):
-            invoice = _as_dict(invoice)
-        invoice_number = _safe_prompt_value(
-            invoice.get("invoice_number") or invoice.get("invoice_ref_normalized") or "unknown",
-            max_length=64,
-        )
-        current_state = _safe_prompt_value(invoice.get("current_state") or "unknown", max_length=64)
-        current_amount = invoice.get("current_amount_due")
-        states = invoice.get("message_states") or []
-        state_bits = []
-        for state in states[:3]:
-            if not isinstance(state, dict):
-                state = _as_dict(state)
-            as_of_state = _safe_prompt_value(state.get("as_of_state") or "unknown", max_length=48)
-            source = _safe_prompt_value(state.get("as_of_source") or "unknown", max_length=48)
-            confidence = _safe_prompt_value(
-                state.get("as_of_confidence") or "unknown", max_length=24
-            )
-            state_bits.append(f"{as_of_state} then ({source}, {confidence})")
-        history = "; ".join(state_bits) if state_bits else "no message-time state"
-        chase_flag = "yes" if invoice.get("will_be_chased_if_adopted") else "no"
-        amount_suffix = (
-            f", current amount due {current_amount}" if current_amount not in (None, "") else ""
-        )
-        lines.append(
-            f"- {invoice_number}: {history}; current Sage state={current_state}{amount_suffix}; "
-            f"current chase scope={chase_flag}"
-        )
-    return lines
-
-
-def _extract_debtor_reply_promise_facts(request) -> list[dict]:
-    """Return promise facts from the current debtor reply and active promise state."""
-    facts: list[dict] = []
-    seen: set[tuple[str, str, str]] = set()
-
-    def add_fact(*, source: str, promise_date, amount=None, invoice_refs=None, excerpt=None):
-        if not promise_date:
-            return
-        date_text = _safe_prompt_value(promise_date, max_length=32)
-        amount_text = _safe_prompt_value(amount, max_length=64) if amount not in (None, "") else ""
-        refs = invoice_refs if isinstance(invoice_refs, list) else []
-        ref_text = ", ".join(_safe_prompt_value(ref, max_length=64) for ref in refs if ref)
-        key = (source, date_text, ref_text)
-        if key in seen:
-            return
-        seen.add(key)
-        facts.append(
-            {
-                "source": source,
-                "promise_date": date_text,
-                "promise_amount": amount_text,
-                "invoice_refs": ref_text,
-                "excerpt": _safe_prompt_value(excerpt, max_length=260) if excerpt else "",
-            }
-        )
-
-    recent_msgs = request.context.lane_recent_messages or request.context.recent_messages or []
-    for msg in recent_msgs:
-        if not isinstance(msg, dict):
-            continue
-        classification = str(msg.get("classification") or "").upper()
-        direction = str(msg.get("direction") or "").lower()
-        has_promise = classification == "PROMISE_TO_PAY" or bool(msg.get("promise_date"))
-        if direction == "inbound" and has_promise:
-            add_fact(
-                source="current debtor reply",
-                promise_date=msg.get("promise_date"),
-                amount=msg.get("promise_amount"),
-                invoice_refs=msg.get("invoice_refs"),
-                excerpt=msg.get("body_snippet"),
-            )
-
-    for promise in getattr(request.context, "promises", []) or []:
-        data = _as_dict(promise)
-        outcome = str(data.get("outcome") or "pending").lower()
-        if outcome in _PROMISE_TERMINAL_OUTCOMES:
-            continue
-        add_fact(
-            source="active promise record",
-            promise_date=data.get("promise_date"),
-            amount=data.get("promise_amount"),
-        )
-
-    return facts
 
 
 def format_sender_persona(request) -> str:
@@ -359,7 +197,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         source_query = str(obligation.get("source_query_raw") or "").strip()
         excluded_lines.append(
             f"- {inv}: excluded, invoice dispute/source Sage query flag"
-            + (f" ({_safe_prompt_value(source_query)})" if source_query else "")
+            + (f" ({_prompt_context.safe_prompt_value(source_query)})" if source_query else "")
         )
     if excluded_lines:
         sections.append(
@@ -376,9 +214,13 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         credit_lines = []
         if candidate_credit_context:
             currency = str(candidate_credit_context.get("currency") or "").strip().upper()
-            candidate_total = _float_value(candidate_credit_context.get("candidate_overdue_amount"))
-            unapplied = _float_value(candidate_credit_context.get("unapplied_credit_amount"))
-            net = _float_value(candidate_credit_context.get("net_candidate_amount"))
+            candidate_total = _prompt_context.float_value(
+                candidate_credit_context.get("candidate_overdue_amount")
+            )
+            unapplied = _prompt_context.float_value(
+                candidate_credit_context.get("unapplied_credit_amount")
+            )
+            net = _prompt_context.float_value(candidate_credit_context.get("net_candidate_amount"))
             invoice_refs = candidate_credit_context.get("invoice_refs") or []
             if currency and (candidate_total > 0 or unapplied > 0):
                 credit_lines.append(
@@ -390,12 +232,12 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         for obligation in (
             candidate_obligations or getattr(request.context, "obligations", None) or []
         ):
-            currency = _candidate_currency(request, obligation)
+            currency = _prompt_context.candidate_currency(request, obligation)
             if not currency:
                 continue
             candidate_totals_by_currency[currency] = candidate_totals_by_currency.get(
                 currency, 0.0
-            ) + _candidate_amount_after_credit(obligation)
+            ) + _prompt_context.candidate_amount_after_credit(obligation)
         positions_by_currency = {
             str(
                 getattr(position, "currency_code", None)
@@ -407,7 +249,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         }
         for currency, candidate_total in sorted(candidate_totals_by_currency.items()):
             position = positions_by_currency.get(currency)
-            unapplied = _float_value(getattr(position, "unapplied_credit_amount_native", 0.0))
+            unapplied = _prompt_context.float_value(
+                getattr(position, "unapplied_credit_amount_native", 0.0)
+            )
             net = max(candidate_total - unapplied, 0.0)
             if candidate_total > 0 or unapplied > 0:
                 credit_lines.append(
@@ -419,11 +263,15 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             currency = getattr(position, "currency_code", None) or getattr(
                 request.context.party, "currency", ""
             )
-            unapplied = _float_value(getattr(position, "unapplied_credit_amount_native", 0.0))
-            overdue = _float_value(
+            unapplied = _prompt_context.float_value(
+                getattr(position, "unapplied_credit_amount_native", 0.0)
+            )
+            overdue = _prompt_context.float_value(
                 getattr(position, "recovery_eligible_overdue_amount_native", 0.0)
             )
-            net = _float_value(getattr(position, "net_recovery_eligible_overdue_native", 0.0))
+            net = _prompt_context.float_value(
+                getattr(position, "net_recovery_eligible_overdue_native", 0.0)
+            )
             if unapplied > 0 or overdue > 0:
                 credit_lines.append(
                     f"- Party credit position background {currency}: overdue eligible for recovery {overdue:,.2f}; "
@@ -436,7 +284,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             currency = getattr(adjustment, "currency_code", None) or getattr(
                 request.context.party, "currency", ""
             )
-            allocated = _float_value(getattr(adjustment, "allocated_credit_amount_native", 0.0))
+            allocated = _prompt_context.float_value(
+                getattr(adjustment, "allocated_credit_amount_native", 0.0)
+            )
             net = getattr(adjustment, "invoice_amount_due_after_credit_native", None)
             credit_lines.append(
                 f"- Invoice {invoice}: Sage allocated credit {currency} {allocated:,.2f}"
@@ -543,13 +393,13 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 "- Include one short sentence that references prior outreach or the last contact date when supplied. "
                 "Do not write as if this is a first contact. Do not expose the touch/reminder number to the debtor."
             )
-        protocol_lines = _build_protocol_decision_lines(lane_state, request)
+        protocol_lines = _prompt_context.protocol_decision_lines(lane_state, request)
         if protocol_lines:
             sections.append(
                 "\n\n**Protocol Decision (deterministic, do not override):**\n"
                 + "\n".join(protocol_lines)
             )
-        schedule_lines = _build_scheduled_prep_lines(lane_state, request)
+        schedule_lines = _prompt_context.scheduled_prep_lines(lane_state, request)
         if schedule_lines:
             sections.append(
                 "\n\n**Scheduled Prep Context (internal, do not mention):**\n"
@@ -715,18 +565,18 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
     reply_scope = getattr(request.context, "reply_scope", None) or {}
     if isinstance(reply_scope, dict) and reply_scope:
         scoped_invoices = [
-            _safe_prompt_value(value, max_length=64)
+            _prompt_context.safe_prompt_value(value, max_length=64)
             for value in (reply_scope.get("invoice_refs") or [])
             if str(value or "").strip()
         ]
         scoped_obligations = [
-            _safe_prompt_value(value, max_length=64)
+            _prompt_context.safe_prompt_value(value, max_length=64)
             for value in (reply_scope.get("obligation_ids") or [])
             if str(value or "").strip()
         ]
         sections.append(
             "\n\n**Reply Scope:**\n"
-            f"- Scope Status: {_safe_prompt_value(reply_scope.get('scope_status'), max_length=64) or 'unknown'}\n"
+            f"- Scope Status: {_prompt_context.safe_prompt_value(reply_scope.get('scope_status'), max_length=64) or 'unknown'}\n"
             f"- Scoped Invoices: {', '.join(scoped_invoices) if scoped_invoices else 'none listed'}\n"
             f"- Scoped Obligations: {', '.join(scoped_obligations) if scoped_obligations else 'none listed'}\n"
             "- This reply must discuss only the scoped invoices/obligations above. Do not mention, chase, "
@@ -841,7 +691,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 state_bits = []
                 for state in invoice_states[:4]:
                     if not isinstance(state, dict):
-                        state = _as_dict(state)
+                        state = _prompt_context.as_dict(state)
                     invoice = (
                         state.get("invoice_number") or state.get("invoice_ref_raw") or "unknown"
                     )
@@ -866,7 +716,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             msg_lines.append(line)
         if msg_lines:
             header = "\n\n**Recent Conversation History:**\n"
-            is_reply_trigger = _recent_history_is_inbound_reply_trigger(request, recent_msgs)
+            is_reply_trigger = _prompt_context.recent_history_is_inbound_reply_trigger(
+                request, recent_msgs
+            )
             if allow_thread_continuity and is_reply_trigger:
                 footer = (
                     "\n\nThis is a FOLLOW-UP email. You MUST acknowledge the debtor's most recent "
@@ -886,7 +738,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 )
             sections.append(header + "\n".join(msg_lines) + footer)
 
-    temporal_lines = _format_collection_thread_temporal_lines(request)
+    temporal_lines = _prompt_context.collection_thread_temporal_lines(request)
     if temporal_lines:
         sections.append(
             "\n\n**Collection Thread Temporal Evidence:**\n"
@@ -896,7 +748,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             "Do not use historical amounts as current demand amounts."
         )
 
-    promise_facts = _extract_debtor_reply_promise_facts(request)
+    promise_facts = _prompt_context.debtor_reply_promise_facts(request)
     if promise_facts:
         fact_lines = []
         for fact in promise_facts:
@@ -1107,111 +959,3 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             )
 
     return "".join(sections)
-
-
-def _build_protocol_decision_lines(lane_state, request) -> list[str]:
-    """Render overdue-protocol routing facts when present on the lane context."""
-    if not isinstance(lane_state, dict):
-        return []
-
-    field_labels = (
-        ("protocol_anchor_basis", "Anchor Basis"),
-        ("protocol_anchor_date", "Anchor Date"),
-        ("protocol_age_days", "Overdue Age Used"),
-        ("protocol_selected_day", "Selected Protocol Day"),
-        ("protocol_selected_level", "Selected Level"),
-        ("protocol_selected_touch_index", "Selected Touch Index"),
-        ("protocol_selected_tone", "Selected Tone"),
-        ("protocol_intended_level", "Intended Level"),
-        ("protocol_actual_sender_level", "Actual Sender Level"),
-        ("protocol_fallback_reason", "Fallback Reason"),
-        ("protocol_slot_key", "Protocol Slot"),
-    )
-
-    lines = []
-    for field, label in field_labels:
-        value = lane_state.get(field)
-        if value is not None and value != "":
-            lines.append(f"- {label}: {_safe_prompt_value(value)}")
-
-    runtime_tone = getattr(request, "tone", None)
-    if runtime_tone:
-        lines.append(f"- Runtime-Selected Tone: {_safe_prompt_value(runtime_tone)}")
-
-    sender_email = lane_state.get("current_sender_email")
-    sender_name = lane_state.get("current_sender_name")
-    if sender_email or sender_name:
-        sender = " / ".join(str(v) for v in (sender_name, sender_email) if v)
-        lines.append(f"- Runtime-Selected Sender: {_safe_prompt_value(sender)}")
-
-    recipient_email = lane_state.get("current_recipient_email")
-    recipient_name = lane_state.get("current_recipient_name")
-    if recipient_email or recipient_name:
-        recipient = " / ".join(str(v) for v in (recipient_name, recipient_email) if v)
-        lines.append(f"- Runtime-Selected Recipient: {_safe_prompt_value(recipient)}")
-
-    if lines:
-        lines.append(
-            "- Instruction: follow these protocol facts exactly. They are deterministic product decisions, "
-            "not suggestions for the model to reinterpret."
-        )
-    return lines
-
-
-def _build_scheduled_prep_lines(lane_state, request) -> list[str]:
-    """Render scheduler timing facts without exposing product internals."""
-    values = {}
-    if isinstance(lane_state, dict):
-        values.update(
-            {
-                "protocol_due_at": lane_state.get("protocol_due_at"),
-                "not_before_at": lane_state.get("not_before_at"),
-                "planned_send_at": lane_state.get("planned_send_at"),
-                "is_forecast": lane_state.get("is_forecast"),
-                "generation_policy_mode": lane_state.get("generation_policy_mode"),
-            }
-        )
-
-    for context in getattr(request.context, "lane_contexts", []) or []:
-        for field in (
-            "protocol_due_at",
-            "not_before_at",
-            "planned_send_at",
-            "is_forecast",
-            "generation_policy_mode",
-        ):
-            value = getattr(context, field, None)
-            if values.get(field) in (None, "") and value not in (None, ""):
-                values[field] = value
-
-    for field in ("protocol_due_at", "not_before_at", "planned_send_at", "is_scheduled_prep"):
-        value = getattr(request.context, field, None)
-        if values.get(field) in (None, "") and value not in (None, ""):
-            values[field] = value
-
-    if values.get("generation_policy_mode") != "scheduled_prep" and not values.get(
-        "is_scheduled_prep"
-    ):
-        return []
-
-    lines = []
-    planned_send_at = (
-        values.get("planned_send_at")
-        or values.get("not_before_at")
-        or values.get("protocol_due_at")
-    )
-    if planned_send_at:
-        lines.append(f"- Planned Send Timing: {_safe_prompt_value(planned_send_at)}")
-    if values.get("not_before_at"):
-        lines.append(
-            f"- Do Not Imply This Touch Occurred Before: {_safe_prompt_value(values['not_before_at'])}"
-        )
-    if values.get("is_forecast"):
-        lines.append(
-            "- Forecast Slot: yes; this draft is prepared early for an upcoming protocol-due action."
-        )
-    lines.append(
-        "- Instruction: use the planned send timing only for temporal wording. Do not mention scheduling windows, "
-        "forecasting, internal policy, or any 'send after' instruction to the debtor."
-    )
-    return lines

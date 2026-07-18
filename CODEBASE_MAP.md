@@ -8,7 +8,7 @@ Concept → file navigation index.
 |---------|------|
 | Email classification | `src/engine/classifier.py` |
 | Draft generation (orchestration) | `src/engine/generator.py` | `DraftGenerator.generate()` orchestrates `_assemble_prompt`, `_run_llm_with_guardrails`, `_build_response`; honors upstream collection-policy blocks before model work, blocks non-current/held obligations, and treats temporal thread evidence as continuity context only |
-| Draft prompt builders | `src/engine/generator_prompts.py` | collection-case-aware wording, temporal evidence summaries, concise operator-style phrasing, live/broken commitment instructions |
+| Draft prompt section composer | `src/engine/generator_prompts.py` | preserves prompt-section ordering and composes request-level drafting guidance; no direct model or data-lake work |
 | Shared formatters | `src/engine/formatters.py` |
 | Persona management | `src/engine/persona.py` |
 
@@ -20,6 +20,7 @@ Concept → file navigation index.
 |---------|------|
 | Classification prompt | `src/prompts/classification.py` |
 | Draft generation prompt | `src/prompts/draft_generation.py` | strategy-aware wording: `single_active_debtor_thread` continues one debtor thread; `invoice_cohort_thread` keeps legacy cohort behavior; collection policy is upstream authority |
+| Draft prompt context formatters | `src/prompts/draft_context.py` | pure, bounded rendering of supplied obligation, protocol, thread-temporal, promise, and scheduled-preparation facts; no SQL, HTTP, or LLM calls |
 | Prompt sanitization helpers | `src/prompts/_sanitize.py` |
 
 ## Guardrails
