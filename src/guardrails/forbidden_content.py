@@ -9,7 +9,8 @@ from .base import BaseGuardrail, GuardrailResult, GuardrailSeverity
 PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "bank_payment_details": [
         re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"),
-        re.compile(r"\b\d{2}[-\s]?\d{2}[-\s]?\d{2}\b"),
+        # Sort-code shape, but never the YY-MM-DD tail of an ISO date.
+        re.compile(r"(?<![\d-])\d{2}[-\s]?\d{2}[-\s]?\d{2}(?![\d-])"),
         re.compile(r"(?<!\d)\d{8}(?!\d)"),
         re.compile(r"\b[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b"),
     ],

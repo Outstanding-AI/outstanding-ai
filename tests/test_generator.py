@@ -278,10 +278,11 @@ class TestDraftGenerator:
 
         prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
 
-        assert "Prior Outreach:" in prompt_ctx.user_prompt
-        assert "Include one concise debtor-facing line" in prompt_ctx.user_prompt
+        assert "Party Activity Diagnostic: 2 previous touch(es)" in prompt_ctx.user_prompt
+        assert "not invoice-grain sent proof" in prompt_ctx.user_prompt
         assert "Debtor-Facing Prior Outreach Instruction" in prompt_ctx.user_prompt
         assert "do not mention prior staff by name" in prompt_ctx.user_prompt
+        assert "2026-06-16" not in prompt_ctx.user_prompt
         assert "my colleague" not in prompt_ctx.user_prompt
 
     @pytest.mark.asyncio
@@ -835,7 +836,8 @@ class TestDraftGenerator:
         prompt_ctx = generator._assemble_prompt(sample_generate_draft_request)
 
         assert "**Scheduled Prep Context (internal, do not mention):**" in prompt_ctx.user_prompt
-        assert "Planned Send Timing: 2026-06-05T00:00:00" in prompt_ctx.user_prompt
+        assert "2026-06-05" not in prompt_ctx.user_prompt
+        assert "Scheduling/forecast dates are operational only" in prompt_ctx.user_prompt
         assert "Do not mention scheduling windows" in prompt_ctx.user_prompt
 
     def test_prompt_renders_reply_scope_and_excludes_unrelated_invoice_instruction(

@@ -538,7 +538,13 @@ class ContextReadRepository:
               ON dle.tenant_id = d.tenant_id
              AND dle.draft_id = d.draft_id
              AND dle.event_type = 'sent_confirmed'
-             AND dle.proof_type IN ('graph_sent_items_exact_oai', 'message_trace', 'purview_send_as')
+             AND dle.proof_type IN (
+                 'graph_sent_items_exact_oai',
+                 'graph_create_reply_sent_items_match',
+                 'captured_sent_copy_exact_oai',
+                 'message_trace',
+                 'purview_send_as'
+             )
             ORDER BY d.party_id, COALESCE(d.sent_at, a.event_time, a.valid_from) DESC NULLS LAST
             """
         return self.reader.execute(
@@ -566,7 +572,7 @@ class ContextReadRepository:
             SELECT
                 c.party_id,
                 c.id,
-                COALESCE(c.contact_name, c.name, c.email_normalized, c.email, c.email_address) AS name,
+                NULLIF(TRIM(COALESCE(c.contact_name, c.name)), '') AS name,
                 COALESCE(c.email_normalized, c.email, c.email_address) AS email,
                 COALESCE(c.is_default_email, c.is_default_contact, c.is_default, FALSE) AS is_default,
                 COALESCE(c.is_send_statement_to, FALSE) AS is_send_statement_to,

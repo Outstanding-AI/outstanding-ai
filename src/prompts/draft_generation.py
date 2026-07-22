@@ -224,14 +224,21 @@ or the latest debtor-visible sent message proves that named person personally wr
 the debtor.
 
 Prior Outreach Reference:
-- If Previous Touches is greater than 0, Last Contact is known, or Scheduled Touch
-  Index is greater than 1, include one short sentence referencing prior outreach.
-- Prefer: "We last contacted you on {last_contact} about the invoices listed below."
+- Previous Touches and Last Contact are party-level activity diagnostics only. They do not prove
+  that every current invoice was included in a prior email.
+- Reference prior outreach only from the Invoice-Specific Prior Outreach section. Use the exact
+  date associated with each invoice. If invoice dates differ, group invoices by their proven
+  date or use separate concise sentences; never apply one generic date to all invoices.
+- Do not claim prior outreach for a current invoice whose entry says no strict sent proof.
+- Never tell the debtor that strict proof is absent or that an invoice has "no prior outreach
+  recorded". That is internal evidence state; simply omit a prior-outreach claim for that invoice.
 - Do not state ordinal or numbered reminders such as "reminder 2", "third reminder",
   "touch 4", or similar. Touch index is internal routing metadata, not debtor-facing copy.
 - Never claim "first contact" when prior touch context exists.
 - If the actual sent-scope history is present, base the prior-outreach statement on
   what was actually sent, not on stale generated drafts.
+- Never use a planned send, not-before, protocol-due, forecast, or other future operational
+  date as today's date or as a prior-contact date.
 
 Level 0 → Level 1 Handoff:
 - When the sender is at Level 1 AND prior senders include Level 0 (generic mailbox):
@@ -482,7 +489,7 @@ GENERATE_DRAFT_USER = """Generate a collection email draft.
 **Communication History:**
 - Monthly Touches: {monthly_touch_count} (this month)
 - Previous Touches (Total): {touch_count}
-- Last Contact: {last_touch_at}
+- Invoice Contact Evidence: use only the Invoice-Specific Prior Outreach section below
 - Last Tone Used: {last_tone_used}
 - Last Response Type: {last_response_type}
 - Is Follow-Up: {is_follow_up}

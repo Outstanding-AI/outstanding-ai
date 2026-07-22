@@ -17,6 +17,7 @@ GENERIC_NAMES = {
 }
 EMAIL_PATTERN = re.compile(r"\b[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}\b")
 GREETING_PATTERN = re.compile(r"\b(?:hey|hi|hello)\s+([A-Z][a-zA-Z'-]+)")
+GREETING_EMAIL_PATTERN = re.compile(r"\b(?:hey|hi|hello)\s+[^\s,<]+@[^\s,>]+", re.IGNORECASE)
 REPLY_TO_PATTERN = re.compile(r"reply\s+(?:to|at)\s+([\w.+-]+@[\w.-]+\.\w{2,})", re.IGNORECASE)
 
 
@@ -30,6 +31,9 @@ class IdentityScopeGuardrail(BaseGuardrail):
         recipient_name = (kwargs.get("recipient_name") or "").strip()
         recipient_first = recipient_name.split()[0].lower() if recipient_name else ""
         sender_first = ((kwargs.get("sender_name") or "").strip().split() or [""])[0].lower()
+
+        if GREETING_EMAIL_PATTERN.search(output):
+            return [self._fail("Email address used as a debtor salutation")]
 
         greeting_match = GREETING_PATTERN.search(output)
         if greeting_match:

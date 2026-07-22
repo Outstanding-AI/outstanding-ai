@@ -48,7 +48,11 @@ from src.prompts._sanitize import sanitize_delimiter_tags
 
 from .audit import build_ai_audit
 from .formatters import format_industry_context
-from .generator_prompts import build_extra_sections, format_sender_persona
+from .generator_prompts import (
+    build_extra_sections,
+    build_invoice_outreach_dates,
+    format_sender_persona,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +177,9 @@ class _PromptContext:
     obligation_count: int = 0
     candidate_obligation_ids: list[str] = field(default_factory=list)
     candidate_invoice_refs: list[str] = field(default_factory=list)
+    recipient_name: str = ""
+    invoice_outreach_dates: dict[str, str] = field(default_factory=dict)
+    forbidden_forecast_dates: list[str] = field(default_factory=list)
     prompt_input: dict[str, Any] = field(default_factory=dict)
     last_user_prompt: str = ""
 
@@ -357,20 +364,25 @@ class DraftGenerator:
             else "No — first contact"
         )
 
-        # Get contact person FIRST NAME from debtor_contact context
+        # Get a human contact name. An email address is routing identity, never
+        # a permissible salutation fallback.
         contact_name = ""
         if request.context.debtor_contact:
             dc = request.context.debtor_contact
+            raw_name = str(dc.get("name") or "").strip()
+            raw_first_name = str(dc.get("first_name") or "").strip()
+            if "@" in raw_name:
+                raw_name = ""
+            if "@" in raw_first_name:
+                raw_first_name = ""
             if (
                 dc.get("recipient_source") == "inbound_reply_sender"
-                and dc.get("name")
-                and not dc.get("first_name")
+                and raw_name
+                and not raw_first_name
             ):
-                contact_name = dc.get("name", "")
+                contact_name = raw_name
             else:
-                contact_name = dc.get("first_name") or (
-                    dc.get("name", "").split()[0] if dc.get("name") else ""
-                )
+                contact_name = raw_first_name or (raw_name.split()[0] if raw_name else "")
 
         # Build base user prompt
         base_user_prompt = GENERATE_DRAFT_USER.format(
@@ -428,6 +440,9 @@ class DraftGenerator:
             candidate_invoice_refs=[
                 str(o.invoice_number) for o in candidate_obligations if o.invoice_number
             ],
+            recipient_name=contact_name,
+            invoice_outreach_dates=build_invoice_outreach_dates(request, candidate_obligations),
+            forbidden_forecast_dates=self._forecast_dates(request),
             prompt_input={
                 "context": request.context.model_dump(mode="json", exclude_none=True),
                 "tone": request.tone,
@@ -441,6 +456,25 @@ class DraftGenerator:
                 "trigger_classification": request.trigger_classification,
             },
         )
+
+    @staticmethod
+    def _forecast_dates(request: GenerateDraftRequest) -> list[str]:
+        """Collect operational dates that must never leak into debtor copy."""
+        values = []
+        lane = request.context.lane if isinstance(request.context.lane, dict) else {}
+        lane_contexts = request.context.lane_contexts or []
+        for field_name in ("planned_send_at", "not_before_at", "protocol_due_at"):
+            values.append(getattr(request.context, field_name, None))
+            values.append(lane.get(field_name))
+            values.extend(getattr(context, field_name, None) for context in lane_contexts)
+        dates = set()
+        for value in values:
+            if not value:
+                continue
+            match = re.search(r"\d{4}-\d{2}-\d{2}", str(value))
+            if match:
+                dates.add(match.group(0))
+        return sorted(dates)
 
     async def _run_llm_with_guardrails(
         self, request: GenerateDraftRequest, prompt_ctx: _PromptContext
@@ -564,15 +598,13 @@ class DraftGenerator:
                     if request.context.communication_tracking
                     else None
                 ),
-                recipient_name=(
-                    request.context.debtor_contact.get("name")
-                    if request.context.debtor_contact
-                    else None
-                ),
+                recipient_name=prompt_ctx.recipient_name,
                 mail_mode=request.context.lane_mail_mode,
                 lane_context=request.context.lane,
                 candidate_obligation_ids=prompt_ctx.candidate_obligation_ids,
                 candidate_invoice_refs=prompt_ctx.candidate_invoice_refs,
+                invoice_outreach_dates=prompt_ctx.invoice_outreach_dates,
+                forbidden_forecast_dates=prompt_ctx.forbidden_forecast_dates,
                 authorized_policies=request.context.authorized_policies or {},
             )
             timing.guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
@@ -918,17 +950,10 @@ class DraftGenerator:
             lines.append("- Previous Sender Name: (not available — do not invent a person)")
 
         if comm and (comm.last_touch_at or int(comm.touch_count or 0) > 0):
-            last_touch_text = (
-                comm.last_touch_at.strftime("%Y-%m-%d")
-                if getattr(comm.last_touch_at, "strftime", None)
-                else str(comm.last_touch_at)
-                if comm.last_touch_at
-                else "unknown date"
-            )
             lines.append(
-                f"- Prior Outreach: {int(comm.touch_count or 0)} previous touch(es); "
-                f"last contact {last_touch_text}. Include one concise debtor-facing line "
-                "that references this prior outreach."
+                f"- Party Activity Diagnostic: {int(comm.touch_count or 0)} previous touch(es). "
+                "This is not invoice-grain sent proof and must not supply a date or imply that all "
+                "current invoices were previously contacted. Use Invoice-Specific Prior Outreach only."
             )
 
         # 3. Legal handoff days (from industry alarm_dso_days)

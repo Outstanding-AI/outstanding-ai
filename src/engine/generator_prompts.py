@@ -7,10 +7,38 @@ on the generate/retry loop.
 """
 
 import logging
+import re
+from collections import defaultdict
 
 from src.prompts import draft_context as _prompt_context
 
 logger = logging.getLogger(__name__)
+
+
+def _normalized_invoice_ref(value) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def build_invoice_outreach_dates(request, candidate_obligations) -> dict[str, str]:
+    """Return the latest strictly-proven sent date for each current invoice."""
+    candidate_refs = {
+        _normalized_invoice_ref(getattr(obligation, "invoice_number", None))
+        for obligation in candidate_obligations or []
+        if getattr(obligation, "invoice_number", None)
+    }
+    latest_by_ref: dict[str, str] = {}
+    for history in getattr(request.context, "actual_sent_scope_history", None) or []:
+        sent_at = getattr(history, "sent_at", None)
+        if not sent_at:
+            continue
+        sent_date = sent_at.strftime("%Y-%m-%d")
+        for invoice_ref in getattr(history, "invoice_refs_sent", None) or []:
+            normalized = _normalized_invoice_ref(invoice_ref)
+            if normalized in candidate_refs and (
+                normalized not in latest_by_ref or sent_date > latest_by_ref[normalized]
+            ):
+                latest_by_ref[normalized] = sent_date
+    return latest_by_ref
 
 
 def format_sender_persona(request) -> str:
@@ -98,6 +126,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         Concatenated string of all applicable prompt sections.
     """
     sections = []
+    candidate_obligations = list(candidate_obligations or [])
     tracking = getattr(request.context, "communication_tracking", None)
     strict_sent_proof_type = getattr(tracking, "sent_proof_type", None) if tracking else None
     allow_thread_continuity = not tracking or (
@@ -390,8 +419,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         if isinstance(scheduled_touch, int) and scheduled_touch > 1:
             sections.append(
                 "\n\n**Debtor-Facing Prior Outreach Instruction:**\n"
-                "- Include one short sentence that references prior outreach or the last contact date when supplied. "
-                "Do not write as if this is a first contact. Do not expose the touch/reminder number to the debtor."
+                "- Scheduled touch index is internal cadence state, not invoice-level sent proof. "
+                "Refer to prior outreach only where Invoice-Specific Prior Outreach supplies strict sent proof. "
+                "Do not expose the touch/reminder number to the debtor."
             )
         protocol_lines = _prompt_context.protocol_decision_lines(lane_state, request)
         if protocol_lines:
@@ -447,8 +477,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             if max_touch > 1:
                 sections.append(
                     "\n\n**Debtor-Facing Prior Outreach Instruction:**\n"
-                    "- Include one short sentence that references prior outreach when supplied. "
-                    "Do not write as if this is a first contact. Do not expose touch/reminder numbers to the debtor."
+                    "- Scheduled touch index is internal cadence state, not proof that each invoice was emailed. "
+                    "Refer to prior outreach only where Invoice-Specific Prior Outreach supplies strict sent proof. "
+                    "Do not expose the touch/reminder number to the debtor."
                 )
         else:
             lane = lane_contexts[0]
@@ -477,8 +508,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             if int(getattr(lane, "scheduled_touch_index", 0) or 0) > 1:
                 sections.append(
                     "\n\n**Debtor-Facing Prior Outreach Instruction:**\n"
-                    "- Include one short sentence that references prior outreach when supplied. "
-                    "Do not write as if this is a first contact. Do not expose touch/reminder numbers to the debtor."
+                    "- Scheduled touch index is internal cadence state, not invoice-level sent proof. "
+                    "Refer to prior outreach only where Invoice-Specific Prior Outreach supplies strict sent proof. "
+                    "Do not expose the touch/reminder number to the debtor."
                 )
 
     lane_history = getattr(request.context, "lane_history", None)
@@ -507,10 +539,46 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             )
         sections.append("\n\n**Lane History:**\n" + "\n".join(history_lines))
 
+    outreach_dates = build_invoice_outreach_dates(request, candidate_obligations)
+    outreach_by_date: dict[str, list[str]] = defaultdict(list)
+    no_proof_refs: list[str] = []
+    for obligation in candidate_obligations:
+        invoice_ref = str(getattr(obligation, "invoice_number", None) or "").strip()
+        if not invoice_ref:
+            continue
+        sent_date = outreach_dates.get(_normalized_invoice_ref(invoice_ref))
+        if sent_date:
+            outreach_by_date[sent_date].append(invoice_ref)
+        else:
+            no_proof_refs.append(invoice_ref)
+    if candidate_obligations:
+        outreach_lines = [
+            f"- {sent_date}: {', '.join(sorted(invoice_refs))}"
+            for sent_date, invoice_refs in sorted(outreach_by_date.items())
+        ]
+        if no_proof_refs:
+            outreach_lines.append(
+                "- Internal only — omit prior-outreach wording for: "
+                + ", ".join(sorted(no_proof_refs))
+            )
+        sections.append(
+            "\n\n**Invoice-Specific Prior Outreach (strict sent proof):**\n"
+            + ("\n".join(outreach_lines) or "- No current invoice has strict prior-send proof.")
+            + "\nIf any prior-outreach wording is used, it MUST name the affected invoice reference(s) "
+            "and their exact date in the same sentence. For example: 'We contacted you on "
+            "2026-06-23 regarding invoice 0000007851.' Group references only when they share one date. "
+            "Do not use generic phrases such as 'following up', 'prior outreach', or 'previously contacted' "
+            "without the exact invoice reference(s) and proven date. "
+            "Use only these exact invoice/date associations when referring to prior outreach. "
+            "Invoices on different dates must not be described as if they were contacted together. "
+            "Do not claim prior contact for invoices listed without strict proof, and do not tell the debtor "
+            "that proof is absent; omit prior-contact wording for those invoices."
+        )
+
     actual_sent_scope_history = getattr(request.context, "actual_sent_scope_history", None) or []
     if actual_sent_scope_history:
         sent_scope_lines = []
-        for history in actual_sent_scope_history[-6:]:
+        for history in actual_sent_scope_history[:6]:
             sent_at = getattr(history, "sent_at", None)
             sent_at_str = sent_at.strftime("%Y-%m-%d") if sent_at else "unknown date"
             sent_refs = getattr(history, "invoice_refs_sent", None) or []
@@ -595,13 +663,12 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             if h.get("level") == 0 or h.get("is_generic_mailbox"):
                 hist_lines.append(
                     f"- Level 0: Accounts Team (generic mailbox) "
-                    f"— {h['touch_count']} automated reminder(s), last on {h.get('last_touch_at', 'unknown')}"
+                    f"— {h['touch_count']} automated reminder(s)"
                 )
             else:
                 title_part = f", {h['title']}" if h.get("title") else ""
                 hist_lines.append(
-                    f"- Level {h['level']}: {h['name']}{title_part} "
-                    f"— {h['touch_count']} touch(es), last on {h.get('last_touch_at', 'unknown')}"
+                    f"- Level {h['level']}: {h['name']}{title_part} — {h['touch_count']} touch(es)"
                 )
         narrative_hint = (
             "\n\nUse this section for continuity only. Reference specific prior people "
@@ -609,7 +676,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             "explicitly asks for a cross-person escalation handoff.\n"
             "If Level 0 (generic mailbox) is in the history, reference it as "
             "'our accounts team' — NOT by a person's name. If the current visible sender "
-            "is a shared/generic mailbox, do not mention prior staff by name."
+            "is a shared/generic mailbox, do not mention prior staff by name. "
+            "This sender history is not invoice-grain sent proof and supplies no debtor-facing "
+            "contact date; use only Invoice-Specific Prior Outreach for dates."
         )
         sections.append(
             "\n\n**Prior Senders Who Contacted This Debtor:**\n"

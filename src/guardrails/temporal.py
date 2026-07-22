@@ -146,6 +146,7 @@ class TemporalConsistencyGuardrail(BaseGuardrail):
         date_patterns = [
             r"due\s+(?:on|by)\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})",
             r"due\s+date[:\s]+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})",
+            r"due(?:\s+on|\s+by|\s+date[:\s]+)\s*"
             r"(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})",
         ]
 

@@ -10,6 +10,7 @@ guardrail retry loop in the draft generator.
 
 import logging
 import re
+from datetime import date, datetime
 
 from src.api.models.requests import CaseContext
 
@@ -30,6 +31,21 @@ AMOUNT_PATTERNS = [
 CHASE_LANGUAGE_RE = re.compile(
     r"\b(pay|payment|settle|settlement|overdue|outstanding|owed|remit)\b|"
     r"\b(?:amount|balance|past)\s+due\b",
+    re.IGNORECASE,
+)
+OUTREACH_LANGUAGE_RE = re.compile(
+    r"\b(?:contacted|last contact|prior outreach|previous outreach|reached out|reminded|"
+    r"followed up|following up|follow-up|previously (?:wrote|emailed|contacted))\b",
+    re.IGNORECASE,
+)
+CURRENT_DATE_LANGUAGE_RE = re.compile(r"\b(?:today|as of today|as at)\b", re.IGNORECASE)
+DATE_TOKEN_RE = re.compile(
+    r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}(?:st|nd|rd|th)?\s+"
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+\d{4})\b",
     re.IGNORECASE,
 )
 
@@ -125,7 +141,74 @@ class FactualGroundingGuardrail(BaseGuardrail):
         results.append(self._validate_amounts(output, context, **kwargs))
         results.append(self._validate_source_disputes_not_chased(output, context))
         results.append(self._validate_procurement_grounding(output, context))
+        results.append(self._validate_outreach_dates(output, **kwargs))
         return results
+
+    def _validate_outreach_dates(self, output: str, **kwargs) -> GuardrailResult:
+        """Block unproven invoice outreach dates and leaked forecast dates."""
+        allowed_by_ref = {
+            _normalize_invoice_ref(ref): value
+            for ref, value in (kwargs.get("invoice_outreach_dates") or {}).items()
+        }
+        forbidden = set(kwargs.get("forbidden_forecast_dates") or [])
+        candidate_refs = [
+            str(value) for value in (kwargs.get("candidate_invoice_refs") or []) if value
+        ]
+        for segment in _segments(output):
+            is_outreach = bool(OUTREACH_LANGUAGE_RE.search(segment))
+            if not (is_outreach or CURRENT_DATE_LANGUAGE_RE.search(segment)):
+                continue
+            mentioned_dates = {
+                parsed.isoformat()
+                for token in DATE_TOKEN_RE.findall(segment)
+                if (parsed := self._parse_grounded_date(token))
+            }
+            leaked = mentioned_dates & forbidden
+            if leaked:
+                return self._fail(
+                    message="Operational forecast date leaked into debtor-facing wording",
+                    expected="Decision date or invoice-specific strict sent date",
+                    found=sorted(leaked),
+                )
+            if not is_outreach:
+                continue
+            segment_refs = [
+                ref for ref in candidate_refs if _segment_mentions_invoice_ref(segment, ref)
+            ]
+            if not mentioned_dates:
+                return self._fail(
+                    message="Prior-outreach wording lacks an exact strictly-proven date",
+                    expected=sorted(set(allowed_by_ref.values())),
+                    found=[],
+                )
+            if not segment_refs and len(candidate_refs) > 1:
+                return self._fail(
+                    message="Prior-outreach wording does not identify its invoice scope",
+                    expected=sorted(candidate_refs),
+                    found="generic multi-invoice outreach claim",
+                )
+            refs_to_check = segment_refs or candidate_refs
+            allowed_dates = {
+                allowed_by_ref.get(_normalize_invoice_ref(ref)) for ref in refs_to_check
+            }
+            if None in allowed_dates or not allowed_dates or mentioned_dates != allowed_dates:
+                return self._fail(
+                    message="Prior-outreach date is not strictly proven for the referenced invoice scope",
+                    expected=sorted(value for value in allowed_dates if value),
+                    found=sorted(mentioned_dates),
+                )
+        return self._pass("Prior-outreach and forecast dates are grounded")
+
+    @staticmethod
+    def _parse_grounded_date(value: str) -> date | None:
+        cleaned = re.sub(r"(\d+)(?:st|nd|rd|th)", r"\1", value.strip())
+        cleaned = cleaned.replace(",", "")
+        for fmt in ("%Y-%m-%d", "%d %B %Y", "%d %b %Y", "%B %d %Y", "%b %d %Y"):
+            try:
+                return datetime.strptime(cleaned, fmt).date()
+            except ValueError:
+                continue
+        return None
 
     def _validate_invoice_numbers(self, output: str, context: CaseContext) -> GuardrailResult:
         """Validate that all invoice numbers in the output exist in context.

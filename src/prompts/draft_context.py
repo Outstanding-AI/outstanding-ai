@@ -268,24 +268,15 @@ def scheduled_prep_lines(lane_state: Any, request: Any) -> list[str]:
     ):
         return []
     lines = []
-    planned_send_at = (
-        values.get("planned_send_at")
-        or values.get("not_before_at")
-        or values.get("protocol_due_at")
-    )
-    if planned_send_at:
-        lines.append(f"- Planned Send Timing: {safe_prompt_value(planned_send_at)}")
-    if values.get("not_before_at"):
-        lines.append(
-            f"- Do Not Imply This Touch Occurred Before: {safe_prompt_value(values['not_before_at'])}"
-        )
     if values.get("is_forecast"):
         lines.append(
             "- Forecast Slot: yes; this draft is prepared early for an upcoming protocol-due action."
         )
     lines.append(
-        "- Instruction: use the planned send timing only for temporal wording. Do not mention scheduling windows, "
-        "forecasting, internal policy, or any 'send after' instruction to the debtor."
+        "- Instruction: Scheduling/forecast dates are operational only. Never use a planned send, "
+        "not-before, protocol-due, or forecast date as 'today', a prior-contact date, or any debtor-facing date. "
+        "Use the decision cutoff for current-date wording and the invoice-specific sent-history section for prior "
+        "outreach wording. Do not mention scheduling windows, forecasting, or internal policy to the debtor."
     )
     return lines
 
