@@ -13,6 +13,12 @@ class WeeklyReportInvoiceFact(BaseModel):
 
     obligation_id: str = Field(min_length=1, max_length=160)
     invoice_number: str = Field(min_length=1, max_length=160)
+    invoice_date: date | None = None
+    customer_po_number: str | None = Field(default=None, max_length=240)
+    customer_po_source: str | None = Field(default=None, max_length=80)
+    sales_order_number: str | None = Field(default=None, max_length=240)
+    sales_order_status: str | None = Field(default=None, max_length=120)
+    sales_order_date: date | None = None
     currency: str = Field(min_length=1, max_length=12)
     amount_due: float
     due_date: date | None = None
@@ -61,9 +67,10 @@ class WeeklyOverdueReportSummaryRequest(BaseModel):
     reporting_window_end: date
     generated_at: datetime
     evidence_truncated: bool = False
-    invoices: list[WeeklyReportInvoiceFact] = Field(min_length=1, max_length=250)
+    invoices: list[WeeklyReportInvoiceFact] = Field(min_length=1, max_length=1)
     account_credit_positions: list[WeeklyReportAccountCreditPosition] = Field(
         default_factory=list,
         max_length=25,
     )
+    forbidden_references: list[str] = Field(default_factory=list, max_length=500)
     evidence_events: list[WeeklyReportEvidenceEvent] = Field(default_factory=list, max_length=250)
