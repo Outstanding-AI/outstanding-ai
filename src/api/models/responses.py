@@ -503,20 +503,17 @@ class AnalyzeSentDraftScopeResponse(BaseModel):
     ai_audit: Optional[AIAuditMetadata] = None
 
 
-class WeeklyReportAccountUpdate(BaseModel):
+class WeeklyReportMaterialUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    earlier_context: str = Field(max_length=240)
-    period_activity: str = Field(max_length=240)
-    current_position: str = Field(max_length=240)
-    next_action: str = Field(max_length=240)
-    evidence_ids: List[str] = Field(default_factory=list, max_length=100)
+    evidence_id: str = Field(min_length=1, max_length=200)
+    summary: str = Field(min_length=1, max_length=240)
 
 
 class WeeklyOverdueReportSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    account_update: WeeklyReportAccountUpdate
+    material_updates: List[WeeklyReportMaterialUpdate] = Field(default_factory=list, max_length=8)
     tokens_used: Optional[int] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None

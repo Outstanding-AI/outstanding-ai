@@ -84,6 +84,7 @@ class VertexProvider(BaseLLMProvider):
         temperature: float = None,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
+        reasoning_effort: Optional[str] = None,
         *,
         caller: str = "unknown",
     ) -> LLMResponse:

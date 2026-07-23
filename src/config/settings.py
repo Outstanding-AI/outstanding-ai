@@ -128,6 +128,7 @@ class Settings(BaseSettings):
 
     # --- Timeouts and Retries ---
     llm_timeout_seconds: int = 60  # Per-call timeout (seconds)
+    weekly_report_max_completion_tokens: int = 1536
     # Sent-scope analysis is called through a bounded backend HTTP request. Keep
     # the primary provider timeout below the backend deadline so OpenAI fallback
     # can still run before the caller times out.

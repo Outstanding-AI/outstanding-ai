@@ -103,6 +103,7 @@ class OpenAIProvider(BaseLLMProvider):
         temperature: float = None,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
+        reasoning_effort: Optional[str] = None,
         *,
         caller: str = "unknown",
     ) -> LLMResponse:
@@ -133,6 +134,13 @@ class OpenAIProvider(BaseLLMProvider):
             # For JSON mode without schema, configure response_format
             if json_mode and not response_schema:
                 client_kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+            if reasoning_effort:
+                client_kwargs["reasoning_effort"] = reasoning_effort
+            if caller == "weekly_overdue_report_summary":
+                client_kwargs["max_tokens"] = max(
+                    256,
+                    int(settings.weekly_report_max_completion_tokens),
+                )
 
             # Create client for this specific request
             client = ChatOpenAI(**client_kwargs)

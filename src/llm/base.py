@@ -58,6 +58,7 @@ class BaseLLMProvider(ABC):
         temperature: float = 0.7,
         json_mode: bool = False,
         response_schema: Optional[Type[BaseModel]] = None,
+        reasoning_effort: Optional[str] = None,
         *,
         caller: str = "unknown",
     ) -> LLMResponse:
@@ -72,6 +73,7 @@ class BaseLLMProvider(ABC):
             response_schema: Optional Pydantic model to enforce structured output.
                 When provided, the model is constrained to output valid JSON
                 matching this schema. More reliable than json_mode alone.
+            reasoning_effort: Optional provider-supported reasoning effort.
             caller: Logical caller identifier used for diagnostics.
         """
         pass

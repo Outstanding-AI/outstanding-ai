@@ -585,20 +585,20 @@ class CollectionChainRoutingLLMResponse(BaseModel):
     routes: list[CollectionChainInvoiceRouteLLMResponse] = Field(min_length=1, max_length=100)
 
 
-class WeeklyReportAccountUpdateLLMResponse(BaseModel):
+class WeeklyReportMaterialUpdateLLMResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    earlier_context: str = Field(max_length=240)
-    period_activity: str = Field(max_length=240)
-    current_position: str = Field(max_length=240)
-    next_action: str = Field(max_length=240)
-    evidence_ids: list[str] = Field(default_factory=list, max_length=100)
+    evidence_id: str = Field(min_length=1, max_length=200)
+    summary: str = Field(min_length=1, max_length=240)
 
 
 class WeeklyOverdueReportSummaryLLMResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    account_update: WeeklyReportAccountUpdateLLMResponse
+    material_updates: list[WeeklyReportMaterialUpdateLLMResponse] = Field(
+        default_factory=list,
+        max_length=8,
+    )
 
 
 class DraftReasoningResponse(BaseModel):

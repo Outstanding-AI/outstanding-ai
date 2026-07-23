@@ -19,7 +19,7 @@ from src.llm.schemas import WeeklyOverdueReportSummaryLLMResponse
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "weekly_overdue_report_summary"
-PROMPT_TEMPLATE_VERSION = "v3"
+PROMPT_TEMPLATE_VERSION = "v5"
 
 _SYSTEM_PROMPT = """You prepare concise accounts-receivable notes for an internal weekly
 overdue report used for approval, fact-checking, and follow-up planning.
@@ -31,13 +31,12 @@ only the clause about the target invoice and ignore every other invoice.
 
 Return a JSON object only:
 {
-  "account_update": {
-    "earlier_context": "material target-invoice history before reporting_window_start",
-    "period_activity": "target-invoice activity during the reporting window",
-    "current_position": "latest authored target-invoice position",
-    "next_action": "specific target-invoice action supported by the supplied controls",
-    "evidence_ids": ["only supplied evidence_id values"]
-  }
+  "material_updates": [
+    {
+      "evidence_id": "one supplied evidence_id",
+      "summary": "the business meaning of that event for this invoice"
+    }
+  ]
 }
 
 Rules:
@@ -60,18 +59,16 @@ Rules:
   to this invoice's payment status, PO/order status, delivery or approval
   blocker, commitment, remittance, query, credit, collection contact, or
   follow-up.
-- "Earlier context" covers material events before reporting_window_start.
-- "Period activity" covers reporting_window_start through
-  reporting_window_end. If nothing material occurred, say "No material update."
-- Earlier and period fields must summarize authored evidence, not restate the
-  current invoice fact. When a retained event exists in that period, include
-  the event's supplied ISO date. Do not put amount_due, due_date,
-  days_overdue, collection_status, PO, or sales-order facts in these fields
-  unless the authored evidence itself states them.
-- "Current position" means the latest authored position about this invoice,
-  not a restatement of machine fields. Attribute debtor statements and
-  operator notes accurately. If the debtor says paid while amount_due remains
-  positive, report the debtor claim without asserting that payment cleared.
+- Return at most eight material updates, ordered oldest to newest.
+- Each update must summarize exactly one supplied evidence event and carry that
+  event's evidence_id. Do not combine several evidence IDs into one update.
+- Do not return a routine reminder, statement, or follow-up send unless its
+  authored text records a material commitment, remittance, query, credit,
+  payment position, or blocker.
+- Summaries must describe authored evidence, not restate current invoice facts.
+  Attribute debtor statements, operator notes, and collector messages
+  accurately. If the debtor says paid while amount_due remains positive,
+  report the debtor claim without asserting that payment cleared.
 - Treat commitment fields as current invoice controls. Use the word
   "commitment"; do not call it a promise. A pending commitment blocks ordinary
   chasing; a broken commitment requires follow-up; a fulfilled commitment is
@@ -79,12 +76,8 @@ Rules:
 - amount_due is the current balance after exact allocated credits. Never
   subtract allocated_credit_amount again and never apply debtor-level
   unapplied credit to this invoice.
-- "Next action" must name this invoice and be operationally specific. Do not
-  emit generic text such as "review collection controls" or "review evidence".
-  Do not recommend debtor contact while a current control blocks chasing.
 - If remittance_state starts with "cleared_", the remittance check is already
-  complete and no remittance action may be recommended. State the evidenced
-  collection follow-up or another current review action instead.
+  complete. Do not describe it as still awaiting review.
 - Use plain business language. Never expose input field names or machine status
   codes such as remittance_state, cleared_not_found, or requires_credit_review.
 - Never expose internal UUIDs, obligation IDs, party IDs, evidence IDs, or
@@ -92,16 +85,17 @@ Rules:
   supplied on the target invoice may appear in narrative text.
 - If you state a date, reproduce the exact supplied ISO date (YYYY-MM-DD).
   Never abbreviate, reformat, or calculate a date.
-- Keep each field under 240 characters. Do not include email addresses,
+- Keep each summary under 240 characters. Do not include email addresses,
   signatures, disclaimers, greetings, or long quotations.
+- Do not recommend an action in the summary; the application determines the
+  next action from current controls. Never mention "other invoices", "related
+  invoices", or sibling documents.
 - Paraphrase authored evidence into business language. Never copy transport
   prefixes such as "Received from debtor - internal forward context", sender
   addresses, reply subjects, or signature text into the result.
-- evidence_ids must contain the minimal supporting supplied evidence IDs.
 - If evidence_truncated is true, do not claim the retained trail is exhaustive.
-- If no earlier or in-period target-invoice event exists, use the exact
-  no-update sentence requested for that field. Do not fill it with facts from
-  another invoice.
+- If no supplied event has material invoice-specific business meaning, return
+  an empty material_updates list.
 """
 
 _USER_PROMPT = "Weekly overdue-report evidence:\n{payload}"
@@ -176,6 +170,19 @@ def _sanitize_business_text(value: str) -> str:
     )
     text = re.sub(r"\s*\((?:E\d{3})(?:\s*/\s*E\d{3})*\)", "", text)
     text = re.sub(r"\bE\d{3}\b", "", text)
+    text = re.sub(
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?i)\s*[;,.]?\s*action\s*:\s*.*$", "", text)
     text = text.replace("_", " ")
     text = re.sub(r"\(\s*[–-]\s*\)", "", text)
     text = re.sub(r"(?:,\s*){2,}", ", ", text)
@@ -203,128 +210,110 @@ def _validate_model_output(
     evidence_id_map: dict[str, str],
 ) -> WeeklyOverdueReportSummaryLLMResponse:
     raw = _parse_object(content)
-    account_update = raw.get("account_update")
-    if isinstance(account_update, dict):
-        for field in ("earlier_context", "period_activity", "current_position", "next_action"):
-            if field in account_update:
-                account_update[field] = _sanitize_business_text(account_update[field])
+    material_updates = raw.get("material_updates")
+    if isinstance(material_updates, list):
+        for update in material_updates:
+            if isinstance(update, dict) and "summary" in update:
+                update["summary"] = _sanitize_business_text(update["summary"])
     parsed = WeeklyOverdueReportSummaryLLMResponse(**raw)
     supplied_evidence = set(evidence_id_map)
-    parsed.account_update.evidence_ids = [
-        evidence_id
-        for evidence_id in parsed.account_update.evidence_ids
-        if evidence_id in supplied_evidence
-    ]
-    allowed_dates = {
-        request.reporting_window_start.isoformat(),
-        request.reporting_window_end.isoformat(),
-        request.generated_at.date().isoformat(),
-        *(event.occurred_at.date().isoformat() for event in request.evidence_events),
-        *(invoice.invoice_date.isoformat() for invoice in request.invoices if invoice.invoice_date),
-        *(invoice.due_date.isoformat() for invoice in request.invoices if invoice.due_date),
-        *(
-            invoice.sales_order_date.isoformat()
-            for invoice in request.invoices
-            if invoice.sales_order_date
-        ),
-        *(
-            invoice.commitment_date.isoformat()
-            for invoice in request.invoices
-            if invoice.commitment_date
-        ),
-    }
-    item = parsed.account_update
-    rendered = " ".join(
-        (
-            item.earlier_context,
-            item.period_activity,
-            item.current_position,
-            item.next_action,
+    event_by_original_id = {event.evidence_id: event for event in request.evidence_events}
+    seen: set[str] = set()
+    validated_updates = []
+    for item in parsed.material_updates:
+        evidence_id = str(item.evidence_id)
+        if evidence_id not in supplied_evidence:
+            raise ValueError("weekly_report_summary_unknown_evidence")
+        if evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        original_id = evidence_id_map[evidence_id]
+        event = event_by_original_id.get(original_id)
+        if event is None:
+            raise ValueError("weekly_report_summary_unknown_evidence")
+        text = _remove_forbidden_reference_clauses(
+            item.summary,
+            request.forbidden_references,
         )
-    )
-    for forbidden_reference in request.forbidden_references:
-        if _contains_reference(rendered, forbidden_reference):
-            raise ValueError("weekly_report_summary_cross_invoice_reference")
-    if re.search(
-        r"\b(review (?:the )?(?:current )?(?:collection )?controls|review (?:current )?evidence)\b",
-        item.next_action,
-        flags=re.IGNORECASE,
-    ):
-        raise ValueError("weekly_report_summary_generic_next_action")
-    earlier_event_dates = {
-        event.occurred_at.date().isoformat()
-        for event in request.evidence_events
-        if event.occurred_at.date() < request.reporting_window_start
-    }
-    period_event_dates = {
-        event.occurred_at.date().isoformat()
-        for event in request.evidence_events
-        if request.reporting_window_start
-        <= event.occurred_at.date()
-        <= request.reporting_window_end
-    }
-    earlier_dates = earlier_event_dates | {
-        value
-        for event in request.evidence_events
-        if event.occurred_at.date() < request.reporting_window_start
-        for value in re.findall(r"\b\d{4}-\d{2}-\d{2}\b", event.authored_text)
-    }
-    period_dates = period_event_dates | {
-        value
-        for event in request.evidence_events
-        if request.reporting_window_start
-        <= event.occurred_at.date()
-        <= request.reporting_window_end
-        for value in re.findall(r"\b\d{4}-\d{2}-\d{2}\b", event.authored_text)
-    }
-    mentioned_earlier_dates = set(re.findall(r"\b\d{4}-\d{2}-\d{2}\b", item.earlier_context))
-    mentioned_period_dates = set(re.findall(r"\b\d{4}-\d{2}-\d{2}\b", item.period_activity))
-    if earlier_event_dates and not mentioned_earlier_dates.intersection(earlier_event_dates):
-        raise ValueError("weekly_report_summary_missing_earlier_event_date")
-    if not mentioned_earlier_dates.issubset(earlier_dates):
-        raise ValueError("weekly_report_summary_non_evidence_earlier_date")
-    if not earlier_dates:
-        item.earlier_context = "No material earlier context."
-    if period_event_dates and not mentioned_period_dates.intersection(period_event_dates):
-        raise ValueError("weekly_report_summary_missing_period_event_date")
-    if not mentioned_period_dates.issubset(period_dates):
-        raise ValueError("weekly_report_summary_non_evidence_period_date")
-    if not period_dates:
-        item.period_activity = "No material update."
-    for text in (
-        item.earlier_context,
-        item.period_activity,
-        item.current_position,
-        item.next_action,
-    ):
+        item.summary = text
+        if not text:
+            continue
+        if any(
+            _contains_reference(text, forbidden_reference)
+            for forbidden_reference in request.forbidden_references
+        ):
+            continue
+        if re.search(
+            r"\b(other|related|remaining|sibling|multiple)\s+(?:invoice|document)s?\b",
+            text,
+            re.I,
+        ):
+            continue
         if re.search(r"\b(remittance_state|cleared_[a-z_]+|requires_credit_review)\b", text):
-            raise ValueError("weekly_report_summary_exposes_machine_status")
+            continue
         if re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, flags=re.IGNORECASE):
-            raise ValueError("weekly_report_summary_contains_email_address")
+            continue
         if re.search(
             r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
             text,
             flags=re.IGNORECASE,
         ):
-            raise ValueError("weekly_report_summary_contains_internal_identifier")
+            continue
         if re.search(
             r"\b(received from debtor\s*-\s*internal forward context|sent to debtor to)\b",
             text,
             flags=re.IGNORECASE,
         ):
-            raise ValueError("weekly_report_summary_copies_transport_prefix")
+            continue
         if re.search(r"(?<!\d{4}-)\b\d{2}-\d{2}\b", text):
-            raise ValueError("weekly_report_summary_non_iso_date")
+            continue
+        allowed_dates = {
+            event.occurred_at.date().isoformat(),
+            *re.findall(r"\b\d{4}-\d{2}-\d{2}\b", event.authored_text),
+        }
         mentioned_dates = set(re.findall(r"\b\d{4}-\d{2}-\d{2}\b", text))
         if not mentioned_dates.issubset(allowed_dates):
-            raise ValueError("weekly_report_summary_unknown_date")
+            continue
+        if text:
+            validated_updates.append(item)
+    parsed.material_updates = validated_updates
     return parsed
+
+
+def _remove_forbidden_reference_clauses(text: str, forbidden_references: list[str]) -> str:
+    """Keep the target-invoice clause when one event also names sibling documents."""
+
+    cleaned = re.sub(
+        r"(?i)^.*?\b(?:multiple|other|related|remaining|sibling)\s+"
+        r"(?:invoice|document)s?\s*:\s*",
+        "",
+        str(text or ""),
+    )
+    clauses = re.split(r"(?<=[.;])\s+|;\s*", cleaned)
+    retained = [
+        clause.strip()
+        for clause in clauses
+        if clause.strip()
+        and not any(
+            _contains_reference(clause, forbidden_reference)
+            for forbidden_reference in forbidden_references
+        )
+    ]
+    return _sanitize_business_text(" ".join(retained))
 
 
 def _contains_reference(text: str, reference: str) -> bool:
     normalized_text = re.sub(r"[^A-Z0-9]", "", str(text or "").upper())
     normalized_reference = re.sub(r"[^A-Z0-9]", "", str(reference or "").upper())
-    return len(normalized_reference) >= 4 and normalized_reference in normalized_text
+    if len(normalized_reference) >= 4 and normalized_reference in normalized_text:
+        return True
+    if normalized_reference.isdigit():
+        wanted = normalized_reference.lstrip("0") or "0"
+        return any(
+            (candidate.lstrip("0") or "0") == wanted
+            for candidate in re.findall(r"\d{4,}", str(text or ""))
+        )
+    return False
 
 
 class WeeklyOverdueReportSummarizer:
@@ -364,7 +353,8 @@ class WeeklyOverdueReportSummarizer:
                 system_prompt=_SYSTEM_PROMPT,
                 user_prompt=user_prompt + correction,
                 temperature=settings.classification_temperature,
-                json_mode=True,
+                response_schema=WeeklyOverdueReportSummaryLLMResponse,
+                reasoning_effort="minimal",
                 caller="weekly_overdue_report_summary",
             )
             try:
@@ -392,12 +382,15 @@ class WeeklyOverdueReportSummarizer:
             )
 
         usage = response.usage if isinstance(response.usage, dict) else {}
-        account_update = parsed.account_update.model_dump()
-        account_update["evidence_ids"] = [
-            evidence_id_map[evidence_id] for evidence_id in account_update["evidence_ids"]
+        material_updates = [
+            {
+                "evidence_id": evidence_id_map[item.evidence_id],
+                "summary": item.summary,
+            }
+            for item in parsed.material_updates
         ]
         return WeeklyOverdueReportSummaryResponse(
-            account_update=account_update,
+            material_updates=material_updates,
             tokens_used=int(usage.get("total_tokens") or 0),
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
             completion_tokens=int(usage.get("completion_tokens") or 0),
@@ -422,17 +415,14 @@ class WeeklyOverdueReportSummarizer:
 def _correction_for(error: str) -> str:
     code = str(error or "")
     corrections = {
-        "weekly_report_summary_missing_earlier_event_date": (
-            "Summarize the earlier authored event and include its exact supplied ISO date."
+        "weekly_report_summary_unknown_evidence": (
+            "Use only supplied evidence_id values and emit each at most once."
         ),
-        "weekly_report_summary_non_evidence_earlier_date": (
-            "Earlier may contain only dates from earlier authored events, not invoice or due dates."
+        "weekly_report_summary_unknown_date": (
+            "Remove every date not written in the cited evidence event."
         ),
-        "weekly_report_summary_missing_period_event_date": (
-            "Summarize the in-period authored event and include its exact supplied ISO date."
-        ),
-        "weekly_report_summary_non_evidence_period_date": (
-            "Period activity may contain only dates from in-period authored events."
+        "weekly_report_summary_non_iso_date": (
+            "Remove abbreviated dates; use only exact supplied ISO dates when material."
         ),
         "weekly_report_summary_contains_email_address": (
             "Remove all email addresses and paraphrase the underlying business update."
@@ -447,8 +437,8 @@ def _correction_for(error: str) -> str:
         "weekly_report_summary_cross_invoice_reference": (
             "Remove every forbidden invoice, PO, sales-order, and credit reference."
         ),
-        "weekly_report_summary_generic_next_action": (
-            "Name the target invoice and give the specific supported next action."
+        "weekly_report_summary_cross_invoice_language": (
+            "Describe only the target invoice and do not refer to other or related invoices."
         ),
     }
     return corrections.get(code, "Correct only the stated validation defect.")
