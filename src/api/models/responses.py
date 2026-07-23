@@ -503,10 +503,9 @@ class AnalyzeSentDraftScopeResponse(BaseModel):
     ai_audit: Optional[AIAuditMetadata] = None
 
 
-class WeeklyReportInvoiceUpdate(BaseModel):
+class WeeklyReportAccountUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    obligation_id: str
     earlier_context: str = Field(max_length=240)
     period_activity: str = Field(max_length=240)
     current_position: str = Field(max_length=240)
@@ -517,7 +516,7 @@ class WeeklyReportInvoiceUpdate(BaseModel):
 class WeeklyOverdueReportSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    invoice_updates: List[WeeklyReportInvoiceUpdate]
+    account_update: WeeklyReportAccountUpdate
     tokens_used: Optional[int] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None

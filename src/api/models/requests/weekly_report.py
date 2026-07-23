@@ -19,10 +19,24 @@ class WeeklyReportInvoiceFact(BaseModel):
     days_overdue: int | None = None
     collection_status: str | None = Field(default=None, max_length=80)
     query_reason: str | None = Field(default=None, max_length=1200)
+    commitment_status: str | None = Field(default=None, max_length=80)
+    commitment_date: date | None = None
+    commitment_amount: float | None = None
     remittance_state: str | None = Field(default=None, max_length=80)
     remittance_reference: str | None = Field(default=None, max_length=240)
+    allocated_credit_amount: float | None = None
+    allocated_credit_references: list[str] = Field(default_factory=list, max_length=50)
     operator_finance_update: str | None = Field(default=None, max_length=2400)
     comments_to_ai: str | None = Field(default=None, max_length=2400)
+
+
+class WeeklyReportAccountCreditPosition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    currency: str = Field(min_length=1, max_length=12)
+    unapplied_credit_amount: float
+    unapplied_credit_references: list[str] = Field(default_factory=list, max_length=50)
+    credit_review_required: bool = False
 
 
 class WeeklyReportEvidenceEvent(BaseModel):
@@ -48,4 +62,8 @@ class WeeklyOverdueReportSummaryRequest(BaseModel):
     generated_at: datetime
     evidence_truncated: bool = False
     invoices: list[WeeklyReportInvoiceFact] = Field(min_length=1, max_length=250)
+    account_credit_positions: list[WeeklyReportAccountCreditPosition] = Field(
+        default_factory=list,
+        max_length=25,
+    )
     evidence_events: list[WeeklyReportEvidenceEvent] = Field(default_factory=list, max_length=250)

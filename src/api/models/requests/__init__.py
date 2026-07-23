@@ -43,6 +43,7 @@ from .validation import (
 )
 from .weekly_report import (
     WeeklyOverdueReportSummaryRequest,
+    WeeklyReportAccountCreditPosition,
     WeeklyReportEvidenceEvent,
     WeeklyReportInvoiceFact,
 )
@@ -85,6 +86,7 @@ __all__ = [
     "GenerateDraftRequest",
     "PROMPT_INJECTION_PATTERNS",
     "WeeklyOverdueReportSummaryRequest",
+    "WeeklyReportAccountCreditPosition",
     "WeeklyReportEvidenceEvent",
     "WeeklyReportInvoiceFact",
 ]

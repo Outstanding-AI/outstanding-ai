@@ -585,10 +585,9 @@ class CollectionChainRoutingLLMResponse(BaseModel):
     routes: list[CollectionChainInvoiceRouteLLMResponse] = Field(min_length=1, max_length=100)
 
 
-class WeeklyReportInvoiceUpdateLLMResponse(BaseModel):
+class WeeklyReportAccountUpdateLLMResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    obligation_id: str = Field(min_length=1, max_length=160)
     earlier_context: str = Field(max_length=240)
     period_activity: str = Field(max_length=240)
     current_position: str = Field(max_length=240)
@@ -599,10 +598,7 @@ class WeeklyReportInvoiceUpdateLLMResponse(BaseModel):
 class WeeklyOverdueReportSummaryLLMResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    invoice_updates: list[WeeklyReportInvoiceUpdateLLMResponse] = Field(
-        min_length=1,
-        max_length=250,
-    )
+    account_update: WeeklyReportAccountUpdateLLMResponse
 
 
 class DraftReasoningResponse(BaseModel):

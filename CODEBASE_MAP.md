@@ -11,7 +11,7 @@ Concept → file navigation index.
 | Draft prompt section composer | `src/engine/generator_prompts.py` | preserves prompt-section ordering and composes request-level drafting guidance; no direct model or data-lake work |
 | Shared formatters | `src/engine/formatters.py` |
 | Persona management | `src/engine/persona.py` |
-| Weekly overdue-report summarisation | `src/engine/weekly_overdue_report_summarizer.py` | one debtor-scoped evidence request; returns one validated earlier/this-week/current/next update per supplied obligation and uses the shared Vertex → OpenAI fallback |
+| Weekly overdue-report summarisation | `src/engine/weekly_overdue_report_summarizer.py` | one debtor-scoped evidence request; returns one validated earlier/this-week/current/next account update covering current commitments, allocated credits, debtor/currency unapplied-credit review context, and the retained message/operator trail; uses short evidence handles plus the shared Vertex → OpenAI fallback |
 
 > Gate evaluation is **backend-only** — see `Solvix/services/gate_checker.py`. The AI Engine no longer hosts a gate evaluator.
 
