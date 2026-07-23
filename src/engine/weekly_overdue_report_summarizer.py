@@ -19,7 +19,7 @@ from src.llm.schemas import WeeklyOverdueReportSummaryLLMResponse
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "weekly_overdue_report_summary"
-PROMPT_TEMPLATE_VERSION = "v6"
+PROMPT_TEMPLATE_VERSION = "v7"
 
 _SYSTEM_PROMPT = """You prepare concise accounts-receivable notes for an internal weekly
 overdue report used for approval, fact-checking, and follow-up planning.
@@ -50,8 +50,9 @@ Rules:
 - Never mention an invoice, PO, sales order, or credit reference listed in
   forbidden_references. A multi-invoice email is not permission to copy the
   other invoices into this row.
-- Preserve the target invoice number and its supplied PO/sales-order/credit
-  references exactly when they are materially relevant.
+- Do not repeat the target invoice number merely to identify the row; the
+  spreadsheet already supplies it. Mention a PO, sales-order, or credit
+  reference only when that exact reference is material to the authored event.
 - Use only supplied facts and evidence. Never infer payment, dispute,
   remittance, ownership, dates, amounts, references, or next steps.
 - Preserve contradictory authored statements rather than choosing one. For
