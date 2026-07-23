@@ -23,6 +23,9 @@ class WeeklyReportInvoiceFact(BaseModel):
     amount_due: float
     due_date: date | None = None
     days_overdue: int | None = None
+    prior_week_amount_due: float | None = None
+    prior_week_currency: str | None = Field(default=None, max_length=12)
+    prior_week_days_overdue: int | None = None
     collection_status: str | None = Field(default=None, max_length=80)
     query_reason: str | None = Field(default=None, max_length=1200)
     commitment_status: str | None = Field(default=None, max_length=80)

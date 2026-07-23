@@ -19,7 +19,7 @@ from src.llm.schemas import WeeklyOverdueReportSummaryLLMResponse
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "weekly_overdue_report_summary"
-PROMPT_TEMPLATE_VERSION = "v5"
+PROMPT_TEMPLATE_VERSION = "v6"
 
 _SYSTEM_PROMPT = """You prepare concise accounts-receivable notes for an internal weekly
 overdue report used for approval, fact-checking, and follow-up planning.
@@ -41,6 +41,12 @@ Return a JSON object only:
 
 Rules:
 - Return one update for the single supplied target invoice.
+- The application renders current accounting truth and the prior-week frozen
+  accounting position deterministically. Summarize only authored evidence; do
+  not restate prior_week_* or current invoice fields.
+- "Earlier" is strictly the seven calendar days immediately before
+  reporting_window_start. "This week" is reporting_window_start through
+  reporting_window_end. Evidence outside those two windows must not be used.
 - Never mention an invoice, PO, sales order, or credit reference listed in
   forbidden_references. A multi-invoice email is not permission to copy the
   other invoices into this row.
