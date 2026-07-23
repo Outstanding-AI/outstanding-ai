@@ -41,6 +41,11 @@ from .validation import (
     GenerateDraftRequest,
     HistoricalCollectionThreadRequest,
 )
+from .weekly_report import (
+    WeeklyOverdueReportSummaryRequest,
+    WeeklyReportEvidenceEvent,
+    WeeklyReportInvoiceFact,
+)
 
 __all__ = [
     # Party / Behavior
@@ -79,4 +84,7 @@ __all__ = [
     "HistoricalCollectionThreadRequest",
     "GenerateDraftRequest",
     "PROMPT_INJECTION_PATTERNS",
+    "WeeklyOverdueReportSummaryRequest",
+    "WeeklyReportEvidenceEvent",
+    "WeeklyReportInvoiceFact",
 ]

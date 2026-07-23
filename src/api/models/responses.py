@@ -503,6 +503,30 @@ class AnalyzeSentDraftScopeResponse(BaseModel):
     ai_audit: Optional[AIAuditMetadata] = None
 
 
+class WeeklyReportInvoiceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    obligation_id: str
+    earlier_context: str = Field(max_length=240)
+    period_activity: str = Field(max_length=240)
+    current_position: str = Field(max_length=240)
+    next_action: str = Field(max_length=240)
+    evidence_ids: List[str] = Field(default_factory=list, max_length=100)
+
+
+class WeeklyOverdueReportSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_updates: List[WeeklyReportInvoiceUpdate]
+    tokens_used: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    is_fallback: bool = False
+    ai_audit: Optional[AIAuditMetadata] = None
+
+
 class GateResult(BaseModel):
     """Result of a single gate evaluation."""
 

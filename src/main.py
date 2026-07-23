@@ -39,6 +39,7 @@ from src.api.routes import (
     persona,
     select_collection_chain,
     sent_scope,
+    summarize_weekly_overdue_report,
 )
 from src.config.settings import settings
 
@@ -261,6 +262,7 @@ app.include_router(select_collection_chain.router, tags=["Classification"])
 app.include_router(classify_historical_collection_thread.router, tags=["Classification"])
 app.include_router(generate.router, tags=["Generation"])
 app.include_router(sent_scope.router, tags=["Sent Scope"])
+app.include_router(summarize_weekly_overdue_report.router, tags=["Reports"])
 # /evaluate-gates router removed 2026-04-26 — gate evaluation moved to backend
 # `services/gate_checker.py` (CLAUDE.md note #40). Backend was never calling
 # this AI endpoint after the move; the route + GateEvaluator + tests were

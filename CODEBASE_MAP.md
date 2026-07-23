@@ -11,6 +11,7 @@ Concept → file navigation index.
 | Draft prompt section composer | `src/engine/generator_prompts.py` | preserves prompt-section ordering and composes request-level drafting guidance; no direct model or data-lake work |
 | Shared formatters | `src/engine/formatters.py` |
 | Persona management | `src/engine/persona.py` |
+| Weekly overdue-report summarisation | `src/engine/weekly_overdue_report_summarizer.py` | one debtor-scoped evidence request; returns one validated earlier/this-week/current/next update per supplied obligation and uses the shared Vertex → OpenAI fallback |
 
 > Gate evaluation is **backend-only** — see `Solvix/services/gate_checker.py`. The AI Engine no longer hosts a gate evaluator.
 
@@ -59,6 +60,7 @@ Concept → file navigation index.
 | Classification endpoint | `src/api/routes/classify.py` — reused by historical collection-thread backfill audit; inbound historical rows use debtor-reply semantics, outbound rows classify operator/Outstanding AI collection actions; backend controls no-cache/no-persist audit mode and token/cost caps; AI returns semantic evidence only, never computes protocol level/touch/escalation state, and never writes App DB/data-lake/mailbox state |
 | Generation endpoint | `src/api/routes/generate.py` |
 | Persona endpoints | `src/api/routes/persona.py` |
+| Weekly overdue-report summary endpoint | `src/api/routes/summarize_weekly_overdue_report.py` |
 | Health checks | `src/api/routes/health.py` |
 | Request models | `src/api/models/requests/` (package: context.py, party.py, persona.py, validation.py) |
 | Response models | `src/api/models/responses.py` |
