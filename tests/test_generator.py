@@ -71,7 +71,7 @@ class TestDraftGenerator:
     def test_draft_prompt_prioritises_sales_ledger_mailbox_style(self):
         normalized_prompt = " ".join(GENERATE_DRAFT_SYSTEM.split())
 
-        assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v5"
+        assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v6_invoice_scoped"
         assert "Sales-Ledger Mailbox Style (CRITICAL)" in GENERATE_DRAFT_SYSTEM
         assert "greeting -> one concrete invoice/payment issue" in GENERATE_DRAFT_SYSTEM
         assert "Please confirm" in GENERATE_DRAFT_SYSTEM

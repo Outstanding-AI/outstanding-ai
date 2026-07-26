@@ -57,8 +57,8 @@ from .generator_prompts import (
 logger = logging.getLogger(__name__)
 
 DRAFT_PROMPT_TEMPLATE_ID = "draft_generation"
-DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v5"
-GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
+DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v6_invoice_scoped"
+GUARDRAIL_PIPELINE_VERSION = "silver_application_v2_invoice_scoped"
 
 
 class CreditReviewRequiredError(ValueError):
@@ -352,17 +352,23 @@ class DraftGenerator:
             comm.last_tone_used if comm else "None"
         )
 
+        invoice_outreach_dates = build_invoice_outreach_dates(request, candidate_obligations)
         has_conversation = bool(recent_messages)
+        has_strict_prior_outreach = bool(invoice_outreach_dates)
         has_response = (
             comm
             and comm.last_response_type
             and comm.last_response_type not in ("No response", "None", None)
         )
-        is_follow_up = (
-            "YES — debtor has responded, see conversation history below"
-            if (has_conversation or has_response)
-            else "No — first contact"
-        )
+        if has_conversation or has_response:
+            is_follow_up = "YES — debtor has responded, see conversation history below"
+        elif has_strict_prior_outreach:
+            is_follow_up = (
+                "YES — prior strictly proven outreach exists for one or more current invoices; "
+                "do not imply that the debtor responded"
+            )
+        else:
+            is_follow_up = "No — first contact"
 
         # Get a human contact name. An email address is routing identity, never
         # a permissible salutation fallback.
@@ -441,7 +447,7 @@ class DraftGenerator:
                 str(o.invoice_number) for o in candidate_obligations if o.invoice_number
             ],
             recipient_name=contact_name,
-            invoice_outreach_dates=build_invoice_outreach_dates(request, candidate_obligations),
+            invoice_outreach_dates=invoice_outreach_dates,
             forbidden_forecast_dates=self._forecast_dates(request),
             prompt_input={
                 "context": request.context.model_dump(mode="json", exclude_none=True),
@@ -605,7 +611,9 @@ class DraftGenerator:
                 candidate_invoice_refs=prompt_ctx.candidate_invoice_refs,
                 invoice_outreach_dates=prompt_ctx.invoice_outreach_dates,
                 forbidden_forecast_dates=prompt_ctx.forbidden_forecast_dates,
+                deterministic_prior_outreach=bool(request.context.candidate_fact_packet),
                 authorized_policies=request.context.authorized_policies or {},
+                disable_forbidden_content=bool(request.context.candidate_fact_packet),
             )
             timing.guardrail_latencies.append((time.perf_counter() - guardrail_start) * 1000)
 

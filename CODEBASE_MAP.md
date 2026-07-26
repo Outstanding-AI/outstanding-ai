@@ -7,7 +7,7 @@ Concept → file navigation index.
 | Concept | File |
 |---------|------|
 | Email classification | `src/engine/classifier.py` |
-| Draft generation (orchestration) | `src/engine/generator.py` | `DraftGenerator.generate()` orchestrates `_assemble_prompt`, `_run_llm_with_guardrails`, `_build_response`; honors upstream collection-policy blocks before model work, blocks non-current/held obligations, and treats temporal thread evidence as continuity context only |
+| Draft generation (orchestration) | `src/engine/generator.py` | `DraftGenerator.generate()` orchestrates `_assemble_prompt`, `_run_llm_with_guardrails`, `_build_response`; honors upstream collection-policy blocks before model work, blocks non-current/held obligations, and treats temporal thread evidence as continuity context only. Prompt contract `silver_application_v6_invoice_scoped` consumes the backend's authoritative candidate packet and abstains from model-authored prior-contact wording because exact sentences are rendered downstream. |
 | Draft prompt section composer | `src/engine/generator_prompts.py` | preserves prompt-section ordering and composes request-level drafting guidance; no direct model or data-lake work |
 | Shared formatters | `src/engine/formatters.py` |
 | Persona management | `src/engine/persona.py` |
@@ -31,13 +31,13 @@ Concept → file navigation index.
 | Pipeline orchestrator | `src/guardrails/pipeline.py` (12 registered guardrails, 6-worker ThreadPoolExecutor), `executor.py` (execution), `feedback.py` (feedback) |
 | Base validator | `src/guardrails/base.py` |
 | Placeholder detection | `src/guardrails/placeholder.py` |
-| Factual grounding | `src/guardrails/factual_grounding.py` | current demand amounts must come from candidate obligations/current credit context; temporal evidence amounts are continuity-only |
+| Factual grounding | `src/guardrails/factual_grounding.py` | current demand amounts must come from candidate obligations/current credit context; temporal evidence amounts are continuity-only. It recognizes ISO, UK slash, UK dash, and named-month dates; invoice-scoped collection drafts reject model-authored historical-contact wording and current-tense wording attached to a historical date. |
 | Numerical consistency | `src/guardrails/numerical.py` |
 | Candidate scope | `src/guardrails/lane_scope.py` | validates generated invoice refs against current candidate scope and blocked ids; invoices only present in temporal evidence cannot be chased |
 | Identity scope (renamed from entity) | `src/guardrails/identity_scope.py` |
 | Overdue terminology | `src/guardrails/overdue_terminology.py` |
 | Policy grounding | `src/guardrails/policy_grounding.py` |
-| Forbidden content | `src/guardrails/forbidden_content.py` |
+| Forbidden content | `src/guardrails/forbidden_content.py` | retained for reply/classification and non-invoice-scoped paths; disabled only when an ordinary collection request carries the backend-authoritative invoice factual packet, avoiding keyword false positives in legitimate commercial copy |
 | Tone clamping | `src/guardrails/tone_clamping.py` |
 | Semantic coherence | `src/guardrails/semantic_coherence.py` |
 | Temporal consistency | `src/guardrails/temporal.py` |

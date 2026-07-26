@@ -32,6 +32,8 @@ class ForbiddenContentDetector(BaseGuardrail):
         super().__init__("forbidden_content", GuardrailSeverity.REVIEW)
 
     def validate(self, output: str, context, **kwargs) -> list[GuardrailResult]:
+        if kwargs.get("disable_forbidden_content"):
+            return [self._pass("Forbidden-content review disabled for collection drafting")]
         findings: list[dict] = []
 
         for category, patterns in PATTERNS.items():

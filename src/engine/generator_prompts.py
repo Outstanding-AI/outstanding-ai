@@ -8,7 +8,6 @@ on the generate/retry loop.
 
 import logging
 import re
-from collections import defaultdict
 
 from src.prompts import draft_context as _prompt_context
 
@@ -27,6 +26,14 @@ def build_invoice_outreach_dates(request, candidate_obligations) -> dict[str, st
         if getattr(obligation, "invoice_number", None)
     }
     latest_by_ref: dict[str, str] = {}
+    fact_packet = getattr(request.context, "candidate_fact_packet", None) or {}
+    for row in fact_packet.get("prior_outreach_by_invoice") or []:
+        if not isinstance(row, dict):
+            continue
+        normalized = _normalized_invoice_ref(row.get("invoice_ref"))
+        sent_date = str(row.get("last_strict_sent_date") or "").strip()
+        if normalized in candidate_refs and re.fullmatch(r"\d{4}-\d{2}-\d{2}", sent_date):
+            latest_by_ref[normalized] = sent_date
     for history in getattr(request.context, "actual_sent_scope_history", None) or []:
         sent_at = getattr(history, "sent_at", None)
         if not sent_at:
@@ -192,6 +199,40 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             + "\n".join(candidate_lines)
             + "\nUse only these obligations for collection wording. Do not add invoices, widen the scope, "
             "or imply this is the debtor's full account unless these obligations are the full supplied scope."
+        )
+
+    candidate_fact_packet = getattr(request.context, "candidate_fact_packet", None) or {}
+    if candidate_fact_packet:
+        fact_lines = []
+        for fact in candidate_fact_packet.get("invoice_facts") or []:
+            if not isinstance(fact, dict):
+                continue
+            control_state = _prompt_context.safe_prompt_value(
+                fact.get("current_state"), max_length=64
+            )
+            line = (
+                f"- {fact.get('invoice_ref')}: current amount "
+                f"{fact.get('currency') or ''} {fact.get('current_amount_due')}; "
+                f"due {fact.get('due_date')}; {fact.get('days_overdue')} days overdue; "
+                f"current state {control_state or 'open'}"
+            )
+            if fact.get("purchase_order_reference"):
+                line += "; verified PO " + _prompt_context.safe_prompt_value(
+                    fact.get("purchase_order_reference"), max_length=80
+                )
+            if fact.get("sales_order_reference"):
+                line += "; verified sales order " + _prompt_context.safe_prompt_value(
+                    fact.get("sales_order_reference"), max_length=80
+                )
+            fact_lines.append(line)
+        sections.append(
+            "\n\n**Invoice-Scoped Factual Packet (authoritative):**\n"
+            + ("\n".join(fact_lines) or "- No invoice facts supplied.")
+            + "\nThis packet and the deterministic invoice table are the only financial and "
+            "invoice-history authority for this ordinary collection draft. Do not infer facts "
+            "from the debtor's wider account, old thread wording, party-level promises, "
+            "party-level remittances, manual notes, or historical invoice amounts. If a fact "
+            "is absent, omit it rather than guessing."
         )
 
     excluded_lines = []
@@ -539,46 +580,18 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             )
         sections.append("\n\n**Lane History:**\n" + "\n".join(history_lines))
 
-    outreach_dates = build_invoice_outreach_dates(request, candidate_obligations)
-    outreach_by_date: dict[str, list[str]] = defaultdict(list)
-    no_proof_refs: list[str] = []
-    for obligation in candidate_obligations:
-        invoice_ref = str(getattr(obligation, "invoice_number", None) or "").strip()
-        if not invoice_ref:
-            continue
-        sent_date = outreach_dates.get(_normalized_invoice_ref(invoice_ref))
-        if sent_date:
-            outreach_by_date[sent_date].append(invoice_ref)
-        else:
-            no_proof_refs.append(invoice_ref)
     if candidate_obligations:
-        outreach_lines = [
-            f"- {sent_date}: {', '.join(sorted(invoice_refs))}"
-            for sent_date, invoice_refs in sorted(outreach_by_date.items())
-        ]
-        if no_proof_refs:
-            outreach_lines.append(
-                "- Internal only — omit prior-outreach wording for: "
-                + ", ".join(sorted(no_proof_refs))
-            )
         sections.append(
-            "\n\n**Invoice-Specific Prior Outreach (strict sent proof):**\n"
-            + ("\n".join(outreach_lines) or "- No current invoice has strict prior-send proof.")
-            + "\nIf any prior-outreach wording is used, it MUST name the affected invoice reference(s) "
-            "and their exact date in the same sentence. For example: 'We contacted you on "
-            "2026-06-23 regarding invoice 0000007851.' Group references only when they share one date. "
-            "Do not use generic phrases such as 'following up', 'prior outreach', or 'previously contacted' "
-            "without the exact invoice reference(s) and proven date. "
-            "For the present email, use neutral wording such as 'We are contacting you regarding' rather than "
-            "'We are following up'. "
-            "Use only these exact invoice/date associations when referring to prior outreach. "
-            "Invoices on different dates must not be described as if they were contacted together. "
-            "Do not claim prior contact for invoices listed without strict proof, and do not tell the debtor "
-            "that proof is absent; omit prior-contact wording for those invoices."
+            "\n\n**Prior Outreach Rendering Boundary:**\n"
+            "- The backend, not the model, will insert any invoice-specific prior-outreach sentence "
+            "from strict sent proof after guardrail validation.\n"
+            "- Do not write prior-outreach wording or historical contact dates yourself.\n"
+            "- Neutral present wording such as 'We are contacting you regarding' is allowed.\n"
+            "- Do not say 'following up', 'previously contacted', 'prior outreach', or similar."
         )
 
     actual_sent_scope_history = getattr(request.context, "actual_sent_scope_history", None) or []
-    if actual_sent_scope_history:
+    if actual_sent_scope_history and not candidate_fact_packet:
         sent_scope_lines = []
         for history in actual_sent_scope_history[:6]:
             sent_at = getattr(history, "sent_at", None)

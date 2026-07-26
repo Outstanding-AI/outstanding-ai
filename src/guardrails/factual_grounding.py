@@ -35,12 +35,16 @@ CHASE_LANGUAGE_RE = re.compile(
 )
 OUTREACH_LANGUAGE_RE = re.compile(
     r"\b(?:contacted|last contact|prior outreach|previous outreach|reached out|reminded|"
-    r"followed up|following up|follow-up|previously (?:wrote|emailed|contacted))\b",
+    r"contacting|followed up|following up|follow-up|previously (?:wrote|emailed|contacted))\b",
+    re.IGNORECASE,
+)
+CURRENT_CONTACT_LANGUAGE_RE = re.compile(
+    r"\b(?:we|I)\s+(?:are|am)\s+(?:now\s+)?contacting\b",
     re.IGNORECASE,
 )
 CURRENT_DATE_LANGUAGE_RE = re.compile(r"\b(?:today|as of today|as at)\b", re.IGNORECASE)
 DATE_TOKEN_RE = re.compile(
-    r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}(?:st|nd|rd|th)?\s+"
+    r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{1,2}(?:st|nd|rd|th)?\s+"
     r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
     r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
     r"\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
@@ -157,6 +161,7 @@ class FactualGroundingGuardrail(BaseGuardrail):
         ]
         for segment in _segments(output):
             is_outreach = bool(OUTREACH_LANGUAGE_RE.search(segment))
+            is_current_contact = bool(CURRENT_CONTACT_LANGUAGE_RE.search(segment))
             if not (is_outreach or CURRENT_DATE_LANGUAGE_RE.search(segment)):
                 continue
             mentioned_dates = {
@@ -171,8 +176,22 @@ class FactualGroundingGuardrail(BaseGuardrail):
                     expected="Decision date or invoice-specific strict sent date",
                     found=sorted(leaked),
                 )
+            if is_outreach and mentioned_dates and is_current_contact:
+                return self._fail(
+                    message="Current-contact wording is attached to a historical outreach date",
+                    expected="Use past-tense 'contacted' for proven prior dates, or omit the date",
+                    found=sorted(mentioned_dates),
+                )
+            if is_current_contact:
+                continue
             if not is_outreach:
                 continue
+            if kwargs.get("deterministic_prior_outreach"):
+                return self._fail(
+                    message="Model-authored prior-outreach wording is not permitted",
+                    expected="Backend-rendered invoice-specific prior outreach",
+                    found=segment.strip()[:240],
+                )
             segment_refs = [
                 ref for ref in candidate_refs if _segment_mentions_invoice_ref(segment, ref)
             ]
@@ -255,7 +274,15 @@ class FactualGroundingGuardrail(BaseGuardrail):
     def _parse_grounded_date(value: str) -> date | None:
         cleaned = re.sub(r"(\d+)(?:st|nd|rd|th)", r"\1", value.strip())
         cleaned = cleaned.replace(",", "")
-        for fmt in ("%Y-%m-%d", "%d %B %Y", "%d %b %Y", "%B %d %Y", "%b %d %Y"):
+        for fmt in (
+            "%Y-%m-%d",
+            "%d/%m/%Y",
+            "%d-%m-%Y",
+            "%d %B %Y",
+            "%d %b %Y",
+            "%B %d %Y",
+            "%b %d %Y",
+        ):
             try:
                 return datetime.strptime(cleaned, fmt).date()
             except ValueError:

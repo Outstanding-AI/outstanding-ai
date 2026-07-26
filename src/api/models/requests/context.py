@@ -372,6 +372,7 @@ class CaseContext(CaseContextV2):
     promises: List[PromiseHistory] = []
     remittances: List[RemittanceHistory] = []
     actual_sent_scope_history: List[ActualSentScopeHistory] = []
+    candidate_fact_packet: Optional[dict[str, Any]] = None
     party_credit_position_by_currency: List[CreditPositionInfo] = []
     invoice_credit_adjustments: List[InvoiceCreditAdjustmentInfo] = []
     credit_review_flags: List[str] = []
