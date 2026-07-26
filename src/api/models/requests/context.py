@@ -262,6 +262,15 @@ class ActualSentScopeHistory(BaseModel):
     payment_expectation_date: Optional[str] = None
     payment_expectation_amount: Optional[float] = None
     review_reason_codes: List[str] = []
+    scope_extraction_status: Optional[str] = None
+    sent_scope_source: Optional[str] = None
+    sent_proof_type: Optional[str] = None
+    captured_mail_message_id: Optional[str] = None
+    sent_subject: Optional[str] = None
+    actual_sent_body_excerpt: Optional[str] = None
+    actual_sent_body_proven: bool = False
+    invoice_scope_source: Optional[str] = None
+    historical_invoice_states: List[dict[str, Any]] = Field(default_factory=list)
 
 
 class CommunicationTrackingInfo(BaseModel):
@@ -369,6 +378,7 @@ class CaseContext(CaseContextV2):
     candidate_credit_context: Optional[dict[str, Any]] = None
     net_recovery_eligible_by_currency: dict[str, float] = Field(default_factory=dict)
     collection_case_id: Optional[str] = None
+    collection_case_opened_at: Optional[str] = None
     threading_strategy: Optional[str] = None
     threading_mode: Optional[str] = None
     case_lane_contexts: List[dict[str, Any]] = Field(default_factory=list)

@@ -10,7 +10,8 @@ rule.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+import re
+from datetime import date, datetime, timezone
 from typing import Any
 
 from src.api.models.requests import (
@@ -314,7 +315,136 @@ def format_actual_sent_scope_row(row: dict[str, Any]) -> dict[str, Any]:
         "payment_expectation_date": date_string(row.get("payment_expectation_date")),
         "payment_expectation_amount": row.get("payment_expectation_amount"),
         "review_reason_codes": json_list(row.get("review_reason_codes_json")),
+        "scope_extraction_status": row.get("scope_extraction_status"),
+        "sent_scope_source": row.get("sent_scope_source"),
+        "sent_proof_type": row.get("sent_proof_type"),
+        "captured_mail_message_id": str(row.get("captured_mail_message_id"))
+        if row.get("captured_mail_message_id")
+        else None,
+        "sent_subject": row.get("sent_subject"),
+        "actual_sent_body_excerpt": row.get("actual_sent_body_excerpt"),
+        "actual_sent_body_proven": bool(row.get("captured_mail_message_id")),
+        "invoice_scope_source": "sent_scope_extraction",
+        "historical_invoice_states": [],
     }
+
+
+def consolidate_actual_sent_scope_rows(
+    rows: list[dict[str, Any]],
+    *,
+    limit_per_party: int,
+) -> dict[str, list[dict[str, Any]]]:
+    """Consolidate sent mail/invoice rows into one evidence item per draft."""
+
+    def normalized_ref(value: Any) -> str:
+        return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+    def bool_value(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value or "").strip().lower() in {"1", "true", "yes"}
+
+    drafts: dict[tuple[str, str], dict[str, Any]] = {}
+    draft_order: list[tuple[str, str]] = []
+    for row in rows:
+        party_id = str(row.get("party_id") or "")
+        draft_id = str(row.get("draft_id") or "")
+        if not party_id or not draft_id:
+            continue
+        key = (party_id, draft_id)
+        if key not in drafts:
+            history = format_actual_sent_scope_row(row)
+            history["_mail_scope_refs"] = []
+            drafts[key] = history
+            draft_order.append(key)
+        history = drafts[key]
+        invoice_ref = str(row.get("scope_invoice_number") or "").strip()
+        if not invoice_ref:
+            continue
+        if invoice_ref not in history["_mail_scope_refs"]:
+            history["_mail_scope_refs"].append(invoice_ref)
+        current_amount = row.get("current_amount_due")
+        current_is_open = row.get("current_is_open")
+        if current_is_open is None:
+            current_state = "missing_from_current_core"
+        elif bool_value(current_is_open) and float(current_amount or 0) > 0:
+            current_state = "open"
+        else:
+            current_state = "paid_or_closed"
+        history["historical_invoice_states"].append(
+            {
+                "obligation_id": str(row.get("scope_obligation_id"))
+                if row.get("scope_obligation_id")
+                else None,
+                "invoice_number": invoice_ref,
+                "currency_code_at_send": row.get("scope_currency_code"),
+                "days_overdue_at_send": row.get("days_overdue_at_send"),
+                "current_state": current_state,
+                "current_amount_due": current_amount,
+                "current_currency_code": row.get("current_currency_code"),
+                "current_due_date": date_string(row.get("current_due_date")),
+            }
+        )
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    fallback_statuses = {"failed", "error", "review_required", "unavailable"}
+    for party_id, draft_id in draft_order:
+        party_history = grouped.setdefault(party_id, [])
+        if len(party_history) >= limit_per_party:
+            continue
+        history = drafts[(party_id, draft_id)]
+        body_normalized = normalized_ref(history.get("actual_sent_body_excerpt"))
+        mail_refs = history.pop("_mail_scope_refs")
+        all_refs_present = bool(mail_refs) and all(
+            normalized_ref(ref) in body_normalized for ref in mail_refs if normalized_ref(ref)
+        )
+        extraction_status = str(history.get("scope_extraction_status") or "").strip().lower()
+        if (
+            not history.get("invoice_refs_sent")
+            and extraction_status in fallback_statuses
+            and history.get("actual_sent_body_proven")
+            and all_refs_present
+        ):
+            history["invoice_refs_sent"] = mail_refs
+            history["invoice_scope_source"] = (
+                "deterministic_actual_sent_body_collection_mail_invoice_match"
+            )
+            history["review_reason_codes"] = sorted(
+                {
+                    *history.get("review_reason_codes", []),
+                    "sent_scope_extraction_failed_deterministic_body_match_used",
+                }
+            )
+        party_history.append(history)
+    return grouped
+
+
+def filter_actual_sent_scope_to_episode(
+    rows: list[dict[str, Any]],
+    opened_at: str | None,
+) -> list[dict[str, Any]]:
+    """Keep only strict sent evidence from the current collection episode."""
+
+    if not opened_at:
+        return rows
+    try:
+        episode_start = datetime.fromisoformat(str(opened_at).replace("Z", "+00:00"))
+    except ValueError:
+        return []
+    if episode_start.tzinfo is None:
+        episode_start = episode_start.replace(tzinfo=timezone.utc)
+
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            sent_at = datetime.fromisoformat(str(row.get("sent_at") or "").replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=timezone.utc)
+        if sent_at >= episode_start:
+            filtered.append(row)
+    return filtered
 
 
 def actual_sent_scope_version_ids(rows: list[dict[str, Any]]) -> list[str]:

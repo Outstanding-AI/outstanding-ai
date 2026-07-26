@@ -28,6 +28,7 @@ class DraftCandidate(BaseModel):
     candidate_id: str = Field(..., max_length=255)
     mode: str | None = Field(default=None, max_length=64)
     collection_case_id: str | None = Field(default=None, max_length=255)
+    collection_case_opened_at: str | None = Field(default=None, max_length=64)
     threading_strategy: str | None = Field(default=None, max_length=64)
     threading_mode: str | None = Field(default=None, max_length=64)
     active_thread_id: str | None = Field(default=None, max_length=255)

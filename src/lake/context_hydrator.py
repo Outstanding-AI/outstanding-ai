@@ -61,8 +61,9 @@ class CaseContextHydrator:
             obligations=evidence.candidate_obligations(candidate, obligations_by_lane, lane_ids),
             party_contacts=self._reads.load_party_contacts(candidate.party_id),
             history=self._reads.load_lane_history(candidate.lane_id),
-            actual_sent_scope_history=self._reads.load_actual_sent_scope_history(
-                candidate.party_id
+            actual_sent_scope_history=evidence.filter_actual_sent_scope_to_episode(
+                self._reads.load_actual_sent_scope_history(candidate.party_id),
+                candidate.collection_case_opened_at,
             ),
             case_thread=self._reads.load_case_threads_batch(case_ids).get(case_id),
             case_temporal_evidence=self._reads.load_case_temporal_invoice_evidence_batch(
@@ -129,7 +130,10 @@ class CaseContextHydrator:
                     ),
                     party_contacts=contacts_by_party.get(party_id, []),
                     history=history_by_lane.get(lane_id, []),
-                    actual_sent_scope_history=actual_sent_scope_by_party.get(party_id, []),
+                    actual_sent_scope_history=evidence.filter_actual_sent_scope_to_episode(
+                        actual_sent_scope_by_party.get(party_id, []),
+                        candidate.collection_case_opened_at,
+                    ),
                     case_thread=case_threads_by_id.get(case_id),
                     case_temporal_evidence=case_temporal_evidence_by_id.get(case_id, []),
                     case_commitment_evidence=case_commitment_evidence_by_id.get(case_id, []),

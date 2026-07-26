@@ -122,6 +122,7 @@ def assemble_case_context(
         unsubscribe_requested=bool(party.get("unsubscribe_requested")),
         collection_lane_id=str(lane["id"]),
         collection_case_id=candidate.collection_case_id or lane.get("collection_case_id"),
+        collection_case_opened_at=candidate.collection_case_opened_at,
         threading_strategy=candidate.threading_strategy
         or lane_context.get("threading_strategy")
         or "invoice_cohort_thread",

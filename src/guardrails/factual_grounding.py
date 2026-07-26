@@ -142,6 +142,7 @@ class FactualGroundingGuardrail(BaseGuardrail):
         results.append(self._validate_source_disputes_not_chased(output, context))
         results.append(self._validate_procurement_grounding(output, context))
         results.append(self._validate_outreach_dates(output, **kwargs))
+        results.append(self._validate_resolved_historical_invoices_not_chased(output, context))
         return results
 
     def _validate_outreach_dates(self, output: str, **kwargs) -> GuardrailResult:
@@ -198,6 +199,57 @@ class FactualGroundingGuardrail(BaseGuardrail):
                     found=sorted(mentioned_dates),
                 )
         return self._pass("Prior-outreach and forecast dates are grounded")
+
+    def _validate_resolved_historical_invoices_not_chased(
+        self,
+        output: str,
+        context: CaseContext,
+    ) -> GuardrailResult:
+        """Block payment language against paid/closed sent-history invoices.
+
+        Historical mail is continuity evidence, not current financial truth.
+        These invoice states are resolved by the backend against current Core
+        rows before the model call.  Keeping this check in the existing
+        CRITICAL factual-grounding guardrail makes the boundary deterministic
+        even if the model ignores the prompt instruction.
+        """
+
+        resolved_refs: set[str] = set()
+        display_refs: dict[str, str] = {}
+        for history in getattr(context, "actual_sent_scope_history", None) or []:
+            for state in getattr(history, "historical_invoice_states", None) or []:
+                if not isinstance(state, dict):
+                    continue
+                if str(state.get("current_state") or "").strip().lower() != "paid_or_closed":
+                    continue
+                invoice_ref = str(state.get("invoice_number") or "").strip()
+                normalized = _normalize_invoice_ref(invoice_ref)
+                if normalized:
+                    resolved_refs.add(normalized)
+                    display_refs[normalized] = invoice_ref
+
+        if not resolved_refs:
+            return self._pass("No paid/closed historical sent-scope invoices to cross-check")
+
+        offending: set[str] = set()
+        for segment in _segments(output):
+            for normalized in resolved_refs:
+                invoice_ref = display_refs[normalized]
+                if _segment_mentions_invoice_ref(segment, invoice_ref):
+                    offending.add(invoice_ref)
+
+        if offending:
+            return self._fail(
+                message="Draft references paid/closed invoices from historical sent scope",
+                expected="Only current candidate obligations may appear in debtor-facing copy",
+                found=sorted(offending),
+                details={"resolved_historical_invoice_refs": sorted(offending)},
+            )
+
+        return self._pass(
+            "Paid/closed historical sent-scope invoices were not chased",
+            details={"resolved_historical_invoice_count": len(resolved_refs)},
+        )
 
     @staticmethod
     def _parse_grounded_date(value: str) -> date | None:

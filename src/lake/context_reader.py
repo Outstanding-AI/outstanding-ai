@@ -45,6 +45,8 @@ COLLECTION_THREAD_MESSAGE_INVOICE_EVIDENCE_CURRENT = (
 SENT_DRAFT_ANALYSIS_EVENTS_CURRENT = "sent_draft_analysis_events_current"
 DRAFT_PROVIDER_LIFECYCLE_EVENTS_CURRENT = "draft_provider_lifecycle_events_current"
 DRAFTS_CURRENT = "silver_app_drafts_current"
+COLLECTION_MAIL_INVOICES_CURRENT = "silver_app_collection_mail_invoices_current"
+MAIL_MESSAGES_CURRENT = "silver_core_mail_messages_current"
 PARTY_COLLECTION_STATE_CURRENT = "party_collection_state_events_current"
 PARTY_COMM_STATE_CURRENT = "party_comm_state_events_current"
 PARTY_BEHAVIOR_PROFILE_CURRENT = "party_behavior_profile_versions_current"
@@ -501,15 +503,148 @@ class ContextReadRepository:
             rows = self._fetch_actual_sent_scope_history(party_ids)
         except Exception:
             return {}
-        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for row in rows:
-            party_key = str(row.get("party_id") or "")
-            if party_key and len(grouped[party_key]) < 10:
-                grouped[party_key].append(evidence.format_actual_sent_scope_row(row))
-        return dict(grouped)
+        return evidence.consolidate_actual_sent_scope_rows(rows, limit_per_party=10)
 
     def _fetch_actual_sent_scope_history(self, party_ids: list[str]) -> list[dict[str, Any]]:
         sql = f"""
+            WITH strict_sent AS (
+                SELECT
+                    draft_id,
+                    MAX_BY(
+                        provider_message_id,
+                        COALESCE(sent_at, provider_observed_at, observed_at, valid_from)
+                    ) AS provider_message_id,
+                    MAX_BY(
+                        proof_type,
+                        COALESCE(sent_at, provider_observed_at, observed_at, valid_from)
+                    ) AS proof_type,
+                    MAX(
+                        COALESCE(sent_at, provider_observed_at, observed_at, valid_from)
+                    ) AS event_time
+                FROM {
+            current_projection(self.source(DRAFT_PROVIDER_LIFECYCLE_EVENTS_CURRENT), "dle_source")
+        }
+                WHERE event_type = 'sent_confirmed'
+                  AND proof_type IN (
+                      'graph_sent_items_exact_oai',
+                      'graph_create_reply_sent_items_match',
+                      'captured_sent_copy_exact_oai',
+                      'message_trace',
+                      'purview_send_as'
+                  )
+                GROUP BY draft_id
+            ),
+            latest_analysis AS (
+                SELECT
+                    draft_id,
+                    MAX_BY(sent_draft_analysis_event_id, event_time)
+                        AS sent_draft_analysis_event_id,
+                    MAX_BY(application_content_hash, event_time) AS application_content_hash,
+                    MAX_BY(touch_id, event_time) AS touch_id,
+                    MAX_BY(provider_message_id, event_time) AS provider_message_id,
+                    MAX(event_time) AS event_time,
+                    MAX_BY(valid_from, event_time) AS valid_from,
+                    MAX_BY(invoice_refs_generated_json, event_time)
+                        AS invoice_refs_generated_json,
+                    MAX_BY(invoice_refs_sent_json, event_time) AS invoice_refs_sent_json,
+                    MAX_BY(invoice_refs_added_json, event_time) AS invoice_refs_added_json,
+                    MAX_BY(invoice_refs_removed_json, event_time) AS invoice_refs_removed_json,
+                    MAX_BY(invoice_scope_changed, event_time) AS invoice_scope_changed,
+                    MAX_BY(edit_severity, event_time) AS edit_severity,
+                    MAX_BY(payment_expectation_added, event_time)
+                        AS payment_expectation_added,
+                    MAX_BY(payment_expectation_kind, event_time)
+                        AS payment_expectation_kind,
+                    MAX_BY(payment_expectation_date, event_time)
+                        AS payment_expectation_date,
+                    MAX_BY(payment_expectation_amount, event_time)
+                        AS payment_expectation_amount,
+                    MAX_BY(review_reason_codes_json, event_time)
+                        AS review_reason_codes_json,
+                    MAX_BY(scope_extraction_status, event_time) AS scope_extraction_status,
+                    MAX_BY(sent_scope_source, event_time) AS sent_scope_source
+                FROM {
+            current_projection(self.source(SENT_DRAFT_ANALYSIS_EVENTS_CURRENT), "a_source")
+        }
+                GROUP BY draft_id
+            ),
+            party_drafts AS (
+                SELECT d.*
+                FROM {current_projection_in(self.source(DRAFTS_CURRENT), "d", id_column="party_id")}
+                JOIN latest_analysis la
+                  ON la.draft_id = d.draft_id
+                JOIN strict_sent ss
+                  ON ss.draft_id = d.draft_id
+            ),
+            captured_mail AS (
+                SELECT
+                    pd.draft_id AS matched_draft_id,
+                    MAX_BY(m.id, COALESCE(m.sent_at, m.message_time, m.received_at))
+                        AS captured_mail_message_id,
+                    MAX_BY(m.subject, COALESCE(m.sent_at, m.message_time, m.received_at))
+                        AS sent_subject,
+                    MAX_BY(
+                        SUBSTR(
+                            COALESCE(
+                                NULLIF(m.unique_body_plain, ''),
+                                NULLIF(m.body_plain, ''),
+                                NULLIF(m.body_preview, ''),
+                                NULLIF(m.unique_body_html, ''),
+                                m.body_html,
+                                ''
+                            ),
+                            1,
+                            5000
+                        ),
+                        COALESCE(m.sent_at, m.message_time, m.received_at)
+                    ) AS actual_sent_body_excerpt,
+                    MAX(COALESCE(m.sent_at, m.message_time, m.received_at))
+                        AS captured_sent_at
+                FROM party_drafts pd
+                JOIN latest_analysis la
+                  ON la.draft_id = pd.draft_id
+                JOIN strict_sent ss
+                  ON ss.draft_id = pd.draft_id
+                JOIN {current_projection(self.source(MAIL_MESSAGES_CURRENT), "m")}
+                  ON (
+                      CAST(m.oai_draft_id AS VARCHAR) = CAST(pd.draft_id AS VARCHAR)
+                      OR (
+                          NULLIF(TRIM(CAST(m.oai_draft_id AS VARCHAR)), '') IS NULL
+                          AND CAST(m.provider_message_id AS VARCHAR) = CAST(
+                              COALESCE(la.provider_message_id, ss.provider_message_id)
+                              AS VARCHAR
+                          )
+                      )
+                  )
+                 AND COALESCE(m.is_draft, FALSE) = FALSE
+                 AND m.direction = 'outbound'
+                GROUP BY pd.draft_id
+            ),
+            mail_invoice_scope AS (
+                SELECT
+                    draft_id,
+                    obligation_id,
+                    MAX_BY(
+                        invoice_number,
+                        COALESCE(event_time, valid_from, observed_at)
+                    ) AS invoice_number,
+                    MAX_BY(
+                        currency_code,
+                        COALESCE(event_time, valid_from, observed_at)
+                    ) AS currency_code,
+                    MAX_BY(
+                        days_overdue_at_send,
+                        COALESCE(event_time, valid_from, observed_at)
+                    ) AS days_overdue_at_send
+                FROM {
+            current_projection(self.source(COLLECTION_MAIL_INVOICES_CURRENT), "cmi_source")
+        }
+                GROUP BY draft_id, obligation_id
+            ),
+            current_obligations AS (
+                SELECT *
+                FROM {current_projection(self.source(OBLIGATIONS_CURRENT), "o_source")}
+            )
             SELECT
                 d.party_id,
                 a.sent_draft_analysis_event_id,
@@ -518,7 +653,7 @@ class ContextReadRepository:
                 a.touch_id,
                 a.provider_message_id,
                 d.lane_id,
-                COALESCE(d.sent_at, a.event_time, a.valid_from) AS sent_at,
+                COALESCE(cm.captured_sent_at, d.sent_at, a.event_time, a.valid_from) AS sent_at,
                 a.invoice_refs_generated_json,
                 a.invoice_refs_sent_json,
                 a.invoice_refs_added_json,
@@ -529,26 +664,49 @@ class ContextReadRepository:
                 a.payment_expectation_kind,
                 a.payment_expectation_date,
                 a.payment_expectation_amount,
-                a.review_reason_codes_json
-            FROM {current_projection_in(self.source(DRAFTS_CURRENT), "d", id_column="party_id")}
-            JOIN {current_projection(self.source(SENT_DRAFT_ANALYSIS_EVENTS_CURRENT), "a")}
-              ON a.tenant_id = d.tenant_id
-             AND a.draft_id = d.draft_id
-            JOIN {current_projection(self.source(DRAFT_PROVIDER_LIFECYCLE_EVENTS_CURRENT), "dle")}
-              ON dle.tenant_id = d.tenant_id
-             AND dle.draft_id = d.draft_id
-             AND dle.event_type = 'sent_confirmed'
-             AND dle.proof_type IN (
-                 'graph_sent_items_exact_oai',
-                 'graph_create_reply_sent_items_match',
-                 'captured_sent_copy_exact_oai',
-                 'message_trace',
-                 'purview_send_as'
-             )
-            ORDER BY d.party_id, COALESCE(d.sent_at, a.event_time, a.valid_from) DESC NULLS LAST
+                a.review_reason_codes_json,
+                a.scope_extraction_status,
+                a.sent_scope_source,
+                ss.proof_type AS sent_proof_type,
+                cm.captured_mail_message_id,
+                cm.sent_subject,
+                cm.actual_sent_body_excerpt,
+                cmi.obligation_id AS scope_obligation_id,
+                cmi.invoice_number AS scope_invoice_number,
+                cmi.currency_code AS scope_currency_code,
+                cmi.days_overdue_at_send,
+                o.is_open AS current_is_open,
+                o.amount_due AS current_amount_due,
+                o.currency_code AS current_currency_code,
+                o.due_date AS current_due_date
+            FROM party_drafts d
+            JOIN latest_analysis a
+              ON a.draft_id = d.draft_id
+            JOIN strict_sent ss
+              ON ss.draft_id = d.draft_id
+            LEFT JOIN captured_mail cm
+              ON cm.matched_draft_id = d.draft_id
+            LEFT JOIN mail_invoice_scope cmi
+              ON cmi.draft_id = d.draft_id
+            LEFT JOIN current_obligations o
+              ON CAST(o.id AS VARCHAR) = CAST(cmi.obligation_id AS VARCHAR)
+            ORDER BY
+                d.party_id,
+                COALESCE(cm.captured_sent_at, d.sent_at, a.event_time, a.valid_from)
+                    DESC NULLS LAST,
+                cmi.invoice_number ASC NULLS LAST
             """
         return self.reader.execute(
-            sql, [self.tenant_id, tuple(party_ids), self.tenant_id, self.tenant_id]
+            sql,
+            [
+                self.tenant_id,
+                self.tenant_id,
+                self.tenant_id,
+                tuple(party_ids),
+                self.tenant_id,
+                self.tenant_id,
+                self.tenant_id,
+            ],
         )
 
     def load_party_contacts(self, party_id: str) -> list[dict[str, Any]]:
