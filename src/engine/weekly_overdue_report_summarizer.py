@@ -19,56 +19,62 @@ from src.llm.schemas import WeeklyOverdueReportSummaryLLMResponse
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "weekly_overdue_report_summary"
-PROMPT_TEMPLATE_VERSION = "v8"
+PROMPT_TEMPLATE_VERSION = "v9"
 
-_SYSTEM_PROMPT = """You condense one confirmed outbound accounts-receivable
-chase into a short purpose phrase for an internal weekly overdue report.
+_SYSTEM_PROMPT = """You condense the latest invoice-specific debtor response
+into a short factual update for an internal weekly overdue report.
 
-The application renders the current Sage balance, overdue status, confirmed
-send date, and a neutral reminder label. You must describe only what the
-supplied outbound message asked or told the debtor.
+The application separately renders the current Sage balance, overdue status,
+and all confirmed chase dates. The supplied inbound evidence is a compact set
+of typed workflow facts extracted from one debtor email for one invoice.
 
 Return a JSON object only:
 {
   "material_updates": [
     {
       "evidence_id": "one supplied evidence_id",
-      "summary": "short purpose phrase grounded in the supplied message"
+      "summary": "short debtor update grounded in the supplied facts"
     }
   ]
 }
 
 Rules:
-- Return exactly one update for the single supplied outbound evidence event.
-- Include routine reminders and follow-ups. State their business purpose.
-- Keep the summary to one plain phrase of at most 120 characters.
-- Begin with exactly one of these past-tense verbs: "requested", "asked",
-  "advised", "notified", "confirmed", "explained", or "highlighted".
-- Make the phrase grammatical after a semicolon. Use noun wording such as
-  "requested confirmation of the expected payment date", never
-  "requested confirm the expected payment date".
-- Preserve questions as questions in meaning: use "asked whether ..." rather
-  than converting a question about a blocker into a request for documents.
+- Return exactly one update for the single supplied inbound evidence event.
+- Keep the summary to one plain phrase of at most 160 characters.
+- Begin with exactly one of: "committed", "promised", "advised", "confirmed",
+  "reported", "sent", "raised", "queried", "disputed", "requested", "stated",
+  or "explained".
+- State the newest material meaning: a payment commitment, remittance/payment
+  claim, payment-timing statement, query/dispute, internal processing blocker,
+  or document request.
+- Use "committed" or "promised" only for commitment_to_pay facts. For
+  payment_evidence use "reported", "sent", "advised", "confirmed", or
+  "stated"; never upgrade a payment/remittance claim into a commitment.
+- Prefer the most concrete grounded detail, such as a promised payment date,
+  claimed payment date or amount, or the substance of a query.
+- Translate machine-shaped facts into natural business language. Good forms
+  include "committed to pay by 31 Jul 2026", "reported payment of GBP 1,000
+  on 25 Jul 2026 and supplied remittance", and "queried the unit price against
+  the purchase order".
+- Do not copy classification names, fact labels, fact statuses, JSON keys, or
+  phrases such as pending, observed, verification pending, claimed date, fact
+  value, or query or dispute into the summary.
 - Do not use a colon or semicolon. Do not use the words message, email, chase,
   reminder, follow-up, sequence, level, stage, or touch.
-- Preserve the message's specific request or notification. Mention remittance,
-  an expected payment date, documentation, a query, or another blocker only
-  when that concept appears in the supplied message.
-- Do not replace a specific request with the generic phrase "requested payment
-  or remittance confirmation" unless the message actually requests both.
 - Do not state or infer the current balance, Sage status, days overdue, due
-  date, send date, payment status, or next action.
-- Do not include any number, amount, date, invoice reference, PO, sales order,
-  credit reference, email address, name, or internal identifier.
+  date, chase date, final payment status, or next action.
+- A fact status such as verification_pending means the debtor claimed payment;
+  it does not prove that Sage has received or verified it.
+- You may include an exact commitment/payment date or amount found in the
+  supplied facts. Do not include invoice, PO, sales-order, bank, credit,
+  evidence, mail, party, or internal identifiers.
 - Do not mention a reminder number, reminder sequence, level, stage, touch
   index, escalation index, tone label, or phrases such as "first reminder".
-- Do not say that the message was sent; the application renders that fact.
+- Do not say that the response was received; the application renders its date.
 - Never mention an invoice, PO, sales order, or credit reference listed in
   forbidden_references. A multi-invoice message is not permission to copy
   another document into the phrase.
-- Use only the supplied message. Do not recommend a future action.
-- Omit greetings, signatures, disclaimers, contact details, and transport
-  language.
+- Use only the supplied facts. Do not recommend a future action.
 """
 
 _USER_PROMPT = "Weekly overdue-report evidence:\n{payload}"
@@ -119,7 +125,6 @@ def _sanitize_business_text(value: str) -> str:
         "remittance_state": "remittance status",
         "requires_credit_review": "credit review",
         "commitment_pending": "pending commitment",
-        "promised": "commitment recorded",
         "amount_due": "amount due",
         "due_date": "due date",
         "days_overdue": "days overdue",
@@ -170,9 +175,9 @@ def _sanitize_business_text(value: str) -> str:
             last_clause = text.rfind(";", 0, -3)
             if last_clause >= 40:
                 text = f"{text[:last_clause].rstrip()}."
-    if len(text) <= 120:
+    if len(text) <= 160:
         return text
-    clipped = text[:117].rsplit(" ", 1)[0].rstrip(" ,;:")
+    clipped = text[:157].rsplit(" ", 1)[0].rstrip(" ,;:")
     return f"{clipped}..."
 
 
@@ -224,6 +229,13 @@ def _validate_model_output(
             continue
         if re.search(r"\b(remittance_state|cleared_[a-z_]+|requires_credit_review)\b", text):
             continue
+        if re.search(
+            r"\b(classification|fact\s+(?:type|subtype|status|value)|"
+            r"verification\s+pending|claimed\s+date|query\s+or\s+dispute|observed)\b",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            continue
         if re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, flags=re.IGNORECASE):
             continue
         if re.search(
@@ -237,8 +249,6 @@ def _validate_model_output(
             text,
             flags=re.IGNORECASE,
         ):
-            continue
-        if re.search(r"\d", text):
             continue
         if re.search(
             r"\b(reminder\s*(?:number|no\.?)?|level|stage|touch\s*index|"
@@ -256,17 +266,47 @@ def _validate_model_output(
         ):
             continue
         if not re.match(
-            r"^(requested|asked|advised|notified|confirmed|explained|highlighted)\b",
+            r"^(committed|promised|advised|confirmed|reported|sent|raised|queried|"
+            r"disputed|requested|stated|explained)\b",
             text,
             flags=re.IGNORECASE,
         ):
+            continue
+        if not re.match(
+            rf"^({'|'.join(_allowed_openings_for_event(event.authored_text))})\b",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        if not _numeric_values(text).issubset(_numeric_values(event.authored_text)):
             continue
         if text:
             validated_updates.append(item)
     parsed.material_updates = validated_updates
     if len(parsed.material_updates) != 1:
-        raise ValueError("weekly_report_summary_requires_one_chase_purpose")
+        raise ValueError("weekly_report_summary_requires_one_debtor_update")
     return parsed
+
+
+def _allowed_openings_for_event(authored_text: str) -> tuple[str, ...]:
+    evidence = str(authored_text or "").lower()
+    if "fact_type=commitment_to_pay" in evidence:
+        return ("committed", "promised", "stated")
+    if "fact_type=payment_evidence" in evidence:
+        return ("reported", "sent", "advised", "confirmed", "stated")
+    if "fact_type=payment_timing_claim" in evidence:
+        return ("advised", "reported", "stated", "disputed")
+    return ("raised", "queried", "disputed", "requested", "explained", "stated")
+
+
+def _numeric_values(text: str) -> set[str]:
+    values: set[str] = set()
+    for token in re.findall(r"\d[\d,]*(?:\.\d+)?", str(text or "")):
+        normalized = token.replace(",", "")
+        if "." in normalized:
+            normalized = normalized.rstrip("0").rstrip(".")
+        values.add(normalized.lstrip("0") or "0")
+    return values
 
 
 def _remove_forbidden_reference_clauses(text: str, forbidden_references: list[str]) -> str:
@@ -429,9 +469,9 @@ def _correction_for(error: str) -> str:
         "weekly_report_summary_cross_invoice_language": (
             "Describe only the target invoice and do not refer to other or related invoices."
         ),
-        "weekly_report_summary_requires_one_chase_purpose": (
-            "Return exactly one update for the supplied outbound event. Summarize the "
-            "message purpose even when it is a routine reminder."
+        "weekly_report_summary_requires_one_debtor_update": (
+            "Return exactly one update for the supplied inbound event. Summarize only "
+            "the latest debtor commitment, remittance/payment claim, or query fact."
         ),
     }
     return corrections.get(code, "Correct only the stated validation defect.")
