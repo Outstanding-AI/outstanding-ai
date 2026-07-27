@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime
 
 from pydantic import ValidationError
 
@@ -19,7 +20,7 @@ from src.llm.schemas import WeeklyOverdueReportSummaryLLMResponse
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "weekly_overdue_report_summary"
-PROMPT_TEMPLATE_VERSION = "v9"
+PROMPT_TEMPLATE_VERSION = "v10"
 
 _SYSTEM_PROMPT = """You condense the latest invoice-specific debtor response
 into a short factual update for an internal weekly overdue report.
@@ -41,9 +42,9 @@ Return a JSON object only:
 Rules:
 - Return exactly one update for the single supplied inbound evidence event.
 - Keep the summary to one plain phrase of at most 160 characters.
-- Begin with exactly one of: "committed", "promised", "advised", "confirmed",
-  "reported", "sent", "raised", "queried", "disputed", "requested", "stated",
-  or "explained".
+- Begin with exactly one of: "committed", "promised", "agreed", "advised",
+  "confirmed", "reported", "sent", "provided", "supplied", "paid", "raised",
+  "queried", "disputed", "requested", "asked", "stated", or "explained".
 - State the newest material meaning: a payment commitment, remittance/payment
   claim, payment-timing statement, query/dispute, internal processing blocker,
   or document request.
@@ -56,6 +57,12 @@ Rules:
   include "committed to pay by 31 Jul 2026", "reported payment of GBP 1,000
   on 25 Jul 2026 and supplied remittance", and "queried the unit price against
   the purchase order".
+- If update_kind is "already paid" and no safe amount or date is supplied, say
+  "reported payment already made". If it is "remittance advice" without safe
+  details, say "supplied remittance". If fact_type is document_request without
+  a safe specific comment, say "requested a copy of the current invoice".
+- Omit missing details. Never say unknown amount, unspecified date, missing
+  detail, inbound evidence, obligation, or similar process language.
 - Do not copy classification names, fact labels, fact statuses, JSON keys, or
   phrases such as pending, observed, verification pending, claimed date, fact
   value, or query or dispute into the summary.
@@ -108,6 +115,8 @@ def _sanitize_business_text(value: str) -> str:
     """Translate known machine tokens and remove internal evidence handles."""
 
     text = str(value or "")
+    text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", _humanize_iso_date, text)
+    text = re.sub(r"\binfo\b", "information", text, flags=re.IGNORECASE)
     text = re.sub(
         r"^\s*(Earlier|This week|Current|Next)(?:\s+position|\s+action)?\s*:\s*",
         "",
@@ -181,6 +190,13 @@ def _sanitize_business_text(value: str) -> str:
     return f"{clipped}..."
 
 
+def _humanize_iso_date(match: re.Match[str]) -> str:
+    try:
+        return datetime.strptime(match.group(0), "%Y-%m-%d").strftime("%d %b %Y")
+    except ValueError:
+        return match.group(0)
+
+
 def _validate_model_output(
     *,
     content: str,
@@ -198,6 +214,7 @@ def _validate_model_output(
     event_by_original_id = {event.evidence_id: event for event in request.evidence_events}
     seen: set[str] = set()
     validated_updates = []
+    rejection_codes: list[str] = []
     for item in parsed.material_updates:
         evidence_id = str(item.evidence_id)
         if evidence_id not in supplied_evidence:
@@ -214,89 +231,109 @@ def _validate_model_output(
             request.forbidden_references,
         )
         item.summary = text
-        if not text:
+        rejection_code = _update_rejection_code(
+            text=text,
+            event_authored_text=event.authored_text,
+            forbidden_references=request.forbidden_references,
+        )
+        if rejection_code:
+            rejection_codes.append(rejection_code)
             continue
-        if any(
-            _contains_reference(text, forbidden_reference)
-            for forbidden_reference in request.forbidden_references
-        ):
-            continue
-        if re.search(
-            r"\b(other|related|remaining|sibling|multiple)\s+(?:invoice|document)s?\b",
-            text,
-            re.I,
-        ):
-            continue
-        if re.search(r"\b(remittance_state|cleared_[a-z_]+|requires_credit_review)\b", text):
-            continue
-        if re.search(
-            r"\b(classification|fact\s+(?:type|subtype|status|value)|"
-            r"verification\s+pending|claimed\s+date|query\s+or\s+dispute|observed)\b",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            continue
-        if re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, flags=re.IGNORECASE):
-            continue
-        if re.search(
-            r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            continue
-        if re.search(
-            r"\b(received from debtor\s*-\s*internal forward context|sent to debtor to)\b",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            continue
-        if re.search(
-            r"\b(reminder\s*(?:number|no\.?)?|level|stage|touch\s*index|"
-            r"first\s+reminder|second\s+reminder|third\s+reminder)\b",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            continue
-        if ":" in text or ";" in text:
-            continue
-        if re.search(
-            r"\b(message|email|chase|reminders?|follow-up|sequence|level|stage|touch)\b",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            continue
-        if not re.match(
-            r"^(committed|promised|advised|confirmed|reported|sent|raised|queried|"
-            r"disputed|requested|stated|explained)\b",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            continue
-        if not re.match(
-            rf"^({'|'.join(_allowed_openings_for_event(event.authored_text))})\b",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            continue
-        if not _numeric_values(text).issubset(_numeric_values(event.authored_text)):
-            continue
-        if text:
-            validated_updates.append(item)
+        validated_updates.append(item)
     parsed.material_updates = validated_updates
     if len(parsed.material_updates) != 1:
-        raise ValueError("weekly_report_summary_requires_one_debtor_update")
+        raise ValueError(
+            rejection_codes[0]
+            if rejection_codes
+            else "weekly_report_summary_requires_one_debtor_update"
+        )
     return parsed
+
+
+def _update_rejection_code(
+    *,
+    text: str,
+    event_authored_text: str,
+    forbidden_references: list[str],
+) -> str | None:
+    if not text:
+        return "weekly_report_summary_cross_invoice_reference"
+    if any(_contains_reference(text, reference) for reference in forbidden_references):
+        return "weekly_report_summary_cross_invoice_reference"
+    if re.search(
+        r"\b(other|related|remaining|sibling|multiple)\s+(?:invoice|document)s?\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return "weekly_report_summary_cross_invoice_language"
+    if re.search(r"\b(remittance_state|cleared_[a-z_]+|requires_credit_review)\b", text):
+        return "weekly_report_summary_machine_terms"
+    if re.search(
+        r"\b(classification|fact\s+(?:type|subtype|status|value)|"
+        r"verification\s+pending|claimed\s+date|query\s+or\s+dispute|observed|"
+        r"evidence|obligation|unknown\s+amount|unspecified\s+date|missing\s+detail)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "weekly_report_summary_machine_terms"
+    if re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, flags=re.IGNORECASE):
+        return "weekly_report_summary_contains_email_address"
+    if re.search(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "weekly_report_summary_contains_internal_identifier"
+    if re.search(
+        r"\b(received from debtor\s*-\s*internal forward context|sent to debtor to)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "weekly_report_summary_copies_transport_prefix"
+    if ":" in text or ";" in text:
+        return "weekly_report_summary_invalid_punctuation"
+    if re.search(
+        r"\b(message|email|chase|reminders?|follow-up|sequence|level|stage|touch)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "weekly_report_summary_chase_metadata"
+    if not re.match(
+        r"^(committed|promised|agreed|advised|confirmed|reported|sent|provided|"
+        r"supplied|paid|raised|queried|disputed|requested|asked|stated|explained)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "weekly_report_summary_invalid_opening"
+    if not re.match(
+        rf"^({'|'.join(_allowed_openings_for_event(event_authored_text))})\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return "weekly_report_summary_opening_mismatches_fact"
+    if not _numeric_values(text).issubset(_numeric_values(event_authored_text)):
+        return "weekly_report_summary_ungrounded_number"
+    return None
 
 
 def _allowed_openings_for_event(authored_text: str) -> tuple[str, ...]:
     evidence = str(authored_text or "").lower()
     if "fact_type=commitment_to_pay" in evidence:
-        return ("committed", "promised", "stated")
+        return ("committed", "promised", "agreed", "stated")
     if "fact_type=payment_evidence" in evidence:
-        return ("reported", "sent", "advised", "confirmed", "stated")
+        return (
+            "reported",
+            "sent",
+            "provided",
+            "supplied",
+            "paid",
+            "advised",
+            "confirmed",
+            "stated",
+        )
     if "fact_type=payment_timing_claim" in evidence:
         return ("advised", "reported", "stated", "disputed")
-    return ("raised", "queried", "disputed", "requested", "explained", "stated")
+    return ("raised", "queried", "disputed", "requested", "asked", "explained", "stated")
 
 
 def _numeric_values(text: str) -> set[str]:
@@ -312,11 +349,15 @@ def _numeric_values(text: str) -> set[str]:
 def _remove_forbidden_reference_clauses(text: str, forbidden_references: list[str]) -> str:
     """Keep the target-invoice clause when one event also names sibling documents."""
 
+    cleaned = str(text or "")
+    for reference in forbidden_references:
+        if reference:
+            cleaned = re.sub(re.escape(reference), "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(
         r"(?i)^.*?\b(?:multiple|other|related|remaining|sibling)\s+"
         r"(?:invoice|document)s?\s*:\s*",
         "",
-        str(text or ""),
+        cleaned,
     )
     clauses = re.split(r"(?<=[.;])\s+|;\s*", cleaned)
     retained = [
@@ -468,6 +509,25 @@ def _correction_for(error: str) -> str:
         ),
         "weekly_report_summary_cross_invoice_language": (
             "Describe only the target invoice and do not refer to other or related invoices."
+        ),
+        "weekly_report_summary_machine_terms": (
+            "Remove classification labels, fact labels, JSON keys, statuses, the word evidence, "
+            "and phrases such as unknown amount or unspecified date. Omit missing details entirely."
+        ),
+        "weekly_report_summary_invalid_punctuation": (
+            "Remove colons and semicolons and return one plain phrase."
+        ),
+        "weekly_report_summary_chase_metadata": (
+            "Remove every mention of messages, emails, chases, reminders, follow-ups, sequence, level, stage, or touch."
+        ),
+        "weekly_report_summary_invalid_opening": (
+            "Start with exactly one permitted past-tense verb from the system rules; do not add a subject before it."
+        ),
+        "weekly_report_summary_opening_mismatches_fact": (
+            "Use a verb that matches the supplied fact type. Never describe a payment claim as a commitment."
+        ),
+        "weekly_report_summary_ungrounded_number": (
+            "Remove every number, amount, or date that is not present in the supplied event facts."
         ),
         "weekly_report_summary_requires_one_debtor_update": (
             "Return exactly one update for the supplied inbound event. Summarize only "
