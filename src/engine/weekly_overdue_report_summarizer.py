@@ -19,90 +19,56 @@ from src.llm.schemas import WeeklyOverdueReportSummaryLLMResponse
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "weekly_overdue_report_summary"
-PROMPT_TEMPLATE_VERSION = "v7"
+PROMPT_TEMPLATE_VERSION = "v8"
 
-_SYSTEM_PROMPT = """You prepare concise accounts-receivable notes for an internal weekly
-overdue report used for approval, fact-checking, and follow-up planning.
+_SYSTEM_PROMPT = """You condense one confirmed outbound accounts-receivable
+chase into a short purpose phrase for an internal weekly overdue report.
 
-The input contains exactly one target invoice, its PO/sales-order/allocated-
-credit lineage, and only the retained authored events mapped to or explicitly
-naming that invoice. A supplied event can mention several invoices. Extract
-only the clause about the target invoice and ignore every other invoice.
+The application renders the current Sage balance, overdue status, confirmed
+send date, and a neutral reminder label. You must describe only what the
+supplied outbound message asked or told the debtor.
 
 Return a JSON object only:
 {
   "material_updates": [
     {
       "evidence_id": "one supplied evidence_id",
-      "summary": "the business meaning of that event for this invoice"
+      "summary": "short purpose phrase grounded in the supplied message"
     }
   ]
 }
 
 Rules:
-- Return one update for the single supplied target invoice.
-- The application renders current accounting truth and the prior-week frozen
-  accounting position deterministically. Summarize only authored evidence; do
-  not restate prior_week_* or current invoice fields.
-- "Earlier" is strictly the seven calendar days immediately before
-  reporting_window_start. "This week" is reporting_window_start through
-  reporting_window_end. Evidence outside those two windows must not be used.
+- Return exactly one update for the single supplied outbound evidence event.
+- Include routine reminders and follow-ups. State their business purpose.
+- Keep the summary to one plain phrase of at most 120 characters.
+- Begin with exactly one of these past-tense verbs: "requested", "asked",
+  "advised", "notified", "confirmed", "explained", or "highlighted".
+- Make the phrase grammatical after a semicolon. Use noun wording such as
+  "requested confirmation of the expected payment date", never
+  "requested confirm the expected payment date".
+- Preserve questions as questions in meaning: use "asked whether ..." rather
+  than converting a question about a blocker into a request for documents.
+- Do not use a colon or semicolon. Do not use the words message, email, chase,
+  reminder, follow-up, sequence, level, stage, or touch.
+- Preserve the message's specific request or notification. Mention remittance,
+  an expected payment date, documentation, a query, or another blocker only
+  when that concept appears in the supplied message.
+- Do not replace a specific request with the generic phrase "requested payment
+  or remittance confirmation" unless the message actually requests both.
+- Do not state or infer the current balance, Sage status, days overdue, due
+  date, send date, payment status, or next action.
+- Do not include any number, amount, date, invoice reference, PO, sales order,
+  credit reference, email address, name, or internal identifier.
+- Do not mention a reminder number, reminder sequence, level, stage, touch
+  index, escalation index, tone label, or phrases such as "first reminder".
+- Do not say that the message was sent; the application renders that fact.
 - Never mention an invoice, PO, sales order, or credit reference listed in
-  forbidden_references. A multi-invoice email is not permission to copy the
-  other invoices into this row.
-- Do not repeat the target invoice number merely to identify the row; the
-  spreadsheet already supplies it. Mention a PO, sales-order, or credit
-  reference only when that exact reference is material to the authored event.
-- Use only supplied facts and evidence. Never infer payment, dispute,
-  remittance, ownership, dates, amounts, references, or next steps.
-- Preserve contradictory authored statements rather than choosing one. For
-  example, if one response says both "paid" and "under review" for the target
-  invoice, state that the response is contradictory.
-- Distinguish debtor-authored statements, operator notes, and Outstanding AI
-  outbound messages. direction=inbound means debtor-authored;
-  direction=outbound means the collector/Outstanding AI authored it;
-  direction=internal means an operator note. Never reverse those actors.
-- Ignore unrelated operational correspondence. Include only evidence material
-  to this invoice's payment status, PO/order status, delivery or approval
-  blocker, commitment, remittance, query, credit, collection contact, or
-  follow-up.
-- Return at most eight material updates, ordered oldest to newest.
-- Each update must summarize exactly one supplied evidence event and carry that
-  event's evidence_id. Do not combine several evidence IDs into one update.
-- Do not return a routine reminder, statement, or follow-up send unless its
-  authored text records a material commitment, remittance, query, credit,
-  payment position, or blocker.
-- Summaries must describe authored evidence, not restate current invoice facts.
-  Attribute debtor statements, operator notes, and collector messages
-  accurately. If the debtor says paid while amount_due remains positive,
-  report the debtor claim without asserting that payment cleared.
-- Treat commitment fields as current invoice controls. Use the word
-  "commitment"; do not call it a promise. A pending commitment blocks ordinary
-  chasing; a broken commitment requires follow-up; a fulfilled commitment is
-  historical and is not still pending.
-- amount_due is the current balance after exact allocated credits. Never
-  subtract allocated_credit_amount again and never apply debtor-level
-  unapplied credit to this invoice.
-- If remittance_state starts with "cleared_", the remittance check is already
-  complete. Do not describe it as still awaiting review.
-- Use plain business language. Never expose input field names or machine status
-  codes such as remittance_state, cleared_not_found, or requires_credit_review.
-- Never expose internal UUIDs, obligation IDs, party IDs, evidence IDs, or
-  phrases such as "tied to obligation". Only business document references
-  supplied on the target invoice may appear in narrative text.
-- If you state a date, reproduce the exact supplied ISO date (YYYY-MM-DD).
-  Never abbreviate, reformat, or calculate a date.
-- Keep each summary under 240 characters. Do not include email addresses,
-  signatures, disclaimers, greetings, or long quotations.
-- Do not recommend an action in the summary; the application determines the
-  next action from current controls. Never mention "other invoices", "related
-  invoices", or sibling documents.
-- Paraphrase authored evidence into business language. Never copy transport
-  prefixes such as "Received from debtor - internal forward context", sender
-  addresses, reply subjects, or signature text into the result.
-- If evidence_truncated is true, do not claim the retained trail is exhaustive.
-- If no supplied event has material invoice-specific business meaning, return
-  an empty material_updates list.
+  forbidden_references. A multi-invoice message is not permission to copy
+  another document into the phrase.
+- Use only the supplied message. Do not recommend a future action.
+- Omit greetings, signatures, disclaimers, contact details, and transport
+  language.
 """
 
 _USER_PROMPT = "Weekly overdue-report evidence:\n{payload}"
@@ -204,9 +170,9 @@ def _sanitize_business_text(value: str) -> str:
             last_clause = text.rfind(";", 0, -3)
             if last_clause >= 40:
                 text = f"{text[:last_clause].rstrip()}."
-    if len(text) <= 240:
+    if len(text) <= 120:
         return text
-    clipped = text[:237].rsplit(" ", 1)[0].rstrip(" ,;:")
+    clipped = text[:117].rsplit(" ", 1)[0].rstrip(" ,;:")
     return f"{clipped}..."
 
 
@@ -272,18 +238,34 @@ def _validate_model_output(
             flags=re.IGNORECASE,
         ):
             continue
-        if re.search(r"(?<!\d{4}-)\b\d{2}-\d{2}\b", text):
+        if re.search(r"\d", text):
             continue
-        allowed_dates = {
-            event.occurred_at.date().isoformat(),
-            *re.findall(r"\b\d{4}-\d{2}-\d{2}\b", event.authored_text),
-        }
-        mentioned_dates = set(re.findall(r"\b\d{4}-\d{2}-\d{2}\b", text))
-        if not mentioned_dates.issubset(allowed_dates):
+        if re.search(
+            r"\b(reminder\s*(?:number|no\.?)?|level|stage|touch\s*index|"
+            r"first\s+reminder|second\s+reminder|third\s+reminder)\b",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        if ":" in text or ";" in text:
+            continue
+        if re.search(
+            r"\b(message|email|chase|reminders?|follow-up|sequence|level|stage|touch)\b",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        if not re.match(
+            r"^(requested|asked|advised|notified|confirmed|explained|highlighted)\b",
+            text,
+            flags=re.IGNORECASE,
+        ):
             continue
         if text:
             validated_updates.append(item)
     parsed.material_updates = validated_updates
+    if len(parsed.material_updates) != 1:
+        raise ValueError("weekly_report_summary_requires_one_chase_purpose")
     return parsed
 
 
@@ -446,6 +428,10 @@ def _correction_for(error: str) -> str:
         ),
         "weekly_report_summary_cross_invoice_language": (
             "Describe only the target invoice and do not refer to other or related invoices."
+        ),
+        "weekly_report_summary_requires_one_chase_purpose": (
+            "Return exactly one update for the supplied outbound event. Summarize the "
+            "message purpose even when it is a routine reminder."
         ),
     }
     return corrections.get(code, "Correct only the stated validation defect.")
