@@ -252,6 +252,56 @@ async def test_manual_note_interpreter_is_source_grounded_and_defaults_commitmen
 
 
 @pytest.mark.asyncio
+async def test_manual_note_interpreter_recovers_explicit_single_invoice_remittance():
+    from src.engine.manual_note_interpreter import ManualNoteInterpreter
+
+    note = "REMIT RECEIVED"
+    interpreter = ManualNoteInterpreter()
+    interpreter._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "extraction_status": "abstained",
+                    "assertions": [],
+                    "reason_codes": ["no_safe_operational_assertion"],
+                }
+            ),
+            provider="vertex",
+            model="gemini-2.5-flash",
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        )
+    )
+
+    result = await interpreter.interpret(
+        ManualNoteInterpretationRequestV1(
+            touch_id="touch-remit",
+            note=note,
+            occurred_at="2026-07-31T10:00:00Z",
+            tenant_timezone="Europe/London",
+            invoice_facts=[
+                {
+                    "obligation_id": "obligation-1",
+                    "invoice_number": "INV-1",
+                    "amount_due": 100,
+                    "currency": "GBP",
+                }
+            ],
+        )
+    )
+
+    assert result.extraction_status == "accepted"
+    assert len(result.assertions) == 1
+    assertion = result.assertions[0]
+    assert assertion.assertion_type == "remittance"
+    assert assertion.transition == "received"
+    assert assertion.invoice_refs == ["INV-1"]
+    assert assertion.amount is None
+    assert assertion.asserted_date is None
+    assert assertion.reference is None
+    assert "deterministic_explicit_claim_recovery" in result.reason_codes
+
+
+@pytest.mark.asyncio
 async def test_manual_note_interpreter_rejects_cross_invoice_and_ambiguous_amount_output():
     from src.api.errors import LLMResponseInvalidError
     from src.engine.manual_note_interpreter import ManualNoteInterpreter

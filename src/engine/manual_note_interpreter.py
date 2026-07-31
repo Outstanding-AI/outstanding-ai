@@ -23,7 +23,7 @@ from .audit import build_ai_audit
 from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "manual_note_interpretation"
-PROMPT_TEMPLATE_VERSION = "v1"
+PROMPT_TEMPLATE_VERSION = "v2"
 TAXONOMY_VERSION = "manual_note_controls.v1"
 
 
@@ -86,7 +86,10 @@ _SYSTEM_PROMPT = """Extract source-grounded invoice control assertions from one 
 Return strict JSON with exactly: extraction_status, assertions, reason_codes.
 The note is evidence of what the operator reported; it is never proof of accounting settlement.
 Allowed assertion_type values: query, commitment, remittance, other.
-Use only invoice numbers present in invoice_facts. Do not choose an invoice from debtor identity alone.
+invoice_facts is the exact invoice scope already linked or uniquely resolved for this note. Use only
+invoice numbers present in invoice_facts; never choose an invoice from debtor identity alone. When
+invoice_facts contains exactly one invoice, a clear control statement applies to that invoice even
+when the note does not repeat its invoice number.
 For every assertion return: assertion_id, assertion_type, transition, polarity, temporal_orientation,
 invoice_refs, amount, currency, asserted_date, reference, full_current_balance, evidence_start,
 evidence_end, confidence, reason_codes. evidence_start/end are zero-based offsets into the exact note
@@ -99,6 +102,10 @@ mark it verified. Query raised/active can be asserted without an accounting-syst
 negation, uncertainty, cancellation, and resolution explicitly. Do not invent dates, amounts,
 currencies, references, or invoice numbers. When nothing safe is asserted, return
 {"extraction_status":"abstained","assertions":[],"reason_codes":["no_safe_operational_assertion"]}.
+Example: for the exact note "REMIT RECEIVED" with one invoice_fact, return one remittance assertion
+with transition="received", polarity="affirmed", temporal_orientation="current", that invoice number
+in invoice_refs, no amount/date/reference, and the full note as evidence. This remains an unverified
+operator claim and must never use transition="verified".
 Do not add prose or any other key."""
 
 _TRANSITIONS_BY_TYPE = {
@@ -137,9 +144,53 @@ _TRANSITIONS_BY_TYPE = {
     "other": {"no_operational_effect", "unclear"},
 }
 
+_EXPLICIT_SINGLE_INVOICE_REMITTANCE_RECEIVED = re.compile(
+    r"^\s*(?:remit|remittance)(?:\s+(?:has\s+been|was))?\s+received\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
 
 def _normalize_ref(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _recover_explicit_single_invoice_remittance(
+    request: ManualNoteInterpretationRequestV1,
+    *,
+    status: str,
+    assertions: list[ManualNoteAssertionV1],
+) -> tuple[str, list[ManualNoteAssertionV1], list[str]] | None:
+    """Recover one narrow, source-explicit claim when the model abstains."""
+
+    if status != "abstained" or assertions or len(request.invoice_facts) != 1:
+        return None
+    note = str(request.note or "")
+    if not _EXPLICIT_SINGLE_INVOICE_REMITTANCE_RECEIVED.fullmatch(note):
+        return None
+    invoice_number = str(request.invoice_facts[0].invoice_number)
+    assertion = ManualNoteAssertionV1(
+        assertion_id=str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"{request.touch_id}:explicit-single-invoice-remittance-received",
+            )
+        ),
+        assertion_type="remittance",
+        transition="received",
+        polarity="affirmed",
+        temporal_orientation="current",
+        invoice_refs=[invoice_number],
+        amount=None,
+        currency=None,
+        asserted_date=None,
+        reference=None,
+        full_current_balance=False,
+        evidence_start=0,
+        evidence_end=len(note),
+        confidence=1.0,
+        reason_codes=["explicit_single_invoice_remittance_received"],
+    )
+    return "accepted", [assertion], ["deterministic_explicit_claim_recovery"]
 
 
 def _validated_assertions(
@@ -237,6 +288,13 @@ class ManualNoteInterpreter:
                 isinstance(value, str) for value in reason_codes
             ):
                 raise ValueError("manual_note_reason_codes_invalid")
+            recovered = _recover_explicit_single_invoice_remittance(
+                request,
+                status=status,
+                assertions=assertions,
+            )
+            if recovered is not None:
+                status, assertions, reason_codes = recovered
         except (ValidationError, ValueError, TypeError) as exc:
             raise LLMResponseInvalidError(
                 message="LLM returned invalid manual-note interpretation",
