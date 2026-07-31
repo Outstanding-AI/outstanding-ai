@@ -57,7 +57,7 @@ from .formatters import format_industry_context_for_classification, format_invoi
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT_TEMPLATE_ID = "classification"
-CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "silver_application_v1"
+CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "generic_request_receipt_v2"
 CLASSIFICATION_GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 _WEEKDAY_INDEX = {
