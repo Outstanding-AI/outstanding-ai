@@ -413,6 +413,44 @@ class TestEmailClassifier:
             assert result.extracted_data.promise_date == date(2026, 5, 29)
 
     @pytest.mark.asyncio
+    async def test_classify_vague_month_end_commitment_leaves_date_for_schedule_fallback(
+        self, classifier, sample_classify_request
+    ):
+        sample_classify_request.email.body = (
+            "Invoices are ready to be posted so they will be picked up on our next payment run "
+            "which is end of July."
+        )
+        sample_classify_request.email.received_at = datetime(
+            2026, 7, 17, 13, 5, 10, tzinfo=timezone.utc
+        )
+        sample_classify_request.email.forwarded_context = {
+            "current_reply": {"body_excerpt": sample_classify_request.email.body},
+        }
+        mock_response = _make_llm_response(
+            {
+                "classification": "PROMISE_TO_PAY",
+                "confidence": 0.91,
+                "reasoning": "The debtor committed both invoices to its next payment run.",
+                "extracted_data": {
+                    "promise_date": "2026-07-31",
+                    "promise_strength": "firm",
+                    "invoice_refs": ["INV-100"],
+                    "account_wide": False,
+                },
+            }
+        )
+
+        with patch(
+            "src.engine.classifier.llm_client.complete", new_callable=AsyncMock
+        ) as mock_complete:
+            mock_complete.return_value = mock_response
+            result = await classifier.classify(sample_classify_request)
+
+        assert result.classification == "PROMISE_TO_PAY"
+        assert result.extracted_data.promise_date is None
+        assert result.extracted_data.promise_strength == "firm"
+
+    @pytest.mark.asyncio
     async def test_classify_invoice_processed_as_cooperative_not_internal_blocker(
         self, classifier, sample_classify_request
     ):

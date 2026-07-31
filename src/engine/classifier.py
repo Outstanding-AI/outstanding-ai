@@ -57,7 +57,7 @@ from .formatters import format_industry_context_for_classification, format_invoi
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT_TEMPLATE_ID = "classification"
-CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "generic_request_receipt_v2"
+CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_date_precision_v1"
 CLASSIFICATION_GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 _WEEKDAY_INDEX = {
@@ -74,6 +74,23 @@ _NEXT_WEEKDAY_RE = re.compile(rf"\bnext\s+({_WEEKDAY_PATTERN})\b", re.IGNORECASE
 _THIS_WEEKDAY_RE = re.compile(rf"\bthis\s+({_WEEKDAY_PATTERN})\b", re.IGNORECASE)
 _ANCHORED_WEEKDAY_RE = re.compile(
     rf"\b(?:by|on|before|until)\s+({_WEEKDAY_PATTERN})\b",
+    re.IGNORECASE,
+)
+_VAGUE_PROMISE_TIMING_RE = re.compile(
+    r"\b(?:end\s+of\s+(?:the\s+)?(?:month|"
+    r"january|february|march|april|may|june|july|august|september|october|november|december)"
+    r"|next\s+payment\s+run|upcoming\s+payment\s+run|later\s+this\s+month|soon)\b",
+    re.IGNORECASE,
+)
+_EXACT_DATE_CUE_RE = re.compile(
+    rf"\b\d{{4}}-\d{{2}}-\d{{2}}\b"
+    rf"|\b\d{{1,2}}[/-]\d{{1,2}}[/-]\d{{2,4}}\b"
+    rf"|\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|"
+    rf"september|october|november|december)(?:\s+\d{{4}})?\b"
+    rf"|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)"
+    rf"\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,?\s+\d{{4}})?\b"
+    rf"|\b(?:today|tomorrow|next\s+(?:{_WEEKDAY_PATTERN})|this\s+(?:{_WEEKDAY_PATTERN})|"
+    rf"(?:by|on|before|until)\s+(?:{_WEEKDAY_PATTERN}))\b",
     re.IGNORECASE,
 )
 
@@ -347,12 +364,16 @@ def _build_extracted_data(
             return parsed
         return _resolve_relative_date(source_text, reference_date)
 
+    promise_date = _parse_date_with_source_fallback(
+        raw.promise_date,
+        "promise_date",
+        {"PROMISE_TO_PAY"},
+    )
+    if normalized_intent == "PROMISE_TO_PAY" and _requires_schedule_date_fallback(source_text):
+        promise_date = None
+
     return ExtractedData(
-        promise_date=_parse_date_with_source_fallback(
-            raw.promise_date,
-            "promise_date",
-            {"PROMISE_TO_PAY"},
-        ),
+        promise_date=promise_date,
         promise_amount=raw.promise_amount,
         promise_strength=raw.promise_strength,
         dispute_type=raw.dispute_type,
@@ -437,10 +458,6 @@ def _resolve_relative_date(text: str | None, reference_date: date | None) -> dat
         return reference_date + timedelta(days=1)
     if re.search(r"\byesterday\b", lowered):
         return reference_date - timedelta(days=1)
-    if re.search(r"\bend\s+of\s+(?:the\s+)?month\b", lowered):
-        next_month = (reference_date.replace(day=28) + timedelta(days=4)).replace(day=1)
-        return next_month - timedelta(days=1)
-
     match = _NEXT_WEEKDAY_RE.search(lowered)
     if match:
         return _next_weekday(reference_date, _WEEKDAY_INDEX[match.group(1).lower()])
@@ -453,6 +470,20 @@ def _resolve_relative_date(text: str | None, reference_date: date | None) -> dat
             include_today=True,
         )
     return None
+
+
+def _requires_schedule_date_fallback(text: str | None) -> bool:
+    """Return True when a commitment has timing but no exact calendar date.
+
+    Month-end language and payment-run references are useful commitment
+    evidence, but converting them into a fabricated calendar day changes the
+    debtor's claim.  The backend owns the deterministic fallback to the next
+    configured draft-generation date.
+    """
+
+    if not text or not _VAGUE_PROMISE_TIMING_RE.search(str(text)):
+        return False
+    return _EXACT_DATE_CUE_RE.search(str(text)) is None
 
 
 def _next_weekday(
