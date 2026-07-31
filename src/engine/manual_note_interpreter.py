@@ -27,13 +27,58 @@ PROMPT_TEMPLATE_VERSION = "v1"
 TAXONOMY_VERSION = "manual_note_controls.v1"
 
 
+class _ManualNoteLLMAssertion(BaseModel):
+    """Vertex-compatible shape; contract constraints are enforced after generation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assertion_id: str
+    assertion_type: Literal["query", "commitment", "remittance", "other"]
+    transition: Literal[
+        "raised",
+        "active",
+        "awaiting_response",
+        "updated",
+        "resolved",
+        "reopened",
+        "made",
+        "revised",
+        "kept",
+        "partially_kept",
+        "broken",
+        "received",
+        "expected",
+        "partially_received",
+        "not_received",
+        "unmatched",
+        "verified",
+        "rejected",
+        "cancelled",
+        "superseded",
+        "unclear",
+        "no_operational_effect",
+    ]
+    polarity: Literal["affirmed", "negated", "uncertain"]
+    temporal_orientation: Literal["past", "current", "future", "unclear"]
+    invoice_refs: list[str]
+    amount: float | None = None
+    currency: str | None = None
+    asserted_date: str | None = None
+    reference: str | None = None
+    full_current_balance: bool = False
+    evidence_start: int
+    evidence_end: int
+    confidence: float
+    reason_codes: list[str]
+
+
 class _ManualNoteLLMResponse(BaseModel):
     """Provider-facing schema; transport/audit fields are added after validation."""
 
     model_config = ConfigDict(extra="forbid")
 
     extraction_status: Literal["accepted", "abstained", "invalid"]
-    assertions: list[ManualNoteAssertionV1]
+    assertions: list[_ManualNoteLLMAssertion]
     reason_codes: list[str]
 
 
