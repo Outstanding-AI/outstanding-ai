@@ -41,6 +41,7 @@ _PRICING = {
     "gemini-2.5-flash": (Decimal("0.30"), Decimal("2.50")),
     "gpt-5-mini": (Decimal("0.25"), Decimal("2.00")),
     "gpt-5-nano": (Decimal("0.05"), Decimal("0.40")),
+    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20")),
 }
 
 

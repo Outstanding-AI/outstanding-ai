@@ -25,6 +25,7 @@ _COLLECTION_FALLBACK_CALLERS = frozenset(
         "collection_chain_router",
         "historical_collection_thread",
         "manual_note_interpretation",
+        "sent_scope_analysis",
         "weekly_overdue_report_summary",
     }
 )

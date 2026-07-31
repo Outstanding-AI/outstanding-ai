@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Literal
@@ -15,6 +16,12 @@ from src.api.models.responses import (
     SentDraftInvoiceScopeDecision,
 )
 from src.llm import llm_client
+from src.llm.base import (
+    LLMFallbackExhaustedError,
+    LLMProviderUnavailableError,
+    LLMRateLimitedError,
+    LLMStructuredOutputError,
+)
 from src.prompts._sanitize import sanitize_delimiter_tags
 from src.prompts.sent_scope import (
     SENT_DRAFT_SCOPE_SYSTEM,
@@ -103,13 +110,31 @@ class SentDraftScopeAnalyzer:
             ),
         )
 
-        response = await llm_client.complete(
-            system_prompt=SENT_DRAFT_SCOPE_SYSTEM,
-            user_prompt=user_prompt,
-            temperature=0.0,
-            response_schema=_LLMScopeResponse,
-            caller="sent_scope_analysis",
-        )
+        try:
+            response = await llm_client.complete(
+                system_prompt=SENT_DRAFT_SCOPE_SYSTEM,
+                user_prompt=user_prompt,
+                temperature=0.0,
+                response_schema=_LLMScopeResponse,
+                caller="sent_scope_analysis",
+            )
+        except (
+            LLMFallbackExhaustedError,
+            LLMProviderUnavailableError,
+            LLMRateLimitedError,
+            LLMStructuredOutputError,
+            asyncio.TimeoutError,
+        ) as exc:
+            logger.warning(
+                "Sent-scope provider failure; returning a durable review result: %s",
+                type(exc).__name__,
+            )
+            return AnalyzeSentDraftScopeResponse(
+                scope_extraction_status="failed",
+                review_recommended=True,
+                review_reason_codes=["ai_sent_scope_provider_unavailable"],
+                decisions=[],
+            )
         tokens_used = response.usage.get("total_tokens", 0)
         prompt_tokens = response.usage.get("prompt_tokens", 0)
         completion_tokens = response.usage.get("completion_tokens", 0)
@@ -123,6 +148,11 @@ class SentDraftScopeAnalyzer:
                 details={"error": str(exc)},
             )
 
+        raw_candidate_refs = {
+            _norm_ref(decision.invoice_number)
+            for decision in llm_result.decisions
+            if _norm_ref(decision.invoice_number) in candidate_map
+        }
         decisions = self._validated_decisions(llm_result.decisions, candidate_map, generated_refs)
         sent_refs = sorted(
             decision.invoice_number
@@ -154,7 +184,7 @@ class SentDraftScopeAnalyzer:
             decision.confidence < 0.75 for decision in decisions if decision.status != "not_present"
         ):
             review_codes.append("low_confidence_sent_invoice_scope")
-        if len(decisions) < len(candidate_map):
+        if raw_candidate_refs != set(candidate_map):
             review_codes.append("missing_candidate_decisions_repaired")
 
         confidence_values = [

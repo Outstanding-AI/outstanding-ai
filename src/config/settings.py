@@ -103,7 +103,7 @@ class Settings(BaseSettings):
 
     # --- OpenAI Configuration (FALLBACK) ---
     openai_api_key: Optional[str] = Field(None, repr=False)
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-5.6-luna"
     openai_temperature: float = 0.3
 
     # --- Anthropic Configuration (OPTIONAL third provider) ---
