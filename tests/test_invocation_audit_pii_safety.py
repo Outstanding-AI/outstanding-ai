@@ -702,7 +702,13 @@ class TestInferenceProfile:
         )
 
     def test_accepts_known_profile(self) -> None:
-        for profile in ("draft_generation", "classification", "persona_gen", "persona_refine"):
+        for profile in (
+            "draft_generation",
+            "classification",
+            "persona_gen",
+            "persona_refine",
+            "manual_note_interpretation",
+        ):
             built = build_ai_audit(**self._audit_kwargs(), inference_profile=profile)
             assert built.inference_profile == profile
 

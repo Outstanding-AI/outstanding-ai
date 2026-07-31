@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
+from solvix_contracts.ai import ManualNoteInterpretationRequestV1
 
 from src.api.models.requests import (
     CollectionChainIdentificationRequest,
@@ -183,3 +184,126 @@ def test_chain_normalizer_safely_canonicalizes_common_json_mode_variants():
     assert unsafe["collection_status"] == "uncertain"
     assert unsafe["event_effect"] == "no_change"
     assert "invalid_event_effect_abstention" in unsafe["reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_manual_note_interpreter_is_source_grounded_and_defaults_commitment_balance():
+    from src.engine.manual_note_interpreter import ManualNoteInterpreter
+
+    note = "Invoice INV-1 will be paid on 2026-08-03."
+    interpreter = ManualNoteInterpreter()
+    interpreter._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "extraction_status": "accepted",
+                    "assertions": [
+                        {
+                            "assertion_id": "assertion-1",
+                            "assertion_type": "commitment",
+                            "transition": "made",
+                            "polarity": "affirmed",
+                            "temporal_orientation": "future",
+                            "invoice_refs": ["INV-1"],
+                            "amount": None,
+                            "currency": None,
+                            "asserted_date": "2026-08-03",
+                            "reference": None,
+                            "full_current_balance": False,
+                            "evidence_start": 0,
+                            "evidence_end": len(note),
+                            "confidence": 0.99,
+                            "reason_codes": ["explicit_commitment_date"],
+                        }
+                    ],
+                    "reason_codes": [],
+                }
+            ),
+            provider="vertex",
+            model="gemini-2.5-flash",
+            usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+        )
+    )
+    result = await interpreter.interpret(
+        ManualNoteInterpretationRequestV1(
+            touch_id="touch-1",
+            note=note,
+            occurred_at="2026-07-31T10:00:00Z",
+            tenant_timezone="Europe/London",
+            invoice_facts=[
+                {
+                    "obligation_id": "obligation-1",
+                    "invoice_number": "INV-1",
+                    "amount_due": 100,
+                    "currency": "GBP",
+                }
+            ],
+        )
+    )
+
+    assert result.extraction_status == "accepted"
+    assert result.assertions[0].full_current_balance is True
+    assert interpreter._client.complete.await_args.kwargs["json_mode"] is True
+    assert (
+        interpreter._client.complete.await_args.kwargs["response_schema"].__name__
+        == "_ManualNoteLLMResponse"
+    )
+    assert interpreter._client.complete.await_args.kwargs["caller"] == "manual_note_interpretation"
+
+
+@pytest.mark.asyncio
+async def test_manual_note_interpreter_rejects_cross_invoice_and_ambiguous_amount_output():
+    from src.api.errors import LLMResponseInvalidError
+    from src.engine.manual_note_interpreter import ManualNoteInterpreter
+
+    interpreter = ManualNoteInterpreter()
+    interpreter._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "extraction_status": "accepted",
+                    "assertions": [
+                        {
+                            "assertion_id": "assertion-1",
+                            "assertion_type": "remittance",
+                            "transition": "received",
+                            "polarity": "affirmed",
+                            "temporal_orientation": "past",
+                            "invoice_refs": ["INV-1", "INV-OUTSIDE"],
+                            "amount": 100,
+                            "currency": "GBP",
+                            "asserted_date": None,
+                            "reference": None,
+                            "full_current_balance": False,
+                            "evidence_start": 0,
+                            "evidence_end": 4,
+                            "confidence": 0.99,
+                            "reason_codes": [],
+                        }
+                    ],
+                    "reason_codes": [],
+                }
+            ),
+            provider="vertex",
+            model="gemini-2.5-flash",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+    )
+
+    with pytest.raises(LLMResponseInvalidError):
+        await interpreter.interpret(
+            ManualNoteInterpretationRequestV1(
+                touch_id="touch-1",
+                note="paid",
+                occurred_at="2026-07-31T10:00:00Z",
+                tenant_timezone="Europe/London",
+                invoice_facts=[
+                    {
+                        "obligation_id": "obligation-1",
+                        "invoice_number": "INV-1",
+                        "amount_due": 100,
+                        "currency": "GBP",
+                    }
+                ],
+            )
+        )
