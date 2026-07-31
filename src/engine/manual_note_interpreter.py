@@ -96,11 +96,12 @@ evidence_end, confidence, reason_codes. evidence_start/end are zero-based offset
 and must cover non-empty supporting text.
 
 Commitments require an explicit date. If a dated commitment has no amount, set
-full_current_balance=true. Never divide one total among several invoices. If one explicit total is
-ambiguous across multiple invoices, abstain. Remittance received is only an operator claim; do not
-mark it verified. Query raised/active can be asserted without an accounting-system flag. Treat
-negation, uncertainty, cancellation, and resolution explicitly. Do not invent dates, amounts,
-currencies, references, or invoice numbers. When nothing safe is asserted, return
+full_current_balance=true. For every non-commitment assertion, full_current_balance must be false.
+Never divide one total among several invoices. If one explicit total is ambiguous across multiple
+invoices, abstain. Remittance received is only an operator claim; do not mark it verified. Query
+raised/active can be asserted without an accounting-system flag. Treat negation, uncertainty,
+cancellation, and resolution explicitly. Do not invent dates, amounts, currencies, references, or
+invoice numbers. When nothing safe is asserted, return
 {"extraction_status":"abstained","assertions":[],"reason_codes":["no_safe_operational_assertion"]}.
 Example: for the exact note "REMIT RECEIVED" with one invoice_fact, return one remittance assertion
 with transition="received", polarity="affirmed", temporal_orientation="current", that invoice number
@@ -146,6 +147,10 @@ _TRANSITIONS_BY_TYPE = {
 
 _EXPLICIT_SINGLE_INVOICE_REMITTANCE_RECEIVED = re.compile(
     r"^\s*(?:remit|remittance)(?:\s+(?:has\s+been|was))?\s+received\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+_EXPLICIT_REMITTANCE_EVIDENCE = re.compile(
+    r"\bremit(?:tance)?\b|\bpayment\s+(?:advice|confirmation|reference)\b",
     re.IGNORECASE,
 )
 
@@ -196,13 +201,20 @@ def _recover_explicit_single_invoice_remittance(
 def _validated_assertions(
     request: ManualNoteInterpretationRequestV1,
     raw_assertions: object,
-) -> list[ManualNoteAssertionV1]:
+) -> tuple[list[ManualNoteAssertionV1], list[str]]:
     if not isinstance(raw_assertions, list):
         raise ValueError("assertions_must_be_list")
     allowed_refs = {
         _normalize_ref(row.invoice_number): row.invoice_number for row in request.invoice_facts
     }
     assertions: list[ManualNoteAssertionV1] = []
+    normalization_reason_codes: list[str] = []
+    has_existing_remittance = any(
+        control.remittance_received_at
+        or control.remittance_amount is not None
+        or control.remittance_reference
+        for control in request.existing_controls
+    )
     for index, raw in enumerate(raw_assertions):
         if not isinstance(raw, dict):
             raise ValueError("assertion_must_be_object")
@@ -216,6 +228,24 @@ def _validated_assertions(
                 )
             ),
         )
+        if candidate.get("assertion_type") != "commitment":
+            candidate["full_current_balance"] = False
+        assertion_type = candidate.get("assertion_type")
+        transition = candidate.get("transition")
+        if (
+            assertion_type in _TRANSITIONS_BY_TYPE
+            and transition not in _TRANSITIONS_BY_TYPE[assertion_type]
+        ):
+            normalization_reason_codes.append("unsupported_assertion_transition_dropped")
+            continue
+        if (
+            assertion_type == "remittance"
+            and transition in {"not_received", "unmatched", "rejected", "cancelled"}
+            and not has_existing_remittance
+            and not _EXPLICIT_REMITTANCE_EVIDENCE.search(request.note)
+        ):
+            normalization_reason_codes.append("unscoped_negative_remittance_dropped")
+            continue
         assertion = ManualNoteAssertionV1.model_validate(candidate)
         if assertion.transition not in _TRANSITIONS_BY_TYPE[assertion.assertion_type]:
             raise ValueError("assertion_transition_type_mismatch")
@@ -248,7 +278,7 @@ def _validated_assertions(
             if assertion.amount is None and assertion.transition in {"made", "revised", "active"}:
                 assertion.full_current_balance = True
         assertions.append(assertion)
-    return assertions
+    return assertions, normalization_reason_codes
 
 
 class ManualNoteInterpreter:
@@ -278,7 +308,10 @@ class ManualNoteInterpreter:
             status = raw.get("extraction_status", "invalid")
             if status not in {"accepted", "abstained", "invalid"}:
                 raise ValueError("manual_note_extraction_status_invalid")
-            assertions = _validated_assertions(request, raw.get("assertions") or [])
+            assertions, normalization_reason_codes = _validated_assertions(
+                request,
+                raw.get("assertions") or [],
+            )
             if status == "accepted" and not assertions:
                 status = "abstained"
             if status != "accepted" and assertions:
@@ -288,6 +321,7 @@ class ManualNoteInterpreter:
                 isinstance(value, str) for value in reason_codes
             ):
                 raise ValueError("manual_note_reason_codes_invalid")
+            reason_codes = list(dict.fromkeys([*reason_codes, *normalization_reason_codes]))
             recovered = _recover_explicit_single_invoice_remittance(
                 request,
                 status=status,

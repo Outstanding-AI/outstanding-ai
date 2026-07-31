@@ -302,6 +302,129 @@ async def test_manual_note_interpreter_recovers_explicit_single_invoice_remittan
 
 
 @pytest.mark.asyncio
+async def test_manual_note_interpreter_discards_commitment_only_flag_from_remittance():
+    from src.engine.manual_note_interpreter import ManualNoteInterpreter
+
+    note = "Remittance received."
+    interpreter = ManualNoteInterpreter()
+    interpreter._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "extraction_status": "accepted",
+                    "assertions": [
+                        {
+                            "assertion_id": "assertion-remittance",
+                            "assertion_type": "remittance",
+                            "transition": "received",
+                            "polarity": "affirmed",
+                            "temporal_orientation": "past",
+                            "invoice_refs": ["INV-1"],
+                            "amount": None,
+                            "currency": None,
+                            "asserted_date": None,
+                            "reference": None,
+                            "full_current_balance": True,
+                            "evidence_start": 0,
+                            "evidence_end": len(note),
+                            "confidence": 0.9,
+                            "reason_codes": [],
+                        }
+                    ],
+                    "reason_codes": [],
+                }
+            ),
+            provider="vertex",
+            model="gemini-2.5-flash",
+            usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+        )
+    )
+
+    result = await interpreter.interpret(
+        ManualNoteInterpretationRequestV1(
+            touch_id="touch-remittance-not-received",
+            note=note,
+            occurred_at="2026-07-31T10:00:00Z",
+            tenant_timezone="Europe/London",
+            invoice_facts=[
+                {
+                    "obligation_id": "obligation-1",
+                    "invoice_number": "INV-1",
+                    "amount_due": 100,
+                    "currency": "GBP",
+                }
+            ],
+        )
+    )
+
+    assert result.extraction_status == "accepted"
+    assert result.assertions[0].assertion_type == "remittance"
+    assert result.assertions[0].transition == "received"
+    assert result.assertions[0].full_current_balance is False
+
+
+@pytest.mark.asyncio
+async def test_manual_note_interpreter_drops_unscoped_negative_remittance():
+    from src.engine.manual_note_interpreter import ManualNoteInterpreter
+
+    note = "NEW STATEMENTS TO BE SENT WITH FIRM EMAIL. CUSTOMER DID NOT MAKE PAYMENT"
+    interpreter = ManualNoteInterpreter()
+    interpreter._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "extraction_status": "accepted",
+                    "assertions": [
+                        {
+                            "assertion_id": "assertion-remittance",
+                            "assertion_type": "remittance",
+                            "transition": "not_received",
+                            "polarity": "affirmed",
+                            "temporal_orientation": "past",
+                            "invoice_refs": ["INV-1"],
+                            "amount": None,
+                            "currency": None,
+                            "asserted_date": None,
+                            "reference": None,
+                            "full_current_balance": True,
+                            "evidence_start": 45,
+                            "evidence_end": len(note),
+                            "confidence": 1.0,
+                            "reason_codes": [],
+                        }
+                    ],
+                    "reason_codes": [],
+                }
+            ),
+            provider="vertex",
+            model="gemini-2.5-flash",
+            usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+        )
+    )
+
+    result = await interpreter.interpret(
+        ManualNoteInterpretationRequestV1(
+            touch_id="touch-no-payment",
+            note=note,
+            occurred_at="2026-07-31T10:00:00Z",
+            tenant_timezone="Europe/London",
+            invoice_facts=[
+                {
+                    "obligation_id": "obligation-1",
+                    "invoice_number": "INV-1",
+                    "amount_due": 100,
+                    "currency": "GBP",
+                }
+            ],
+        )
+    )
+
+    assert result.extraction_status == "abstained"
+    assert result.assertions == []
+    assert "unscoped_negative_remittance_dropped" in result.reason_codes
+
+
+@pytest.mark.asyncio
 async def test_manual_note_interpreter_rejects_cross_invoice_and_ambiguous_amount_output():
     from src.api.errors import LLMResponseInvalidError
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
