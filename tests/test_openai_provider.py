@@ -70,7 +70,7 @@ async def test_openai_reasoning_usage_is_bounded_to_completion(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_gpt56_defaults_to_supported_none_reasoning_effort(monkeypatch):
+async def test_gpt56_omits_optional_reasoning_effort_by_default(monkeypatch):
     _FakeChatOpenAI.instances = []
     monkeypatch.setattr("src.llm.openai_provider.ChatOpenAI", _FakeChatOpenAI)
     provider = OpenAIProvider(api_key="test-key", model="gpt-5.6-luna")
@@ -81,11 +81,11 @@ async def test_gpt56_defaults_to_supported_none_reasoning_effort(monkeypatch):
         caller="manual_note_interpretation",
     )
 
-    assert _FakeChatOpenAI.instances[-1].kwargs["reasoning_effort"] == "none"
+    assert "reasoning_effort" not in _FakeChatOpenAI.instances[-1].kwargs
 
 
 @pytest.mark.asyncio
-async def test_gpt56_maps_legacy_minimal_reasoning_effort(monkeypatch):
+async def test_gpt56_maps_none_reasoning_effort_to_minimal(monkeypatch):
     _FakeChatOpenAI.instances = []
     monkeypatch.setattr("src.llm.openai_provider.ChatOpenAI", _FakeChatOpenAI)
     provider = OpenAIProvider(api_key="test-key", model="gpt-5.6-luna")
@@ -94,7 +94,7 @@ async def test_gpt56_maps_legacy_minimal_reasoning_effort(monkeypatch):
         system_prompt="sys",
         user_prompt="Reply with OK",
         caller="weekly_overdue_report_summary",
-        reasoning_effort="minimal",
+        reasoning_effort="none",
     )
 
-    assert _FakeChatOpenAI.instances[-1].kwargs["reasoning_effort"] == "none"
+    assert _FakeChatOpenAI.instances[-1].kwargs["reasoning_effort"] == "minimal"

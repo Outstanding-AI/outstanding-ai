@@ -27,25 +27,27 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
-# Chat Completions currently accepts this set for GPT-5.6; ``max`` is a
-# Responses-only value and must not be forwarded through LangChain here.
-_GPT56_REASONING_EFFORTS = frozenset({"none", "low", "medium", "high", "xhigh"})
+# The deployed Chat Completions endpoint currently accepts this set for
+# GPT-5.6 Luna.  Do not send ``none`` or ``xhigh`` through LangChain; those
+# values belong to a different model/API surface.
+_GPT56_REASONING_EFFORTS = frozenset({"minimal", "low", "medium", "high"})
 
 
 def _normalize_reasoning_effort(model: str, value: str | None) -> str | None:
     """Map legacy effort names to the GPT-5.6 API vocabulary.
 
-    GPT-5.6 is used primarily for long-context factual extraction here; the
-    default is deliberately ``none`` so larger context does not silently turn
-    into an expensive reasoning request. Older callers used ``minimal``.
+    GPT-5.6 is used primarily for long-context factual extraction here.  The
+    default omits the optional parameter so the endpoint's safe default is
+    used.  Callers that still pass ``none`` are mapped to the provider's
+    lowest supported effort, ``minimal``.
     """
 
     if not str(model or "").startswith("gpt-5.6"):
         return value
-    if value == "minimal":
-        return "none"
+    if value == "none":
+        return "minimal"
     if value is None:
-        return "none"
+        return None
     if value not in _GPT56_REASONING_EFFORTS:
         raise ValueError(f"unsupported GPT-5.6 reasoning effort: {value}")
     return value
