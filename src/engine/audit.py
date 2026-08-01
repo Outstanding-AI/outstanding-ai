@@ -80,6 +80,7 @@ def build_ai_audit(
     token_count: int | None = None,
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
+    reasoning_tokens: int | None = None,
     latency_ms: float | None = None,
     inference_profile: InferenceProfile | None = None,
 ) -> AIAuditMetadata:
@@ -97,6 +98,11 @@ def build_ai_audit(
         raise ValueError(
             f"Unknown inference_profile {inference_profile!r}; "
             f"must be one of {sorted(_VALID_INFERENCE_PROFILES)}"
+        )
+
+    if reasoning_tokens is None:
+        reasoning_tokens = int(
+            (getattr(response, "usage", None) or {}).get("reasoning_tokens", 0) or 0
         )
 
     # Defense-in-depth: the per-provider helpers in src/llm/_invocation_audit.py
@@ -157,6 +163,7 @@ def build_ai_audit(
         token_count=token_count,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        reasoning_tokens=reasoning_tokens,
         latency_ms=latency_ms,
         # Model invocation audit (May 2026): use the re-sanitized values
         # computed above so the persisted dict and persisted hash agree

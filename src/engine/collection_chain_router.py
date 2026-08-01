@@ -38,17 +38,28 @@ USER_PROMPT = """Routing facts JSON:
 Choose a supplied active chain or abstain_manual_review for every supplied invoice."""
 
 _PRICING = {
-    "gemini-2.5-flash": (Decimal("0.30"), Decimal("2.50")),
-    "gpt-5-mini": (Decimal("0.25"), Decimal("2.00")),
-    "gpt-5-nano": (Decimal("0.05"), Decimal("0.40")),
-    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20")),
+    # USD per 1M tokens. Gemini 2.5 Flash uses separate visible and thinking
+    # output rates; the other models use the same rate for both categories.
+    "gemini-2.5-flash": (Decimal("0.15"), Decimal("0.60"), Decimal("3.50")),
+    "gpt-5-mini": (Decimal("0.25"), Decimal("2.00"), Decimal("2.00")),
+    "gpt-5-nano": (Decimal("0.05"), Decimal("0.40"), Decimal("0.40")),
+    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20"), Decimal("1.20")),
 }
 
 
-def _cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
-    input_rate, output_rate = _PRICING.get(model, _PRICING["gemini-2.5-flash"])
+def _cost(
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    reasoning_tokens: int = 0,
+) -> float:
+    input_rate, output_rate, reasoning_rate = _PRICING.get(model, _PRICING["gemini-2.5-flash"])
+    reasoning_tokens = min(max(0, int(reasoning_tokens)), max(0, int(completion_tokens)))
+    visible_completion_tokens = max(0, int(completion_tokens) - reasoning_tokens)
     value = (
-        Decimal(prompt_tokens) * input_rate + Decimal(completion_tokens) * output_rate
+        Decimal(prompt_tokens) * input_rate
+        + Decimal(visible_completion_tokens) * output_rate
+        + Decimal(reasoning_tokens) * reasoning_rate
     ) / Decimal("1000000")
     return float(value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP))
 
@@ -109,6 +120,7 @@ class CollectionChainRouter:
                 )
         prompt_tokens = int(response.usage.get("prompt_tokens", 0))
         completion_tokens = int(response.usage.get("completion_tokens", 0))
+        reasoning_tokens = int(response.usage.get("reasoning_tokens", 0))
         total_tokens = int(response.usage.get("total_tokens", prompt_tokens + completion_tokens))
         request_id = str(uuid.uuid4())
         return CollectionChainRoutingResponse(
@@ -123,7 +135,7 @@ class CollectionChainRouter:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             tokens_used=total_tokens,
-            cost_usd=_cost(response.model, prompt_tokens, completion_tokens),
+            cost_usd=_cost(response.model, prompt_tokens, completion_tokens, reasoning_tokens),
             latency_ms=latency_ms,
             request_id=request_id,
             ai_audit=build_ai_audit(

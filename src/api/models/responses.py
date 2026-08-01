@@ -167,6 +167,7 @@ class AIAuditMetadata(BaseModel):
     token_count: Optional[int] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
+    reasoning_tokens: Optional[int] = None
     latency_ms: Optional[float] = None
     # Model invocation audit (May 2026) — EU AI Act Article 13 readiness.
     # ``model_invocation_config`` is the SANITIZED dict of explicit knobs we

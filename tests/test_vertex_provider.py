@@ -134,7 +134,12 @@ async def test_vertex_complete_uses_structured_output(monkeypatch):
     assert response.provider == "vertex"
     assert response.model == "gemini-2.5-flash"
     assert json.loads(response.content) == {"subject": "Hi"}
-    assert response.usage == {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19}
+    assert response.usage == {
+        "prompt_tokens": 12,
+        "completion_tokens": 7,
+        "reasoning_tokens": 0,
+        "total_tokens": 19,
+    }
 
     config = fake_client.aio.models.generate_content.await_args.kwargs["config"]
     assert config.response_mime_type == "application/json"

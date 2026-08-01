@@ -359,6 +359,7 @@ class ManualNoteInterpreter:
                 token_count=usage.get("total_tokens", 0),
                 prompt_tokens=usage.get("prompt_tokens", 0),
                 completion_tokens=usage.get("completion_tokens", 0),
+                reasoning_tokens=usage.get("reasoning_tokens", 0),
                 inference_profile="manual_note_interpretation",
             ).model_dump(mode="json"),
         )

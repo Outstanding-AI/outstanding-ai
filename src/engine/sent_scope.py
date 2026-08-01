@@ -203,6 +203,7 @@ class SentDraftScopeAnalyzer:
             token_count=tokens_used,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            reasoning_tokens=int(response.usage.get("reasoning_tokens", 0)),
             inference_profile="sent_scope_analysis",
         )
         return AnalyzeSentDraftScopeResponse(

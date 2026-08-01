@@ -350,15 +350,19 @@ class VertexProvider(BaseLLMProvider):
     def _usage_from_response(self, response: types.GenerateContentResponse) -> Dict[str, int]:
         usage_metadata = getattr(response, "usage_metadata", None)
         if not usage_metadata:
-            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            return {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 0,
+            }
 
         prompt_tokens = getattr(usage_metadata, "prompt_token_count", 0) or 0
         visible_completion_tokens = getattr(usage_metadata, "candidates_token_count", 0) or 0
-        # Gemini 2.5 thinking tokens are billed at the output-token rate. The
-        # SDK reports them separately from visible candidate tokens, while
-        # ``total_token_count`` includes both. Treat the billable completion
-        # count as visible output + thoughts so cost telemetry is not
-        # understated for collection-email or draft-generation calls.
+        # The SDK reports Gemini thinking tokens separately from visible
+        # candidate tokens. Keep both values so the backend can apply the
+        # current GA rates ($0.60 visible output / $3.50 thinking output) and
+        # never silently charge all completion tokens at one legacy rate.
         reasoning_tokens = getattr(usage_metadata, "thoughts_token_count", 0) or 0
         completion_tokens = visible_completion_tokens + reasoning_tokens
         total_tokens = getattr(usage_metadata, "total_token_count", 0) or (
@@ -367,5 +371,6 @@ class VertexProvider(BaseLLMProvider):
         return {
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
+            "reasoning_tokens": reasoning_tokens,
             "total_tokens": total_tokens,
         }
