@@ -90,7 +90,7 @@ VERTEX_WIF_CONFIG_PATH=/app/infra/vertex-wif-config.json
 
 # Fallback
 OPENAI_API_KEY=<key>
-OPENAI_MODEL=gpt-5.4-nano-2026-03-17
+OPENAI_MODEL=gpt-5.6-luna
 
 # Optional
 ANTHROPIC_API_KEY=<key>

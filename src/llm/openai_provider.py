@@ -27,6 +27,30 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
+# Chat Completions currently accepts this set for GPT-5.6; ``max`` is a
+# Responses-only value and must not be forwarded through LangChain here.
+_GPT56_REASONING_EFFORTS = frozenset({"none", "low", "medium", "high", "xhigh"})
+
+
+def _normalize_reasoning_effort(model: str, value: str | None) -> str | None:
+    """Map legacy effort names to the GPT-5.6 API vocabulary.
+
+    GPT-5.6 is used primarily for long-context factual extraction here; the
+    default is deliberately ``none`` so larger context does not silently turn
+    into an expensive reasoning request. Older callers used ``minimal``.
+    """
+
+    if not str(model or "").startswith("gpt-5.6"):
+        return value
+    if value == "minimal":
+        return "none"
+    if value is None:
+        return "none"
+    if value not in _GPT56_REASONING_EFFORTS:
+        raise ValueError(f"unsupported GPT-5.6 reasoning effort: {value}")
+    return value
+
+
 # Import LengthFinishReasonError for handling reasoning model token exhaustion
 try:
     from openai import LengthFinishReasonError
@@ -166,8 +190,12 @@ class OpenAIProvider(BaseLLMProvider):
             # For JSON mode without schema, configure response_format
             if json_mode and not response_schema:
                 client_kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
-            if reasoning_effort:
-                client_kwargs["reasoning_effort"] = reasoning_effort
+            normalized_reasoning_effort = _normalize_reasoning_effort(
+                self._model,
+                reasoning_effort,
+            )
+            if normalized_reasoning_effort:
+                client_kwargs["reasoning_effort"] = normalized_reasoning_effort
             if caller == "weekly_overdue_report_summary":
                 client_kwargs["max_tokens"] = max(
                     256,

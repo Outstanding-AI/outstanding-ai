@@ -67,3 +67,34 @@ async def test_openai_reasoning_usage_is_bounded_to_completion(monkeypatch):
     assert response.model == "gpt-5.4-nano"
     assert response.usage["reasoning_tokens"] == 1
     assert response.usage["reasoning_tokens"] <= response.usage["completion_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_gpt56_defaults_to_supported_none_reasoning_effort(monkeypatch):
+    _FakeChatOpenAI.instances = []
+    monkeypatch.setattr("src.llm.openai_provider.ChatOpenAI", _FakeChatOpenAI)
+    provider = OpenAIProvider(api_key="test-key", model="gpt-5.6-luna")
+
+    await provider.complete(
+        system_prompt="sys",
+        user_prompt="Reply with OK",
+        caller="manual_note_interpretation",
+    )
+
+    assert _FakeChatOpenAI.instances[-1].kwargs["reasoning_effort"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_gpt56_maps_legacy_minimal_reasoning_effort(monkeypatch):
+    _FakeChatOpenAI.instances = []
+    monkeypatch.setattr("src.llm.openai_provider.ChatOpenAI", _FakeChatOpenAI)
+    provider = OpenAIProvider(api_key="test-key", model="gpt-5.6-luna")
+
+    await provider.complete(
+        system_prompt="sys",
+        user_prompt="Reply with OK",
+        caller="weekly_overdue_report_summary",
+        reasoning_effort="minimal",
+    )
+
+    assert _FakeChatOpenAI.instances[-1].kwargs["reasoning_effort"] == "none"

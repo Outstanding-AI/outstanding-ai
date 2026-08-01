@@ -283,7 +283,7 @@ Generator retry: when guardrails `should_block` and `len(blocking_guardrails) <=
 `LLMProviderWithFallback` singleton (`src/llm/factory.py`). Every call carries a `caller=` kwarg (`draft_generation`, `classification`, `persona_*`, `sent_scope_analysis`, guardrail callers).
 
 Historical thread relevance uses the same provider policy: Vertex AI is primary
-(`gemini-2.5-flash` in `europe-west2`) and OpenAI `gpt-5.4-nano-2026-03-17` is the fallback.
+(`gemini-2.5-flash` in `europe-west2`) and OpenAI `gpt-5.6-luna` is the long-context fallback.
 The `/classify-historical-collection-thread` endpoint accepts
 `mode=thread_collection_relevance` for the Stage 3 CTR-only shadow. That mode
 returns only `collection_related`, `non_collection`, or `uncertain` relevance
@@ -331,7 +331,7 @@ hash, and template version are returned for durable job telemetry.
 The bounded-context router prompt is version `v2`.
 
 - **Primary: Vertex AI** (`gemini-2.5-flash` @ `europe-west2`, temperature 0.3). `google-genai` builds a **new `Client` per call**; credentials via AWS→GCP Workload Identity Federation (ECS task-role supplier) in production, ADC locally. Structured output via `response_schema` + `response_mime_type="application/json"`. Retry: tenacity `stop_after_attempt(LLM_MAX_RETRIES=3)`, `wait_exponential(min=2, max=30)`, on `(InternalServerError, ResourceExhausted, ServiceUnavailable)`.
-- **Fallback: OpenAI** (`gpt-5.4-nano-2026-03-17`, temperature 0.3, LangChain `ChatOpenAI`). Disabled if it equals the primary or `OPENAI_API_KEY` is unset. Same tenacity retry shape. **No application-level max-token cap** is set (`OPENAI_MAX_TOKENS`/`VERTEX_MAX_TOKENS` env vars were removed 2026-04-29).
+- **Fallback: OpenAI** (`gpt-5.6-luna`, temperature 0.3, LangChain `ChatOpenAI`). Disabled if it equals the primary or `OPENAI_API_KEY` is unset. GPT-5.6 callers default to reasoning effort `none`; legacy `minimal` is normalized to `none`. Same tenacity retry shape. **No application-level max-token cap** is set (`OPENAI_MAX_TOKENS`/`VERTEX_MAX_TOKENS` env vars were removed 2026-04-29).
 - **Anthropic: disabled.** `_create_provider("anthropic")` raises `ValueError` ("disabled until it supports no application-level max token cap"), and the production settings validator rejects `LLM_PROVIDER=anthropic`. `anthropic_provider.py` still exists (defaults `claude-sonnet-4-20250514` / classification `claude-haiku-4-5-20251001`) but is unreachable via the factory.
 
 Fallback behaviour: `complete()` uses OpenAI only for transient quota, timeout, or provider-infrastructure failures. Authentication/configuration failures and invalid structured output fail closed without fallback. Both transient providers failing raises `LLMFallbackExhaustedError`. A per-`(provider, caller)` **cooldown** of `LLM_FALLBACK_COOLDOWN_SECONDS` (300s) is recorded on `LLMRateLimitedError`/`LLMProviderUnavailableError`: a cooling-down primary skips straight to fallback; a cooling-down fallback → `LLMFallbackExhaustedError`. `fallback_count` and `primary_failures_by_caller` are exposed on `/health/llm`.
@@ -415,7 +415,7 @@ When `IDLE_SHUTDOWN_SECONDS` > 0 (default `0` = disabled, read in `src/main.py`)
 | `VERTEX_TEMPERATURE` | `0.3` | |
 | `VERTEX_WIF_CONFIG_PATH` | `"/app/infra/vertex-wif-config.json"` | AWS→GCP workload identity federation config |
 | `OPENAI_API_KEY` | `None` | fallback provider enabler |
-| `OPENAI_MODEL` | `"gpt-5.4-nano-2026-03-17"` | |
+| `OPENAI_MODEL` | `"gpt-5.6-luna"` | |
 | `OPENAI_TEMPERATURE` | `0.3` | |
 | `ANTHROPIC_API_KEY` | `None` | optional third provider, disabled in factory |
 | `ANTHROPIC_MODEL` | `"claude-sonnet-4-20250514"` | |

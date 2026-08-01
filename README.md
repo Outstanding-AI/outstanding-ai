@@ -16,7 +16,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 - **Draft Generation**: Generate contextual response drafts with `{INVOICE_TABLE}` placeholder, closure email mode, sender style injection, and classification-aware follow-ups via `trigger_classification`
 - **Sender Persona Management**: Generate and refine sender personas for a 4-level escalation hierarchy
 - **Guardrails Pipeline**: Validate AI outputs with 7 parallel guardrails (placeholder validation, factual grounding, numerical consistency, entity verification, temporal consistency, contextual coherence, tone clamping)
-- **Triple LLM Support**: Primary Vertex AI (`gemini-2.5-flash` in London), fallback OpenAI `gpt-5.4-nano-2026-03-17`, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
+- **Triple LLM Support**: Primary Vertex AI (`gemini-2.5-flash` in London), long-context fallback OpenAI `gpt-5.6-luna`, optional Anthropic Claude (Sonnet for drafts, Haiku for classification)
 - **Service Authentication**: Bearer token auth for service-to-service calls
 - **Rate Limiting**: Per-tenant rate limits via `X-Tenant-ID` header (falls back to IP for direct callers)
 - **Robust JSON Parsing**: Multi-strategy JSON extraction from LLM responses (handles markdown blocks, trailing commas, etc.)
@@ -28,7 +28,7 @@ Stateless AI service for the Outstanding AI debt collection platform. Provides e
 ┌─────────────────┐     ┌──────────────────┐     ┌───────────────┐
 │  Outstanding AI │────▶│  Outstanding AI   │────▶│ Vertex Gemini  │
 │  Backend        │◀────│   Engine          │◀────│   (Primary)   │
-│                 │     │   Port 8001       │     │   gpt-5.4-nano │
+│                 │     │   Port 8001       │     │   gpt-5.6-luna │
 └─────────────────┘     └──────────────────┘     │   (Fallback)  │
                                │                  └───────────────┘
                                │
@@ -174,7 +174,7 @@ Environment variables (in `.env`):
 | `VERTEX_MODEL` | Vertex model | `gemini-2.5-flash` |
 | `VERTEX_WIF_CONFIG_PATH` | WIF config file in the container | `/app/infra/vertex-wif-config.json` |
 | `OPENAI_API_KEY` | OpenAI API key | Fallback LLM |
-| `OPENAI_MODEL` | OpenAI model | `gpt-5.4-nano-2026-03-17` |
+| `OPENAI_MODEL` | OpenAI model | `gpt-5.6-luna` |
 | `VERTEX_MAX_TOKENS` | Vertex max tokens | `65535` |
 | `OPENAI_MAX_TOKENS` | OpenAI max tokens | `32768` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | Optional 3rd provider |

@@ -424,7 +424,7 @@ class WeeklyOverdueReportSummarizer:
                 user_prompt=user_prompt + correction,
                 temperature=settings.classification_temperature,
                 response_schema=WeeklyOverdueReportSummaryLLMResponse,
-                reasoning_effort="minimal",
+                reasoning_effort="none",
                 caller="weekly_overdue_report_summary",
             )
             try:

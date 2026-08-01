@@ -45,10 +45,11 @@ _PRICING = {
     "gemini-3.1-flash-lite": (Decimal("0.275"), Decimal("1.65"), Decimal("1.65")),
     "gpt-5-mini": (Decimal("0.25"), Decimal("2.00"), Decimal("2.00")),
     "gpt-5-nano": (Decimal("0.05"), Decimal("0.40"), Decimal("0.40")),
-    "gpt-5.6-luna": (Decimal("1.00"), Decimal("6.00"), Decimal("6.00")),
+    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20"), Decimal("1.20")),
     "gpt-5.4-nano": (Decimal("0.20"), Decimal("1.25"), Decimal("1.25")),
     "gpt-5.4-nano-2026-03-17": (Decimal("0.20"), Decimal("1.25"), Decimal("1.25")),
 }
+_GPT56_LONG_CONTEXT_THRESHOLD = 272_000
 
 
 def _cost(
@@ -58,6 +59,10 @@ def _cost(
     reasoning_tokens: int = 0,
 ) -> float:
     input_rate, output_rate, reasoning_rate = _PRICING.get(model, _PRICING["gemini-2.5-flash"])
+    if model.startswith("gpt-5.6") and prompt_tokens > _GPT56_LONG_CONTEXT_THRESHOLD:
+        input_rate *= Decimal("2")
+        output_rate *= Decimal("1.5")
+        reasoning_rate *= Decimal("1.5")
     reasoning_tokens = min(max(0, int(reasoning_tokens)), max(0, int(completion_tokens)))
     visible_completion_tokens = max(0, int(completion_tokens) - reasoning_tokens)
     value = (
@@ -88,7 +93,10 @@ class CollectionChainRouter:
             system_prompt=SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=settings.classification_temperature,
-            response_schema=CollectionChainRoutingLLMResponse,
+            # Vertex rejects this nested route schema with a serving-state
+            # explosion. JSON mode plus the closed Pydantic parser below keeps
+            # the same fail-closed contract on both providers.
+            json_mode=True,
             caller="collection_chain_router",
         )
         latency_ms = round((time.perf_counter() - started) * 1000, 2)

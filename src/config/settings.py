@@ -106,10 +106,10 @@ class Settings(BaseSettings):
 
     # --- OpenAI Configuration (FALLBACK) ---
     openai_api_key: Optional[str] = Field(None, repr=False)
-    # GPT-5.4 nano is the current structured-output extraction fallback at
-    # lower input/output rates than GPT-5 mini. The provider fingerprint in
-    # each audit row records the exact served snapshot.
-    openai_model: str = "gpt-5.4-nano-2026-03-17"
+    # GPT-5.6 Luna is the context-capable fallback for collection-chain,
+    # sent-scope, report, draft, and manual-note workloads. The provider
+    # fingerprint in each audit row records the exact served snapshot.
+    openai_model: str = "gpt-5.6-luna"
     openai_temperature: float = 0.3
 
     # --- Anthropic Configuration (OPTIONAL third provider) ---
