@@ -47,6 +47,38 @@ except ImportError:
     OpenAIBadRequestError = None
 
 
+def _usage_from_message(message: Any) -> Dict[str, int]:
+    """Normalize LangChain/OpenAI usage, including provider reasoning tokens.
+
+    LangChain exposes reasoning usage under ``output_token_details`` (the key
+    is ``reasoning`` in current releases, while some SDK versions use
+    ``reasoning_tokens``).  Keep it as a subset of completion tokens so the
+    backend cost calculator can price it without double-counting.
+    """
+    metadata = getattr(message, "usage_metadata", None) or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    details = metadata.get("output_token_details") or {}
+    if not isinstance(details, dict):
+        details = {}
+    reasoning_tokens = int(
+        details.get("reasoning_tokens")
+        or details.get("reasoning")
+        or metadata.get("reasoning_tokens")
+        or 0
+    )
+    prompt_tokens = int(metadata.get("input_tokens") or 0)
+    completion_tokens = int(metadata.get("output_tokens") or 0)
+    reasoning_tokens = min(max(0, reasoning_tokens), max(0, completion_tokens))
+    total_tokens = int(metadata.get("total_tokens") or (prompt_tokens + completion_tokens))
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
 def _log_retry(retry_state):
     """Log retry attempts with structured metrics."""
     exception = retry_state.outcome.exception()
@@ -179,12 +211,7 @@ class OpenAIProvider(BaseLLMProvider):
                 raw_message = raw_output["raw"]
                 content = result.model_dump_json()
                 # Extract usage metadata from raw AIMessage
-                usage_meta = getattr(raw_message, "usage_metadata", None) or {}
-                usage = {
-                    "prompt_tokens": usage_meta.get("input_tokens", 0),
-                    "completion_tokens": usage_meta.get("output_tokens", 0),
-                    "total_tokens": usage_meta.get("total_tokens", 0),
-                }
+                usage = _usage_from_message(raw_message)
                 latency_ms = (time.perf_counter() - start_time) * 1000
                 logger.info(
                     "LLM call completed",
@@ -195,6 +222,7 @@ class OpenAIProvider(BaseLLMProvider):
                         "latency_ms": round(latency_ms, 2),
                         "input_tokens": usage["prompt_tokens"],
                         "output_tokens": usage["completion_tokens"],
+                        "reasoning_tokens": usage["reasoning_tokens"],
                         "success": True,
                         "structured": True,
                         "caller": caller,
@@ -230,17 +258,7 @@ class OpenAIProvider(BaseLLMProvider):
             response = await _invoke_with_retry(client, messages)
 
             # Extract usage metadata (LangChain standardizes this)
-            usage = {
-                "prompt_tokens": response.usage_metadata.get("input_tokens", 0)
-                if response.usage_metadata
-                else 0,
-                "completion_tokens": response.usage_metadata.get("output_tokens", 0)
-                if response.usage_metadata
-                else 0,
-                "total_tokens": response.usage_metadata.get("total_tokens", 0)
-                if response.usage_metadata
-                else 0,
-            }
+            usage = _usage_from_message(response)
 
             latency_ms = (time.perf_counter() - start_time) * 1000
             logger.info(
@@ -252,6 +270,7 @@ class OpenAIProvider(BaseLLMProvider):
                     "latency_ms": round(latency_ms, 2),
                     "input_tokens": usage["prompt_tokens"],
                     "output_tokens": usage["completion_tokens"],
+                    "reasoning_tokens": usage["reasoning_tokens"],
                     "success": True,
                     "structured": False,
                     "caller": caller,

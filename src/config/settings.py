@@ -97,13 +97,19 @@ class Settings(BaseSettings):
     # --- Vertex AI Configuration (PRIMARY) ---
     vertex_project_id: str = "production-493814"
     vertex_location: str = "europe-west2"
+    # Gemini 2.5 Flash is GA and verified in the production project's
+    # europe-west2 endpoint; newer Gemini 3.x candidates remain opt-in until
+    # the project-level access check succeeds.
     vertex_model: str = "gemini-2.5-flash"
     vertex_temperature: float = 0.3
     vertex_wif_config_path: str = "/app/infra/vertex-wif-config.json"
 
     # --- OpenAI Configuration (FALLBACK) ---
     openai_api_key: Optional[str] = Field(None, repr=False)
-    openai_model: str = "gpt-5.6-luna"
+    # GPT-5.4 nano is the current structured-output extraction fallback at
+    # lower input/output rates than GPT-5 mini. The provider fingerprint in
+    # each audit row records the exact served snapshot.
+    openai_model: str = "gpt-5.4-nano-2026-03-17"
     openai_temperature: float = 0.3
 
     # --- Anthropic Configuration (OPTIONAL third provider) ---

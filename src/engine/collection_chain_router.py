@@ -38,12 +38,16 @@ USER_PROMPT = """Routing facts JSON:
 Choose a supplied active chain or abstain_manual_review for every supplied invoice."""
 
 _PRICING = {
-    # USD per 1M tokens. Gemini 2.5 Flash uses separate visible and thinking
-    # output rates; the other models use the same rate for both categories.
-    "gemini-2.5-flash": (Decimal("0.15"), Decimal("0.60"), Decimal("3.50")),
+    # USD per 1M tokens for the configured production endpoints. Gemini output
+    # pricing includes response and reasoning tokens. Keep the verified London
+    # primary as the unknown-model fallback.
+    "gemini-2.5-flash": (Decimal("0.30"), Decimal("2.50"), Decimal("2.50")),
+    "gemini-3.1-flash-lite": (Decimal("0.275"), Decimal("1.65"), Decimal("1.65")),
     "gpt-5-mini": (Decimal("0.25"), Decimal("2.00"), Decimal("2.00")),
     "gpt-5-nano": (Decimal("0.05"), Decimal("0.40"), Decimal("0.40")),
-    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20"), Decimal("1.20")),
+    "gpt-5.6-luna": (Decimal("1.00"), Decimal("6.00"), Decimal("6.00")),
+    "gpt-5.4-nano": (Decimal("0.20"), Decimal("1.25"), Decimal("1.25")),
+    "gpt-5.4-nano-2026-03-17": (Decimal("0.20"), Decimal("1.25"), Decimal("1.25")),
 }
 
 
