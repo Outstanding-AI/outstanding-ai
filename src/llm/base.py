@@ -39,6 +39,17 @@ class LLMProviderUnavailableError(LLMProviderError):
     """Provider is temporarily unavailable."""
 
 
+class LLMProviderPolicyDeniedError(LLMProviderUnavailableError):
+    """Provider denied a request through a model-policy decision.
+
+    This is deliberately distinct from malformed structured output.  A
+    provider-side policy block can be specific to one model/project, so the
+    controlled fallback provider may still safely process the same bounded
+    request.  It inherits ``LLMProviderUnavailableError`` so the existing
+    fallback and cooldown policy handles it consistently.
+    """
+
+
 class LLMStructuredOutputError(LLMProviderError):
     """Provider returned no usable structured/text output."""
 

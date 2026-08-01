@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Any, Dict, Optional, Type
 
@@ -21,6 +22,7 @@ from ._invocation_audit import vertex_invocation_audit
 from .aws_ecs_supplier import EcsTaskRoleSupplier
 from .base import (
     BaseLLMProvider,
+    LLMProviderPolicyDeniedError,
     LLMProviderUnavailableError,
     LLMRateLimitedError,
     LLMResponse,
@@ -31,6 +33,14 @@ logger = logging.getLogger(__name__)
 
 VERTEX_RETRYABLE_ERRORS = (InternalServerError, ResourceExhausted, ServiceUnavailable)
 HISTORICAL_COLLECTION_CALLER = "historical_collection_thread"
+
+# Keep the classifier narrow.  Generic 4xx responses can still be malformed
+# request/configuration defects and must fail closed; this exact Vertex policy
+# decision is a provider/project restriction, not a schema error.
+_VERTEX_POLICY_DENIAL = re.compile(
+    r"lightning\s+dunning\s+decision\s+is\s+deny",
+    re.IGNORECASE,
+)
 
 
 def _log_retry(retry_state):
@@ -198,6 +208,19 @@ class VertexProvider(BaseLLMProvider):
             )
             raise LLMProviderUnavailableError(str(exc)) from exc
         except VertexClientError as exc:
+            if _VERTEX_POLICY_DENIAL.search(str(exc)):
+                logger.warning(
+                    "Vertex provider policy denied request; eligible for fallback",
+                    extra={
+                        "caller": caller,
+                        "provider": "vertex",
+                        "model": self._model,
+                        "error_type": type(exc).__name__,
+                        "reason_code": "vertex_policy_denied",
+                        "structured": bool(response_schema),
+                    },
+                )
+                raise LLMProviderPolicyDeniedError("vertex_policy_denied") from exc
             # 4xx requests, including unsupported response schemas, are
             # deterministic request/configuration defects.  They must fail
             # closed rather than consuming the OpenAI fallback budget.

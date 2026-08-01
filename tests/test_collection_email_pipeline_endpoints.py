@@ -302,6 +302,67 @@ async def test_manual_note_interpreter_recovers_explicit_single_invoice_remittan
 
 
 @pytest.mark.asyncio
+async def test_manual_note_interpreter_drops_ungrounded_remittance_timestamp():
+    from src.engine.manual_note_interpreter import ManualNoteInterpreter
+
+    note = "REMIT RECEIVED"
+    interpreter = ManualNoteInterpreter()
+    interpreter._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "extraction_status": "accepted",
+                    "assertions": [
+                        {
+                            "assertion_id": "remit-1",
+                            "assertion_type": "remittance",
+                            "transition": "received",
+                            "polarity": "affirmed",
+                            "temporal_orientation": "current",
+                            "invoice_refs": ["INV-1"],
+                            "amount": None,
+                            "currency": None,
+                            "asserted_date": "2026-07-30T12:38:00Z",
+                            "reference": None,
+                            "full_current_balance": False,
+                            "evidence_start": 0,
+                            "evidence_end": len(note),
+                            "confidence": 0.99,
+                            "reason_codes": [],
+                        }
+                    ],
+                    "reason_codes": [],
+                }
+            ),
+            provider="openai",
+            model="gpt-5.6-luna",
+            usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+        )
+    )
+
+    result = await interpreter.interpret(
+        ManualNoteInterpretationRequestV1(
+            touch_id="touch-remit-timestamp",
+            note=note,
+            occurred_at="2026-07-30T12:38:00Z",
+            tenant_timezone="Europe/London",
+            invoice_facts=[
+                {
+                    "obligation_id": "obligation-1",
+                    "invoice_number": "INV-1",
+                    "amount_due": 100,
+                    "currency": "GBP",
+                }
+            ],
+        )
+    )
+
+    assert result.extraction_status == "accepted"
+    assert result.assertions[0].asserted_date is None
+    assert "ungrounded_remittance_date_dropped" in result.reason_codes
+
+
+@pytest.mark.asyncio
 async def test_manual_note_interpreter_discards_commitment_only_flag_from_remittance():
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
 

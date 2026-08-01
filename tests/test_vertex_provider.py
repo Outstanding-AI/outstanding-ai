@@ -13,7 +13,12 @@ from google.api_core.exceptions import ResourceExhausted
 from google.genai.errors import ClientError as VertexClientError
 from pydantic import BaseModel
 
-from src.llm.base import LLMRateLimitedError, LLMResponse, LLMStructuredOutputError
+from src.llm.base import (
+    LLMProviderPolicyDeniedError,
+    LLMRateLimitedError,
+    LLMResponse,
+    LLMStructuredOutputError,
+)
 from src.llm.factory import LLMProviderWithFallback
 from src.llm.vertex_provider import VertexProvider
 
@@ -54,6 +59,57 @@ async def test_vertex_client_schema_rejection_is_structured_failure(monkeypatch)
             )
 
     assert generate.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_vertex_lightning_dunning_denial_is_fallback_eligible(monkeypatch):
+    """A Vertex project policy denial is not a malformed response schema."""
+    monkeypatch.setattr(VertexProvider, "_build_credentials", lambda self: object())
+    generate = AsyncMock(
+        side_effect=VertexClientError(
+            403,
+            {
+                "error": {
+                    "status": "PERMISSION_DENIED",
+                    "message": "Lightning dunning decision is deny for project",
+                }
+            },
+        )
+    )
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate), aclose=AsyncMock())
+    )
+    with patch("src.llm.vertex_provider.Client", return_value=fake_client):
+        provider = VertexProvider()
+        with pytest.raises(LLMProviderPolicyDeniedError, match="vertex_policy_denied"):
+            await provider.complete(
+                "sys", "user", response_schema=_Schema, caller="manual_note_interpretation"
+            )
+
+
+@pytest.mark.asyncio
+async def test_manual_note_policy_denial_falls_back_to_openai():
+    fallback_response = LLMResponse(
+        content='{"extraction_status":"abstained","assertions":[],"reason_codes":[]}',
+        model="gpt-5.6-luna",
+        provider="openai",
+        usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    )
+    with patch("src.llm.factory.VertexProvider") as mock_vertex:
+        with patch("src.llm.factory.OpenAIProvider") as mock_openai:
+            mock_vertex.return_value.complete = AsyncMock(
+                side_effect=LLMProviderPolicyDeniedError("vertex_policy_denied")
+            )
+            mock_vertex.return_value.provider_name = "vertex"
+            mock_openai.return_value.complete = AsyncMock(return_value=fallback_response)
+            mock_openai.return_value.provider_name = "openai"
+            client = LLMProviderWithFallback(primary_provider="vertex", fallback_provider="openai")
+
+            response = await client.complete("sys", "user", caller="manual_note_interpretation")
+
+    assert response.provider == "openai"
+    assert response.is_fallback is True
+    assert mock_openai.return_value.complete.await_count == 1
 
 
 def test_vertex_provider_builds_explicit_wif_credentials(monkeypatch, tmp_path):

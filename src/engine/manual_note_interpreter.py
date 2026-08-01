@@ -155,6 +155,33 @@ _EXPLICIT_REMITTANCE_EVIDENCE = re.compile(
 )
 
 
+def _remittance_date_is_explicit_in_note(value: object, note: str) -> bool:
+    """Return whether a normalised remittance date is explicitly in the note.
+
+    ``occurred_at`` is provided as request metadata, not source evidence.  A
+    model must therefore never turn it into a claimed payment date.  The
+    bounded variants cover the calendar representations we can safely recover
+    without interpreting relative language such as "tomorrow".
+    """
+
+    try:
+        parsed = date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return False
+    candidates = {
+        parsed.isoformat(),
+        parsed.strftime("%d/%m/%Y"),
+        parsed.strftime("%d-%m-%Y"),
+        parsed.strftime("%d.%m.%Y"),
+        f"{parsed.day}/{parsed.month}/{parsed.year}",
+        f"{parsed.day}-{parsed.month}-{parsed.year}",
+        f"{parsed.day} {parsed.strftime('%B')} {parsed.year}",
+        f"{parsed.strftime('%B')} {parsed.day}, {parsed.year}",
+    }
+    source = str(note or "").casefold()
+    return any(candidate.casefold() in source for candidate in candidates)
+
+
 def _normalize_ref(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
@@ -232,6 +259,19 @@ def _validated_assertions(
             candidate["full_current_balance"] = False
         assertion_type = candidate.get("assertion_type")
         transition = candidate.get("transition")
+        # A remittance date is optional.  Do not reject an otherwise safe
+        # claim merely because a model copied request metadata (for example
+        # ``occurred_at``) as a timestamp.  Drop only that ungrounded optional
+        # detail; the accounting reconciler remains the verification authority.
+        if (
+            assertion_type == "remittance"
+            and candidate.get("asserted_date")
+            and not _remittance_date_is_explicit_in_note(
+                candidate.get("asserted_date"), request.note
+            )
+        ):
+            candidate["asserted_date"] = None
+            normalization_reason_codes.append("ungrounded_remittance_date_dropped")
         if (
             assertion_type in _TRANSITIONS_BY_TYPE
             and transition not in _TRANSITIONS_BY_TYPE[assertion_type]
