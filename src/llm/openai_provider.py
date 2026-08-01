@@ -28,18 +28,20 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 # The deployed Chat Completions endpoint currently accepts this set for
-# GPT-5.6 Luna.  Do not send ``none`` or ``xhigh`` through LangChain; those
-# values belong to a different model/API surface.
+# GPT-5.6 Luna.  Keep the default in code rather than in deployment
+# environment variables: this is a provider control that may become obsolete
+# as the model/API evolves.
 _GPT56_REASONING_EFFORTS = frozenset({"minimal", "low", "medium", "high"})
+DEFAULT_GPT56_REASONING_EFFORT = "medium"
 
 
 def _normalize_reasoning_effort(model: str, value: str | None) -> str | None:
     """Map legacy effort names to the GPT-5.6 API vocabulary.
 
     GPT-5.6 is used primarily for long-context factual extraction here.  The
-    default omits the optional parameter so the endpoint's safe default is
-    used.  Callers that still pass ``none`` are mapped to the provider's
-    lowest supported effort, ``minimal``.
+    The AI service defaults GPT-5.6 Luna to ``medium``. Callers can override
+    it per request; callers that still pass ``none`` are mapped to the
+    provider's lowest supported effort, ``minimal``.
     """
 
     if not str(model or "").startswith("gpt-5.6"):
@@ -192,9 +194,12 @@ class OpenAIProvider(BaseLLMProvider):
             # For JSON mode without schema, configure response_format
             if json_mode and not response_schema:
                 client_kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+            requested_reasoning_effort = reasoning_effort
+            if requested_reasoning_effort is None and self._model.startswith("gpt-5.6"):
+                requested_reasoning_effort = DEFAULT_GPT56_REASONING_EFFORT
             normalized_reasoning_effort = _normalize_reasoning_effort(
                 self._model,
-                reasoning_effort,
+                requested_reasoning_effort,
             )
             if normalized_reasoning_effort:
                 client_kwargs["reasoning_effort"] = normalized_reasoning_effort
