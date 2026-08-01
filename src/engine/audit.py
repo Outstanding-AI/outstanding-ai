@@ -160,6 +160,11 @@ def build_ai_audit(
         draft_generation_run_id=getattr(context, "draft_generation_run_id", None),
         source_sync_run_id=getattr(context, "source_sync_run_id", None),
         application_run_id=getattr(context, "application_run_id", None),
+        operator_context_truncation_count=(
+            int(getattr(getattr(context, "operator_context", None), "truncation_count", 0) or 0)
+            if context is not None
+            else None
+        ),
         token_count=token_count,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,

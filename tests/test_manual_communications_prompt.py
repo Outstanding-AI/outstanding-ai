@@ -28,7 +28,9 @@ from src.api.models.requests import (
     CaseContext,
     GenerateDraftRequest,
     ObligationInfo,
+    OperatorContext,
     PartyInfo,
+    VerificationResolutionGuidance,
 )
 from src.api.models.requests.context import TouchHistory
 from src.engine.generator_prompts import build_extra_sections
@@ -155,6 +157,35 @@ class TestManualTouchpointsPromptSection:
         sections = build_extra_sections(request, None)
         joined = "".join(sections)
         assert "**Recent Manual Touchpoints:**" not in joined
+
+    def test_operator_relationship_guidance_is_writing_only_and_invoice_scoped(self):
+        context = CaseContext(
+            schema_version=2,
+            party=_make_party(),
+            obligations=[_make_obligation(invoice_number="INV-100")],
+            operator_context=OperatorContext(
+                relationship_notes="Keep the tone constructive for this long-standing relationship.",
+                verification_resolutions=[
+                    VerificationResolutionGuidance(
+                        invoice_numbers=["INV-100"],
+                        resolution="accepted",
+                        notes="Acknowledge the relationship sensitively; do not make factual claims from this note.",
+                        resolved_at="2026-07-31T10:00:00+00:00",
+                    )
+                ],
+            ),
+        )
+        request = GenerateDraftRequest(context=context, tone="professional", objective="follow_up")
+
+        joined = "".join(build_extra_sections(request, None))
+
+        assert "**Operator Relationship Guidance (writing only):**" in joined
+        assert "long-standing relationship" in joined
+        assert "scope: INV-100" in joined
+        assert "not accounting, payment, query, commitment, remittance" in joined
+        assert (
+            "Never mention an invoice outside the deterministic candidate invoice table" in joined
+        )
 
     def test_invoice_linked_manual_touch_renders_invoice_scope(self):
         request = _make_request(

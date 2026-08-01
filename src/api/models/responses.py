@@ -164,6 +164,8 @@ class AIAuditMetadata(BaseModel):
     draft_generation_run_id: Optional[str] = None
     source_sync_run_id: Optional[str] = None
     application_run_id: Optional[str] = None
+    # Count only: never persist operator note text in audit telemetry.
+    operator_context_truncation_count: Optional[int] = None
     token_count: Optional[int] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None

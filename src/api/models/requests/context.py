@@ -351,6 +351,30 @@ class IndustryInfo(BaseModel):
     communication_notes: str = Field("", max_length=2000)  # Industry communication conventions
 
 
+class VerificationResolutionGuidance(BaseModel):
+    """Bounded operator resolution prose for one exact candidate invoice scope.
+
+    This is deliberately not a workflow control or accounting assertion.  The
+    backend supplies it only after intersecting a resolved verification task
+    with the final invoice scope that will be drafted.
+    """
+
+    invoice_numbers: List[str] = Field(default_factory=list, max_length=20)
+    resolution: Optional[str] = Field(default=None, max_length=80)
+    notes: str = Field(min_length=1, max_length=600)
+    resolved_at: Optional[str] = Field(default=None, max_length=40)
+
+
+class OperatorContext(BaseModel):
+    """Operator-authored writing guidance, never a source of control truth."""
+
+    relationship_notes: Optional[str] = Field(default=None, max_length=1200)
+    verification_resolutions: List[VerificationResolutionGuidance] = Field(
+        default_factory=list, max_length=3
+    )
+    truncation_count: int = Field(default=0, ge=0, le=4)
+
+
 class CaseContext(CaseContextV2):
     """Full case context for AI operations.
 
@@ -393,6 +417,7 @@ class CaseContext(CaseContextV2):
     historical_backfill: Optional[dict[str, Any]] = None
     collection_policy_context: Optional[dict[str, Any]] = None
     reply_scope: Optional[dict[str, Any]] = None
+    operator_context: Optional[OperatorContext] = None
 
     # ------------------------------------------------------------------
     # V3-only top-level fields (Optional so V2 callers omit them safely).

@@ -956,6 +956,38 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             "It does not create or settle invoice commitments by itself."
         )
 
+    # Relationship notes and resolved verification notes are intentionally a
+    # separate, lower-authority prompt block.  They are entered by operators
+    # for wording/relationship continuity, not a substitute for the exact
+    # candidate invoice facts and controls rendered elsewhere in this prompt.
+    operator_context = getattr(request.context, "operator_context", None)
+    if operator_context:
+        guidance_lines = []
+        relationship_notes = (getattr(operator_context, "relationship_notes", None) or "").strip()
+        if relationship_notes:
+            guidance_lines.append(f"- Debtor relationship guidance: {relationship_notes}")
+        for resolution in getattr(operator_context, "verification_resolutions", None) or []:
+            invoice_refs = (
+                ", ".join(getattr(resolution, "invoice_numbers", None) or [])
+                or "candidate invoice scope"
+            )
+            resolution_label = getattr(resolution, "resolution", None) or "resolved"
+            notes = (getattr(resolution, "notes", None) or "").strip()
+            if notes:
+                guidance_lines.append(
+                    f"- Resolution guidance ({resolution_label}; scope: {invoice_refs}): {notes}"
+                )
+        if guidance_lines:
+            sections.append(
+                "\n\n**Operator Relationship Guidance (writing only):**\n"
+                + "\n".join(guidance_lines)
+                + "\n\nThis is operator-authored wording guidance, not accounting, payment, query, commitment, "
+                "remittance, verification, or payment-plan evidence. Use it only to choose a respectful tone or "
+                "acknowledge a relationship-sensitive situation. Do not state or infer an invoice has been paid, "
+                "queried, promised, remitted, verified, or placed on a plan from this section. Never mention an "
+                "invoice outside the deterministic candidate invoice table."
+            )
+
     remittance_lines = []
     for remittance in getattr(request.context, "remittances", []) or []:
         received_at = getattr(remittance, "remittance_received_at", None)

@@ -12,9 +12,11 @@ from .context import (
     IndustryInfo,
     LaneContextInfo,
     ObligationInfo,
+    OperatorContext,
     PromiseHistory,
     RemittanceHistory,
     TouchHistory,
+    VerificationResolutionGuidance,
 )
 from .party import BehaviorInfo, EmailContent, PartyInfo
 from .persona import (
@@ -63,6 +65,8 @@ __all__ = [
     "ActualSentScopeHistory",
     "IndustryInfo",
     "LaneContextInfo",
+    "OperatorContext",
+    "VerificationResolutionGuidance",
     "CaseContext",
     # Persona
     "SenderPersona",
