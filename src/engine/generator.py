@@ -57,8 +57,8 @@ from .generator_prompts import (
 logger = logging.getLogger(__name__)
 
 DRAFT_PROMPT_TEMPLATE_ID = "draft_generation"
-DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v6_invoice_scoped"
-GUARDRAIL_PIPELINE_VERSION = "silver_application_v2_invoice_scoped"
+DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v7_canonical_hello"
+GUARDRAIL_PIPELINE_VERSION = "silver_application_v3_canonical_hello"
 
 
 class CreditReviewRequiredError(ValueError):

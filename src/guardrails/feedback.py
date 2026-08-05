@@ -82,7 +82,9 @@ def get_retry_prompt_addition(pipeline_result: GuardrailPipelineResult, **kwargs
                     )
             elif result.guardrail_name == "identity_scope":
                 additions.append(
-                    "- Use only the recipient, sender, reply-to, and contact emails provided in context."
+                    "- Start the body with a standalone first paragraph containing exactly `Hello`. "
+                    "Do not add punctuation, a recipient name, company name, mailbox, or email address "
+                    "to that greeting. Use only authorized sender/reply-to/contact emails elsewhere."
                 )
             elif result.guardrail_name == "lane_scope":
                 additions.append("- Only mention invoices and totals from the current lane cohort.")

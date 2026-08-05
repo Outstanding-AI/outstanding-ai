@@ -3,22 +3,29 @@
 from __future__ import annotations
 
 import re
+from html import unescape
 from typing import Any
 
 from .base import BaseGuardrail, GuardrailSeverity
 
-GENERIC_NAMES = {
-    "accounts",
-    "team",
-    "customer",
-    "sir",
-    "madam",
-    "all",
-}
 EMAIL_PATTERN = re.compile(r"\b[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}\b")
-GREETING_PATTERN = re.compile(r"\b(?:hey|hi|hello)\s+([A-Z][a-zA-Z'-]+)")
-GREETING_EMAIL_PATTERN = re.compile(r"\b(?:hey|hi|hello)\s+[^\s,<]+@[^\s,>]+", re.IGNORECASE)
 REPLY_TO_PATTERN = re.compile(r"reply\s+(?:to|at)\s+([\w.+-]+@[\w.-]+\.\w{2,})", re.IGNORECASE)
+HTML_COMMENT_PATTERN = re.compile(r"<!--.*?-->", re.DOTALL)
+HTML_LINE_BREAK_PATTERN = re.compile(r"</(?:p|div|li|h[1-6])\s*>|<br\s*/?>", re.IGNORECASE)
+HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
+
+
+def _first_nonempty_text_line(output: str) -> str:
+    """Return the first visible text line from plain-text or HTML email content."""
+    text = HTML_COMMENT_PATTERN.sub("", output)
+    text = HTML_LINE_BREAK_PATTERN.sub("\n", text)
+    text = HTML_TAG_PATTERN.sub("", text)
+    text = unescape(text).replace("\xa0", " ")
+    for line in text.splitlines():
+        normalized = " ".join(line.split())
+        if normalized:
+            return normalized
+    return ""
 
 
 class IdentityScopeGuardrail(BaseGuardrail):
@@ -28,22 +35,17 @@ class IdentityScopeGuardrail(BaseGuardrail):
         super().__init__(name="identity_scope", severity=GuardrailSeverity.HIGH)
 
     def validate(self, output: str, context: Any, **kwargs) -> list:
-        recipient_name = (kwargs.get("recipient_name") or "").strip()
-        recipient_first = recipient_name.split()[0].lower() if recipient_name else ""
         sender_first = ((kwargs.get("sender_name") or "").strip().split() or [""])[0].lower()
 
-        if GREETING_EMAIL_PATTERN.search(output):
-            return [self._fail("Email address used as a debtor salutation")]
-
-        greeting_match = GREETING_PATTERN.search(output)
-        if greeting_match:
-            mentioned = greeting_match.group(1).lower()
-            if recipient_first and mentioned != recipient_first and mentioned not in GENERIC_NAMES:
-                return [
-                    self._fail(
-                        f"Greeting {mentioned!r} does not match recipient {recipient_first!r}"
-                    )
-                ]
+        opening = _first_nonempty_text_line(output)
+        if opening != "Hello":
+            return [
+                self._fail(
+                    "Email must start with the exact standalone greeting 'Hello'",
+                    expected="Hello",
+                    found=opening or "(missing)",
+                )
+            ]
 
         signoff_fragment = output[-400:]
         signoff_matches = re.findall(

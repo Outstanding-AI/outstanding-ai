@@ -21,7 +21,7 @@ class SenderPersona(BaseModel):
     level: Optional[int] = Field(None, ge=1, le=4)
     is_generic_mailbox: bool = Field(
         False,
-        description="If True, this is a shared/generic mailbox — skip personal greeting, use company name",
+        description="If True, this is a shared/generic mailbox — use the canonical Hello greeting and team sign-off",
     )
 
 

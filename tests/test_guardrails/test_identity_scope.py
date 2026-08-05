@@ -35,7 +35,7 @@ def _context() -> CaseContext:
 def test_identity_scope_allows_authorized_emails():
     guardrail = IdentityScopeGuardrail()
     results = guardrail.validate(
-        "Hi Edward,\nPlease reply to collections@example.com.\nRegards, Sarah",
+        "<p>Hello</p><p>Please reply to collections@example.com.</p><p>Regards, Sarah</p>",
         _context(),
         recipient_name="Edward Smith",
         sender_name="Sarah Jones",
@@ -46,10 +46,26 @@ def test_identity_scope_allows_authorized_emails():
     assert all(result.passed for result in results)
 
 
+def test_identity_scope_rejects_recipient_details_in_greeting():
+    guardrail = IdentityScopeGuardrail()
+
+    results = guardrail.validate(
+        "<p>Hello Edward Smith,</p><p>Please confirm payment.</p>",
+        _context(),
+        recipient_name="Edward Smith",
+        sender_name="Sarah Jones",
+    )
+
+    assert any(not result.passed for result in results)
+    failed = next(result for result in results if not result.passed)
+    assert failed.expected == "Hello"
+    assert failed.found == "Hello Edward Smith,"
+
+
 def test_identity_scope_blocks_unknown_email():
     guardrail = IdentityScopeGuardrail()
     results = guardrail.validate(
-        "Hi Edward,\nPlease send confirmation to random@example.net.\nRegards, Sarah",
+        "Hello\nPlease send confirmation to random@example.net.\nRegards, Sarah",
         _context(),
         recipient_name="Edward Smith",
         sender_name="Sarah Jones",

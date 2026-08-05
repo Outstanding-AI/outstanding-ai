@@ -7,7 +7,7 @@ Concept → file navigation index.
 | Concept | File |
 |---------|------|
 | Email classification | `src/engine/classifier.py` |
-| Draft generation (orchestration) | `src/engine/generator.py` | `DraftGenerator.generate()` orchestrates `_assemble_prompt`, `_run_llm_with_guardrails`, `_build_response`; honors upstream collection-policy blocks before model work, blocks non-current/held obligations, and treats temporal thread evidence as continuity context only. Prompt contract `silver_application_v6_invoice_scoped` consumes the backend's authoritative candidate packet and abstains from model-authored prior-contact wording because exact sentences are rendered downstream. |
+| Draft generation (orchestration) | `src/engine/generator.py` | `DraftGenerator.generate()` orchestrates `_assemble_prompt`, `_run_llm_with_guardrails`, `_build_response`; honors upstream collection-policy blocks before model work, blocks non-current/held obligations, and treats temporal thread evidence as continuity context only. Prompt contract `silver_application_v7_canonical_hello` consumes the backend's authoritative candidate packet, requires the standalone `Hello` opener, and abstains from model-authored prior-contact wording because exact sentences are rendered downstream. |
 | Draft prompt section composer | `src/engine/generator_prompts.py` | preserves prompt-section ordering and composes request-level drafting guidance; no direct model or data-lake work |
 | Shared formatters | `src/engine/formatters.py` |
 | Persona management | `src/engine/persona.py` |

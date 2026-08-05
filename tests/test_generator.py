@@ -71,9 +71,18 @@ class TestDraftGenerator:
     def test_draft_prompt_prioritises_sales_ledger_mailbox_style(self):
         normalized_prompt = " ".join(GENERATE_DRAFT_SYSTEM.split())
 
-        assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v6_invoice_scoped"
+        assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v7_canonical_hello"
         assert "Sales-Ledger Mailbox Style (CRITICAL)" in GENERATE_DRAFT_SYSTEM
-        assert "greeting -> one concrete invoice/payment issue" in GENERATE_DRAFT_SYSTEM
+        assert "Hello -> one concrete invoice/payment issue" in GENERATE_DRAFT_SYSTEM
+        assert "first non-empty text line of every email body MUST be exactly: Hello" in (
+            GENERATE_DRAFT_SYSTEM
+        )
+        assert "Do not put a comma, recipient name, company name, email address" in (
+            GENERATE_DRAFT_SYSTEM
+        )
+        assert '"Hello Marcus' not in GENERATE_DRAFT_SYSTEM
+        assert '"Hi Marcus' not in GENERATE_DRAFT_SYSTEM
+        assert '"Hey Marcus' not in GENERATE_DRAFT_SYSTEM
         assert "Please confirm" in GENERATE_DRAFT_SYSTEM
         assert "Can you please advise" in GENERATE_DRAFT_SYSTEM
         assert "Kind Regards," in GENERATE_DRAFT_SYSTEM
@@ -195,7 +204,8 @@ class TestDraftGenerator:
 
         assert "- Company: Integra Technical Services Ltd" in prompt_ctx.user_prompt
         assert "- Contact Person: Bryana" in prompt_ctx.user_prompt
-        assert "Never address a reply draft to a default account contact" in GENERATE_DRAFT_SYSTEM
+        assert "Contact Person is routing and conversation context only" in GENERATE_DRAFT_SYSTEM
+        assert 'opening must still be exactly\n  "Hello"' in GENERATE_DRAFT_SYSTEM
 
     def test_reply_prompt_keeps_group_mailbox_display_name(
         self, generator, sample_generate_draft_request
@@ -296,7 +306,7 @@ class TestDraftGenerator:
         mock_response = _make_llm_response(
             {
                 "subject": "Overdue Invoices",
-                "body": "Dear Customer, Please see the overdue invoices below. {INVOICE_TABLE}",
+                "body": "Hello\n\nPlease see the overdue invoices below. {INVOICE_TABLE}",
                 "invoices_referenced": ["INV-12345", "INV-12346"],
             },
             tokens=150,
@@ -445,14 +455,14 @@ class TestDraftGenerator:
                 mock_complete.return_value = _make_llm_response(
                     {
                         "subject": f"{tone} subject",
-                        "body": f"Body with {tone} tone. {{INVOICE_TABLE}}",
+                        "body": f"Hello\n\nBody with {tone} tone. {{INVOICE_TABLE}}",
                     }
                 )
 
                 result = await generator.generate(sample_generate_draft_request)
 
                 assert result.tone_used == tone
-                assert result.body == f"Body with {tone} tone. {{INVOICE_TABLE}}"
+                assert result.body == f"Hello\n\nBody with {tone} tone. {{INVOICE_TABLE}}"
 
     @pytest.mark.asyncio
     async def test_generate_draft_no_invoices(self, generator, sample_generate_draft_request):
@@ -462,7 +472,7 @@ class TestDraftGenerator:
         mock_response = _make_llm_response(
             {
                 "subject": "Payment Reminder",
-                "body": "Dear Customer, Please contact us to discuss your account.",
+                "body": "Hello\n\nPlease contact us to discuss your account.",
                 "invoices_referenced": [],
             }
         )
@@ -544,7 +554,7 @@ class TestDraftGenerator:
         mock_response = _make_llm_response(
             {
                 "subject": "Invoice follow-up",
-                "body": "<p>Please see the invoice below.</p><p>{INVOICE_TABLE}</p>",
+                "body": "<p>Hello</p><p>Please see the invoice below.</p><p>{INVOICE_TABLE}</p>",
                 "invoices_referenced": [],
             }
         )
@@ -888,7 +898,7 @@ class TestDraftGenerator:
         mock_response = _make_llm_response(
             {
                 "subject": "Overdue invoices",
-                "body": "<p>Please see the invoice table below.</p><p>{INVOICE_TABLE}</p>",
+                "body": "<p>Hello</p><p>Please see the invoice table below.</p><p>{INVOICE_TABLE}</p>",
                 "invoices_referenced": ["INV-01"],
             }
         )
@@ -1010,7 +1020,7 @@ class TestGuardrailRetrySemantics:
         mock_response = _make_llm_response(
             {
                 "subject": "Follow-up",
-                "body": "<p>Please settle the overdue balance.</p><p>{INVOICE_TABLE}</p>",
+                "body": "<p>Hello</p><p>Please settle the overdue balance.</p><p>{INVOICE_TABLE}</p>",
                 "invoices_referenced": [],
             }
         )
@@ -1051,7 +1061,7 @@ class TestGuardrailRetrySemantics:
         mock_response = _make_llm_response(
             {
                 "subject": "Follow-up",
-                "body": "<p>Please settle the overdue balance.</p><p>{INVOICE_TABLE}</p>",
+                "body": "<p>Hello</p><p>Please settle the overdue balance.</p><p>{INVOICE_TABLE}</p>",
                 "invoices_referenced": [],
             }
         )

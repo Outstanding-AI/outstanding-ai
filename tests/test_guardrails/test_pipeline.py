@@ -55,7 +55,7 @@ class TestGuardrailPipeline:
 
         # Valid output with correct invoice and amounts
         output = """
-        Dear Acme Corp,
+        Hello
 
         Your invoice INV-12345 for £1,500.00 is now 30 days overdue.
         Your total outstanding is £4,000.00.
@@ -210,7 +210,7 @@ class TestGuardrailPipeline:
 
         # Uses "Acme" which is part of "Acme Corp"
         output = """
-        Dear Acme Team,
+        Hello
 
         Your invoice INV-12345 for £1,500.00 is overdue.
         """
