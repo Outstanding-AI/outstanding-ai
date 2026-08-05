@@ -120,6 +120,18 @@ class Settings(BaseSettings):
     anthropic_temperature: float = 0.3
     anthropic_classification_model: str = "claude-haiku-4-5-20251001"
 
+    # --- Per-caller model overrides (opt-in; None = inherit vertex_model/openai_model) ---
+    # A candidate stronger model (e.g. a Gemini 3.x release, once its
+    # project-level access check succeeds in europe-west2 — see the
+    # vertex_model comment above) is validated per-caller against a labeled
+    # eval dataset (see eval_collection_email_classifier.py in the backend)
+    # before it is ever set here. Setting these does NOT change vertex_model/
+    # openai_model for any other AI Engine caller.
+    collection_email_event_vertex_model: Optional[str] = None
+    collection_email_event_openai_model: Optional[str] = None
+    manual_outbound_email_vertex_model: Optional[str] = None
+    manual_outbound_email_openai_model: Optional[str] = None
+
     # --- Task-specific temperatures ---
     # Override provider defaults per use case for optimal output.
     draft_temperature: float = 0.7  # Creative draft generation

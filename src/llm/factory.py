@@ -36,7 +36,20 @@ class LLMProviderWithFallback:
     LLM provider with automatic fallback from Vertex → OpenAI.
     """
 
-    def __init__(self, primary_provider: str = None, fallback_provider: str = "openai"):
+    def __init__(
+        self,
+        primary_provider: str = None,
+        fallback_provider: str = "openai",
+        *,
+        model_override: dict[str, str] | None = None,
+    ):
+        """``model_override`` pins a specific model per provider name (``{"vertex": "...",
+        "openai": "..."}``) for this instance only. It never touches the process-wide
+        ``settings.vertex_model``/``settings.openai_model`` defaults every other caller
+        relies on — callers that want a stronger/different model for their own use case
+        (e.g. an eval harness scoring a candidate model) opt in explicitly instead of the
+        whole platform silently changing model.
+        """
         provider_aliases = {"gemini": "vertex"}
         configured_primary = primary_provider or settings.llm_provider
         self.primary_provider_name = provider_aliases.get(configured_primary, configured_primary)
@@ -44,6 +57,7 @@ class LLMProviderWithFallback:
         self.fallback_provider_name = (
             None if normalized_fallback == self.primary_provider_name else normalized_fallback
         )
+        self._model_override = dict(model_override or {})
 
         # Lazy initialization - providers created on first use
         self._primary = None
@@ -91,12 +105,12 @@ class LLMProviderWithFallback:
         """Create a provider instance by name."""
         if name == "vertex":
             return VertexProvider(
-                model=settings.vertex_model,
+                model=self._model_override.get("vertex") or settings.vertex_model,
                 temperature=settings.vertex_temperature,
             )
         if name == "openai":
             return OpenAIProvider(
-                model=settings.openai_model,
+                model=self._model_override.get("openai") or settings.openai_model,
                 temperature=settings.openai_temperature,
             )
         if name == "anthropic":

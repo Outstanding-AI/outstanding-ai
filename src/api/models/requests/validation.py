@@ -80,6 +80,11 @@ class CollectionEmailEventRequest(BaseModel):
     prior_messages: list[dict[str, Any]] = Field(default_factory=list, max_length=6)
     prior_evidence: list[dict[str, Any]] = Field(default_factory=list, max_length=2)
     chain_status: dict[str, Any] = Field(default_factory=dict)
+    # Eval-harness-only escape hatch: pins a candidate model for this one
+    # request, without touching the settings.collection_email_event_*_model
+    # defaults every production call uses. Never set by
+    # collection_email_ai_stages.py's production payload builder.
+    model_override: dict[str, str] | None = None
 
 
 class CollectionEmailFactExtractionRequest(BaseModel):

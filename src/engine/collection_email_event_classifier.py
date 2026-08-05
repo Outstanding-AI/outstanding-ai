@@ -132,17 +132,41 @@ def _invalid_response_telemetry(response) -> dict[str, object]:
 
 class CollectionEmailEventClassifier:
     def __init__(self) -> None:
+        # Per-caller default override (None/None until validated against the
+        # labeled eval dataset — see settings.collection_email_event_*_model).
+        default_override = {
+            key: value
+            for key, value in {
+                "vertex": settings.collection_email_event_vertex_model,
+                "openai": settings.collection_email_event_openai_model,
+            }.items()
+            if value
+        }
         self._client = LLMProviderWithFallback(
-            primary_provider="vertex", fallback_provider="openai"
+            primary_provider="vertex",
+            fallback_provider="openai",
+            model_override=default_override,
         )
 
     async def classify(self, request: CollectionEmailEventRequest) -> CollectionEmailEventResponse:
-        prompt_input = request.model_dump(mode="json", exclude_none=True)
+        client = self._client
+        if request.model_override:
+            # Eval-harness path only (see the field docstring on
+            # CollectionEmailEventRequest) — build a one-off client instead of
+            # mutating the shared instance's override.
+            client = LLMProviderWithFallback(
+                primary_provider="vertex",
+                fallback_provider="openai",
+                model_override=dict(request.model_override),
+            )
+        prompt_input = request.model_dump(
+            mode="json", exclude_none=True, exclude={"model_override"}
+        )
         user_prompt = _USER_PROMPT.format(
             mode=request.mode,
             payload=json.dumps(prompt_input, ensure_ascii=True, sort_keys=True, default=str),
         )
-        response = await self._client.complete(
+        response = await client.complete(
             system_prompt=_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=settings.classification_temperature,
@@ -203,7 +227,7 @@ class CollectionEmailEventClassifier:
             completion_tokens=response.usage.get("completion_tokens", 0),
             provider=response.provider,
             model=response.model,
-            is_fallback=response.provider != self._client.primary_provider_name,
+            is_fallback=response.provider != client.primary_provider_name,
             ai_audit=build_ai_audit(
                 response=response,
                 prompt_template_id=PROMPT_TEMPLATE_ID,
