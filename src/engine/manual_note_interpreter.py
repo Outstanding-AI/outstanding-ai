@@ -83,15 +83,6 @@ class _ManualNoteLLMResponse(BaseModel):
     reason_codes: list[str]
 
 
-class _ManualNoteReviewResponse(BaseModel):
-    """Narrow semantic verdict; the reviewer never regenerates extraction fields."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    verdict: Literal["accept", "reject"]
-    reason_codes: list[str]
-
-
 _SYSTEM_PROMPT = """You are a zero-shot semantic extractor for operator-authored accounts-receivable notes.
 Return strict JSON matching the supplied schema. Do not add prose or undocumented keys.
 
@@ -126,7 +117,9 @@ CONTROL ONTOLOGY
   evidence. A completed statement that payment was sent or received uses transition=received; use
   partially_received only when the note says only part was paid. expected is limited to a future
   remittance document or advice and must never represent a future promise to pay. A date, amount,
-  currency, or reference is optional unless explicitly present in the note.
+  currency, or reference is optional unless explicitly present in the note. A collector saying that
+  payment has not been made, is overdue, or is still awaited is not a remittance claim; abstain unless
+  the note actually reports a remittance, payment transfer, or remittance advice.
 - outreach activity alone has no operational invoice control.
 
 TRANSITION CONTRACT
@@ -157,17 +150,6 @@ GROUNDING
 - Commitments without an explicit amount set full_current_balance=true. Every non-commitment sets it false.
 - Never mark a remittance verified and never treat a manual note as accounting settlement.
 - When no safe assertion exists, return extraction_status=abstained with no assertions.
-"""
-
-_REVIEW_PROMPT = """Act as an independent semantic guardrail for a proposed manual-note extraction.
-Return only a strict accept/reject verdict matching the supplied schema; never regenerate extraction fields.
-Use the original note as the only factual source and enforce the operator purpose and selected invoice
-scope. Check control family, transition, negation, current state, invoice coverage, and semantic clause
-ownership of every date, amount, and reference. Reject an unsupported assertion or an incorrect abstention.
-The operator purpose is absolute: when purpose is chase, an abstained extraction with zero assertions is
-correct and must be accepted even if the prose mentions payment, a query, remittance, or a date. Chase
-content records collection activity; it cannot create an invoice control.
-Use short snake_case reason codes without quoting or reproducing note content. Do not add prose.
 """
 
 _TRANSITIONS_BY_TYPE = {
@@ -307,6 +289,17 @@ def _validated_assertions(
     allowed_refs = {
         _normalize_ref(row.invoice_number): row.invoice_number for row in request.invoice_facts
     }
+    obligation_id_by_ref = {
+        _normalize_ref(row.invoice_number): row.obligation_id for row in request.invoice_facts
+    }
+    remittance_claim_by_obligation = {
+        row.obligation_id: bool(
+            row.remittance_received_at
+            or row.remittance_amount is not None
+            or row.remittance_reference
+        )
+        for row in request.existing_controls
+    }
     purpose = str(request.purpose)
     allowed_types_by_purpose: dict[str, set[str] | None] = {
         "query": {"query"},
@@ -437,6 +430,18 @@ def _validated_assertions(
                 and not assertion.full_current_balance
             ):
                 raise ValueError("commitment_without_amount_requires_full_current_balance")
+        if (
+            assertion.assertion_type == "remittance"
+            and assertion.transition in {"not_received", "rejected", "cancelled"}
+            and not all(
+                remittance_claim_by_obligation.get(
+                    obligation_id_by_ref[_normalize_ref(invoice_ref)],
+                    False,
+                )
+                for invoice_ref in assertion.invoice_refs
+            )
+        ):
+            raise ValueError("remittance_clear_without_active_claim")
         duplicate_key = (
             assertion.assertion_type,
             assertion.transition,
@@ -553,37 +558,6 @@ class ManualNoteInterpreter:
         )
         return response, user_prompt
 
-    async def _review(
-        self,
-        *,
-        request_payload: dict[str, object],
-        proposed_extraction: dict[str, object],
-    ):
-        payload = {
-            "request": request_payload,
-            "proposed_extraction": proposed_extraction,
-        }
-        response, user_prompt = await self._complete(
-            system_prompt=_REVIEW_PROMPT,
-            payload=payload,
-            response_schema=_ManualNoteReviewResponse,
-        )
-        try:
-            raw = _parse_response_object(response.content)
-            review = _ManualNoteReviewResponse.model_validate(raw)
-            if not all(re.fullmatch(r"[a-z0-9_]+", value) for value in review.reason_codes):
-                raise ValueError("manual_note_review_reason_codes_invalid")
-        except (ValidationError, ValueError, TypeError) as exc:
-            raise LLMResponseInvalidError(
-                message="LLM returned invalid manual-note semantic review",
-                details={
-                    "operation": "manual_note_interpretation_review",
-                    "validation_code": _validation_code(exc),
-                    "telemetry": _invalid_response_telemetry(response),
-                },
-            ) from exc
-        return review, response, user_prompt, payload
-
     async def _generate_validated(
         self,
         *,
@@ -654,6 +628,12 @@ class ManualNoteInterpreter:
         self,
         request: ManualNoteInterpretationRequestV1,
     ) -> ManualNoteInterpretationResponseV1:
+        if str(request.purpose) == "chase":
+            return ManualNoteInterpretationResponseV1(
+                extraction_status="abstained",
+                assertions=[],
+                reason_codes=["authoritative_chase_no_control"],
+            )
         prompt_input = _prompt_input(request)
         (
             raw,
@@ -671,58 +651,7 @@ class ManualNoteInterpreter:
             source_request_payload=prompt_input,
             max_attempts=3,
         )
-        review_code = "semantic_guardrail_reviewed"
-        if str(request.purpose) == "chase" and status == "abstained" and not assertions:
-            review_code = "authoritative_chase_abstention"
-        else:
-            review, response, user_prompt, final_prompt_input = await self._review(
-                request_payload=prompt_input,
-                proposed_extraction=raw,
-            )
-            responses.append(response)
-        if review_code == "semantic_guardrail_reviewed" and review.verdict == "reject":
-            correction_payload = {
-                "request": prompt_input,
-                "proposed_extraction": raw,
-                "semantic_review_feedback": review.reason_codes,
-            }
-            (
-                raw,
-                status,
-                assertions,
-                reason_codes,
-                _,
-                _,
-                _,
-                correction_responses,
-            ) = await self._generate_validated(
-                request=request,
-                system_prompt=_SYSTEM_PROMPT,
-                initial_payload=correction_payload,
-                source_request_payload=prompt_input,
-                max_attempts=3,
-            )
-            responses.extend(correction_responses)
-            review, response, user_prompt, final_prompt_input = await self._review(
-                request_payload=prompt_input,
-                proposed_extraction=raw,
-            )
-            responses.append(response)
-            if review.verdict == "reject":
-                raise LLMResponseInvalidError(
-                    message="LLM semantic guardrail rejected manual-note interpretation",
-                    details={
-                        "operation": "manual_note_interpretation_review",
-                        "validation_code": "semantic_guardrail_rejected",
-                        "review_reason_codes": review.reason_codes,
-                        "telemetry": _invalid_response_telemetry(response),
-                    },
-                )
-            review_code = "semantic_guardrail_corrected"
-        final_system_prompt = (
-            _SYSTEM_PROMPT if review_code == "authoritative_chase_abstention" else _REVIEW_PROMPT
-        )
-        reason_codes = list(dict.fromkeys([*reason_codes, review_code]))
+        reason_codes = list(dict.fromkeys([*reason_codes, "structural_validation_passed"]))
 
         usage = {
             key: sum(int((item.usage or {}).get(key, 0) or 0) for item in responses)
@@ -742,7 +671,7 @@ class ManualNoteInterpreter:
                 response=response,
                 prompt_template_id=PROMPT_TEMPLATE_ID,
                 prompt_template_version=PROMPT_TEMPLATE_VERSION,
-                system_prompt=final_system_prompt,
+                system_prompt=_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 prompt_input=final_prompt_input,
                 guardrail_pipeline_version="manual-note-semantic-grounding.v1",

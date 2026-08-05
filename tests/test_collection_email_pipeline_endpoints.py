@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from solvix_contracts.ai import ManualNoteInterpretationRequestV1
 
+from src.api.errors import LLMResponseInvalidError
 from src.api.models.requests import (
     CollectionChainIdentificationRequest,
     CollectionEmailFactExtractionRequest,
@@ -186,125 +187,6 @@ def test_chain_normalizer_safely_canonicalizes_common_json_mode_variants():
     assert "invalid_event_effect_abstention" in unsafe["reason_codes"]
 
 
-def _manual_note_review_response(
-    verdict: str = "accept",
-    reason_codes: list[str] | None = None,
-) -> LLMResponse:
-    return LLMResponse(
-        content=json.dumps(
-            {
-                "verdict": verdict,
-                "reason_codes": reason_codes or [],
-            }
-        ),
-        provider="openai",
-        model="gpt-5.6-luna",
-        usage={"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
-    )
-
-
-@pytest.mark.asyncio
-async def test_manual_note_semantic_review_corrects_commitment_clause_date():
-    from src.engine.manual_note_interpreter import ManualNoteInterpreter
-
-    note = "2026-09-01 contact confirmed payment will be made on 2026-09-12."
-    interpreter = ManualNoteInterpreter()
-    proposed_response = LLMResponse(
-        content=json.dumps(
-            {
-                "extraction_status": "accepted",
-                "assertions": [
-                    {
-                        "assertion_id": "assertion-1",
-                        "assertion_type": "commitment",
-                        "transition": "made",
-                        "polarity": "affirmed",
-                        "temporal_orientation": "future",
-                        "invoice_refs": ["INV-1"],
-                        "amount": None,
-                        "currency": None,
-                        "asserted_date": "2026-09-01",
-                        "date_evidence_text": "2026-09-01",
-                        "reference": None,
-                        "full_current_balance": True,
-                        "evidence_text": note,
-                        "confidence": 0.8,
-                        "reason_codes": ["proposed_commitment"],
-                    }
-                ],
-                "reason_codes": [],
-            }
-        ),
-        provider="openai",
-        model="gpt-5.6-luna",
-        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-    )
-    reviewed_response = LLMResponse(
-        content=json.dumps(
-            {
-                "extraction_status": "accepted",
-                "assertions": [
-                    {
-                        "assertion_id": "assertion-1",
-                        "assertion_type": "commitment",
-                        "transition": "made",
-                        "polarity": "affirmed",
-                        "temporal_orientation": "future",
-                        "invoice_refs": ["INV-1"],
-                        "amount": None,
-                        "currency": None,
-                        "asserted_date": "2026-09-12",
-                        "date_evidence_text": "2026-09-12",
-                        "reference": None,
-                        "full_current_balance": True,
-                        "evidence_text": note,
-                        "confidence": 0.99,
-                        "reason_codes": ["explicit_commitment_date"],
-                    }
-                ],
-                "reason_codes": [],
-            }
-        ),
-        provider="vertex",
-        model="gemini-2.5-flash",
-        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-    )
-    interpreter._client.complete = AsyncMock(
-        side_effect=[
-            proposed_response,
-            _manual_note_review_response("reject", ["commitment_date_bound_to_activity_date"]),
-            reviewed_response,
-            _manual_note_review_response(),
-        ]
-    )
-    result = await interpreter.interpret(
-        ManualNoteInterpretationRequestV1(
-            touch_id="touch-1",
-            note=note,
-            occurred_at="2026-07-31T10:00:00Z",
-            tenant_timezone="Europe/London",
-            invoice_facts=[
-                {
-                    "obligation_id": "obligation-1",
-                    "invoice_number": "INV-1",
-                    "amount_due": 100,
-                    "currency": "GBP",
-                }
-            ],
-        )
-    )
-
-    assert result.extraction_status == "accepted"
-    assert result.assertions[0].asserted_date == "2026-09-12"
-    assert result.assertions[0].full_current_balance is True
-    assert interpreter._client.complete.await_args.kwargs["json_mode"] is True
-    assert (
-        interpreter._client.complete.await_args_list[0].kwargs["response_schema"].__name__
-        == "_ManualNoteLLMResponse"
-    )
-    assert interpreter._client.complete.await_args.kwargs["caller"] == "manual_note_interpretation"
-
-
 @pytest.mark.asyncio
 async def test_manual_note_interpreter_requires_llm_to_extract_single_invoice_remittance():
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
@@ -340,9 +222,7 @@ async def test_manual_note_interpreter_requires_llm_to_extract_single_invoice_re
         model="gemini-2.5-flash",
         usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
     )
-    interpreter._client.complete = AsyncMock(
-        side_effect=[extraction_response, _manual_note_review_response()]
-    )
+    interpreter._client.complete = AsyncMock(return_value=extraction_response)
 
     result = await interpreter.interpret(
         ManualNoteInterpretationRequestV1(
@@ -371,7 +251,7 @@ async def test_manual_note_interpreter_requires_llm_to_extract_single_invoice_re
     assert assertion.asserted_date is None
     assert assertion.reference is None
     assert "deterministic_explicit_claim_recovery" not in result.reason_codes
-    assert "semantic_guardrail_reviewed" in result.reason_codes
+    assert "structural_validation_passed" in result.reason_codes
 
 
 @pytest.mark.asyncio
@@ -409,9 +289,7 @@ async def test_manual_note_interpreter_retries_ungrounded_remittance_timestamp()
         model="gpt-5.6-luna",
         usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
     )
-    interpreter._client.complete = AsyncMock(
-        side_effect=[invalid_response, _manual_note_review_response()]
-    )
+    interpreter._client.complete = AsyncMock(return_value=invalid_response)
 
     result = await interpreter.interpret(
         ManualNoteInterpretationRequestV1(
@@ -433,29 +311,16 @@ async def test_manual_note_interpreter_retries_ungrounded_remittance_timestamp()
     assert result.extraction_status == "accepted"
     assert result.assertions[0].asserted_date is None
     assert "ungrounded_optional_date_removed" in result.assertions[0].reason_codes
-    assert "semantic_guardrail_reviewed" in result.reason_codes
-    assert interpreter._client.complete.await_count == 2
+    assert "structural_validation_passed" in result.reason_codes
+    assert interpreter._client.complete.await_count == 1
 
 
 @pytest.mark.asyncio
-async def test_manual_note_interpreter_accepts_authoritative_chase_abstention():
+async def test_manual_note_interpreter_short_circuits_authoritative_chase():
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
 
     interpreter = ManualNoteInterpreter()
-    interpreter._client.complete = AsyncMock(
-        return_value=LLMResponse(
-            content=json.dumps(
-                {
-                    "extraction_status": "abstained",
-                    "assertions": [],
-                    "reason_codes": ["operator_purpose_chase"],
-                }
-            ),
-            provider="openai",
-            model="gpt-5.6-luna",
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        )
-    )
+    interpreter._client.complete = AsyncMock()
 
     result = await interpreter.interpret(
         ManualNoteInterpretationRequestV1(
@@ -477,8 +342,8 @@ async def test_manual_note_interpreter_accepts_authoritative_chase_abstention():
 
     assert result.extraction_status == "abstained"
     assert result.assertions == []
-    assert "authoritative_chase_abstention" in result.reason_codes
-    assert interpreter._client.complete.await_count == 1
+    assert "authoritative_chase_no_control" in result.reason_codes
+    assert interpreter._client.complete.await_count == 0
 
 
 @pytest.mark.asyncio
@@ -517,9 +382,7 @@ async def test_manual_note_interpreter_removes_inferred_relative_query_date():
         usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
     )
     interpreter = ManualNoteInterpreter()
-    interpreter._client.complete = AsyncMock(
-        side_effect=[invalid_response, _manual_note_review_response()]
-    )
+    interpreter._client.complete = AsyncMock(return_value=invalid_response)
 
     result = await interpreter.interpret(
         ManualNoteInterpretationRequestV1(
@@ -542,7 +405,7 @@ async def test_manual_note_interpreter_removes_inferred_relative_query_date():
     assert result.extraction_status == "accepted"
     assert result.assertions[0].asserted_date is None
     assert "ungrounded_optional_date_removed" in result.assertions[0].reason_codes
-    assert interpreter._client.complete.await_count == 2
+    assert interpreter._client.complete.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -608,9 +471,7 @@ async def test_manual_note_interpreter_corrects_commitment_only_flag_from_remitt
         model="gpt-5.6-luna",
         usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
     )
-    interpreter._client.complete = AsyncMock(
-        side_effect=[invalid_response, corrected_response, _manual_note_review_response()]
-    )
+    interpreter._client.complete = AsyncMock(side_effect=[invalid_response, corrected_response])
 
     result = await interpreter.interpret(
         ManualNoteInterpretationRequestV1(
@@ -636,7 +497,7 @@ async def test_manual_note_interpreter_corrects_commitment_only_flag_from_remitt
 
 
 @pytest.mark.asyncio
-async def test_manual_note_interpreter_semantic_review_can_abstain():
+async def test_manual_note_interpreter_rejects_remittance_clear_without_active_claim():
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
 
     note = "NEW STATEMENTS TO BE SENT WITH FIRM EMAIL. CUSTOMER DID NOT MAKE PAYMENT"
@@ -670,52 +531,31 @@ async def test_manual_note_interpreter_semantic_review_can_abstain():
         model="gemini-2.5-flash",
         usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
     )
-    abstained_response = LLMResponse(
-        content=json.dumps(
-            {
-                "extraction_status": "abstained",
-                "assertions": [],
-                "reason_codes": ["no_safe_operational_assertion"],
-            }
-        ),
-        provider="openai",
-        model="gpt-5.6-luna",
-        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-    )
-    interpreter._client.complete = AsyncMock(
-        side_effect=[
-            proposed_response,
-            _manual_note_review_response("reject", ["routine_outreach_not_remittance"]),
-            abstained_response,
-            _manual_note_review_response(),
-        ]
-    )
+    interpreter._client.complete = AsyncMock(return_value=proposed_response)
 
-    result = await interpreter.interpret(
-        ManualNoteInterpretationRequestV1(
-            touch_id="touch-no-payment",
-            note=note,
-            occurred_at="2026-07-31T10:00:00Z",
-            tenant_timezone="Europe/London",
-            invoice_facts=[
-                {
-                    "obligation_id": "obligation-1",
-                    "invoice_number": "INV-1",
-                    "amount_due": 100,
-                    "currency": "GBP",
-                }
-            ],
+    with pytest.raises(LLMResponseInvalidError) as exc_info:
+        await interpreter.interpret(
+            ManualNoteInterpretationRequestV1(
+                touch_id="touch-no-payment",
+                note=note,
+                occurred_at="2026-07-31T10:00:00Z",
+                tenant_timezone="Europe/London",
+                invoice_facts=[
+                    {
+                        "obligation_id": "obligation-1",
+                        "invoice_number": "INV-1",
+                        "amount_due": 100,
+                        "currency": "GBP",
+                    }
+                ],
+            )
         )
-    )
 
-    assert result.extraction_status == "abstained"
-    assert result.assertions == []
-    assert "semantic_guardrail_corrected" in result.reason_codes
+    assert exc_info.value.details["validation_code"] == "remittance_clear_without_active_claim"
 
 
 @pytest.mark.asyncio
 async def test_manual_note_interpreter_rejects_cross_invoice_and_ambiguous_amount_output():
-    from src.api.errors import LLMResponseInvalidError
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
 
     interpreter = ManualNoteInterpreter()
