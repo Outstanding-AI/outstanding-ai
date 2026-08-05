@@ -186,43 +186,96 @@ def test_chain_normalizer_safely_canonicalizes_common_json_mode_variants():
     assert "invalid_event_effect_abstention" in unsafe["reason_codes"]
 
 
+def _manual_note_review_response(
+    verdict: str = "accept",
+    reason_codes: list[str] | None = None,
+) -> LLMResponse:
+    return LLMResponse(
+        content=json.dumps(
+            {
+                "verdict": verdict,
+                "reason_codes": reason_codes or [],
+            }
+        ),
+        provider="openai",
+        model="gpt-5.6-luna",
+        usage={"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+    )
+
+
 @pytest.mark.asyncio
-async def test_manual_note_interpreter_is_source_grounded_and_defaults_commitment_balance():
+async def test_manual_note_semantic_review_corrects_commitment_clause_date():
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
 
-    note = "Invoice INV-1 will be paid on 2026-08-03."
+    note = "2026-09-01 contact confirmed payment will be made on 2026-09-12."
     interpreter = ManualNoteInterpreter()
+    proposed_response = LLMResponse(
+        content=json.dumps(
+            {
+                "extraction_status": "accepted",
+                "assertions": [
+                    {
+                        "assertion_id": "assertion-1",
+                        "assertion_type": "commitment",
+                        "transition": "made",
+                        "polarity": "affirmed",
+                        "temporal_orientation": "future",
+                        "invoice_refs": ["INV-1"],
+                        "amount": None,
+                        "currency": None,
+                        "asserted_date": "2026-09-01",
+                        "date_evidence_text": "2026-09-01",
+                        "reference": None,
+                        "full_current_balance": True,
+                        "evidence_text": note,
+                        "confidence": 0.8,
+                        "reason_codes": ["proposed_commitment"],
+                    }
+                ],
+                "reason_codes": [],
+            }
+        ),
+        provider="openai",
+        model="gpt-5.6-luna",
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
+    reviewed_response = LLMResponse(
+        content=json.dumps(
+            {
+                "extraction_status": "accepted",
+                "assertions": [
+                    {
+                        "assertion_id": "assertion-1",
+                        "assertion_type": "commitment",
+                        "transition": "made",
+                        "polarity": "affirmed",
+                        "temporal_orientation": "future",
+                        "invoice_refs": ["INV-1"],
+                        "amount": None,
+                        "currency": None,
+                        "asserted_date": "2026-09-12",
+                        "date_evidence_text": "2026-09-12",
+                        "reference": None,
+                        "full_current_balance": True,
+                        "evidence_text": note,
+                        "confidence": 0.99,
+                        "reason_codes": ["explicit_commitment_date"],
+                    }
+                ],
+                "reason_codes": [],
+            }
+        ),
+        provider="vertex",
+        model="gemini-2.5-flash",
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
     interpreter._client.complete = AsyncMock(
-        return_value=LLMResponse(
-            content=json.dumps(
-                {
-                    "extraction_status": "accepted",
-                    "assertions": [
-                        {
-                            "assertion_id": "assertion-1",
-                            "assertion_type": "commitment",
-                            "transition": "made",
-                            "polarity": "affirmed",
-                            "temporal_orientation": "future",
-                            "invoice_refs": ["INV-1"],
-                            "amount": None,
-                            "currency": None,
-                            "asserted_date": "2026-08-03",
-                            "reference": None,
-                            "full_current_balance": False,
-                            "evidence_start": 0,
-                            "evidence_end": len(note),
-                            "confidence": 0.99,
-                            "reason_codes": ["explicit_commitment_date"],
-                        }
-                    ],
-                    "reason_codes": [],
-                }
-            ),
-            provider="vertex",
-            model="gemini-2.5-flash",
-            usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-        )
+        side_effect=[
+            proposed_response,
+            _manual_note_review_response("reject", ["commitment_date_bound_to_activity_date"]),
+            reviewed_response,
+            _manual_note_review_response(),
+        ]
     )
     result = await interpreter.interpret(
         ManualNoteInterpretationRequestV1(
@@ -242,34 +295,53 @@ async def test_manual_note_interpreter_is_source_grounded_and_defaults_commitmen
     )
 
     assert result.extraction_status == "accepted"
+    assert result.assertions[0].asserted_date == "2026-09-12"
     assert result.assertions[0].full_current_balance is True
     assert interpreter._client.complete.await_args.kwargs["json_mode"] is True
     assert (
-        interpreter._client.complete.await_args.kwargs["response_schema"].__name__
+        interpreter._client.complete.await_args_list[0].kwargs["response_schema"].__name__
         == "_ManualNoteLLMResponse"
     )
     assert interpreter._client.complete.await_args.kwargs["caller"] == "manual_note_interpretation"
 
 
 @pytest.mark.asyncio
-async def test_manual_note_interpreter_recovers_explicit_single_invoice_remittance():
+async def test_manual_note_interpreter_requires_llm_to_extract_single_invoice_remittance():
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
 
     note = "REMIT RECEIVED"
     interpreter = ManualNoteInterpreter()
+    extraction_response = LLMResponse(
+        content=json.dumps(
+            {
+                "extraction_status": "accepted",
+                "assertions": [
+                    {
+                        "assertion_id": "assertion-remittance",
+                        "assertion_type": "remittance",
+                        "transition": "received",
+                        "polarity": "affirmed",
+                        "temporal_orientation": "current",
+                        "invoice_refs": ["INV-1"],
+                        "amount": None,
+                        "currency": None,
+                        "asserted_date": None,
+                        "reference": None,
+                        "full_current_balance": False,
+                        "evidence_text": note,
+                        "confidence": 0.99,
+                        "reason_codes": ["source_supported_remittance"],
+                    }
+                ],
+                "reason_codes": [],
+            }
+        ),
+        provider="vertex",
+        model="gemini-2.5-flash",
+        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    )
     interpreter._client.complete = AsyncMock(
-        return_value=LLMResponse(
-            content=json.dumps(
-                {
-                    "extraction_status": "abstained",
-                    "assertions": [],
-                    "reason_codes": ["no_safe_operational_assertion"],
-                }
-            ),
-            provider="vertex",
-            model="gemini-2.5-flash",
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        )
+        side_effect=[extraction_response, _manual_note_review_response()]
     )
 
     result = await interpreter.interpret(
@@ -298,46 +370,76 @@ async def test_manual_note_interpreter_recovers_explicit_single_invoice_remittan
     assert assertion.amount is None
     assert assertion.asserted_date is None
     assert assertion.reference is None
-    assert "deterministic_explicit_claim_recovery" in result.reason_codes
+    assert "deterministic_explicit_claim_recovery" not in result.reason_codes
+    assert "semantic_guardrail_reviewed" in result.reason_codes
 
 
 @pytest.mark.asyncio
-async def test_manual_note_interpreter_drops_ungrounded_remittance_timestamp():
+async def test_manual_note_interpreter_retries_ungrounded_remittance_timestamp():
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
 
     note = "REMIT RECEIVED"
     interpreter = ManualNoteInterpreter()
+    invalid_response = LLMResponse(
+        content=json.dumps(
+            {
+                "extraction_status": "accepted",
+                "assertions": [
+                    {
+                        "assertion_id": "remit-1",
+                        "assertion_type": "remittance",
+                        "transition": "received",
+                        "polarity": "affirmed",
+                        "temporal_orientation": "current",
+                        "invoice_refs": ["INV-1"],
+                        "amount": None,
+                        "currency": None,
+                        "asserted_date": "2026-07-30T12:38:00Z",
+                        "reference": None,
+                        "full_current_balance": False,
+                        "evidence_text": note,
+                        "confidence": 0.99,
+                        "reason_codes": [],
+                    }
+                ],
+                "reason_codes": [],
+            }
+        ),
+        provider="openai",
+        model="gpt-5.6-luna",
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
+    corrected_response = LLMResponse(
+        content=json.dumps(
+            {
+                "extraction_status": "accepted",
+                "assertions": [
+                    {
+                        "assertion_id": "remit-1",
+                        "assertion_type": "remittance",
+                        "transition": "received",
+                        "polarity": "affirmed",
+                        "temporal_orientation": "current",
+                        "invoice_refs": ["INV-1"],
+                        "amount": None,
+                        "currency": None,
+                        "asserted_date": None,
+                        "reference": None,
+                        "full_current_balance": False,
+                        "evidence_text": note,
+                        "confidence": 0.99,
+                        "reason_codes": ["metadata_date_removed"],
+                    }
+                ],
+                "reason_codes": [],
+            }
+        ),
+        provider="openai",
+        model="gpt-5.6-luna",
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
     interpreter._client.complete = AsyncMock(
-        return_value=LLMResponse(
-            content=json.dumps(
-                {
-                    "extraction_status": "accepted",
-                    "assertions": [
-                        {
-                            "assertion_id": "remit-1",
-                            "assertion_type": "remittance",
-                            "transition": "received",
-                            "polarity": "affirmed",
-                            "temporal_orientation": "current",
-                            "invoice_refs": ["INV-1"],
-                            "amount": None,
-                            "currency": None,
-                            "asserted_date": "2026-07-30T12:38:00Z",
-                            "reference": None,
-                            "full_current_balance": False,
-                            "evidence_start": 0,
-                            "evidence_end": len(note),
-                            "confidence": 0.99,
-                            "reason_codes": [],
-                        }
-                    ],
-                    "reason_codes": [],
-                }
-            ),
-            provider="openai",
-            model="gpt-5.6-luna",
-            usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-        )
+        side_effect=[invalid_response, corrected_response, _manual_note_review_response()]
     )
 
     result = await interpreter.interpret(
@@ -359,46 +461,75 @@ async def test_manual_note_interpreter_drops_ungrounded_remittance_timestamp():
 
     assert result.extraction_status == "accepted"
     assert result.assertions[0].asserted_date is None
-    assert "ungrounded_remittance_date_dropped" in result.reason_codes
+    assert "semantic_guardrail_reviewed" in result.reason_codes
+    assert interpreter._client.complete.await_count == 3
 
 
 @pytest.mark.asyncio
-async def test_manual_note_interpreter_discards_commitment_only_flag_from_remittance():
+async def test_manual_note_interpreter_corrects_commitment_only_flag_from_remittance():
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
 
     note = "Remittance received."
     interpreter = ManualNoteInterpreter()
+    invalid_response = LLMResponse(
+        content=json.dumps(
+            {
+                "extraction_status": "accepted",
+                "assertions": [
+                    {
+                        "assertion_id": "assertion-remittance",
+                        "assertion_type": "remittance",
+                        "transition": "received",
+                        "polarity": "affirmed",
+                        "temporal_orientation": "past",
+                        "invoice_refs": ["INV-1"],
+                        "amount": None,
+                        "currency": None,
+                        "asserted_date": None,
+                        "reference": None,
+                        "full_current_balance": True,
+                        "evidence_text": note,
+                        "confidence": 0.9,
+                        "reason_codes": [],
+                    }
+                ],
+                "reason_codes": [],
+            }
+        ),
+        provider="vertex",
+        model="gemini-2.5-flash",
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
+    corrected_payload = {
+        "extraction_status": "accepted",
+        "assertions": [
+            {
+                "assertion_id": "assertion-remittance",
+                "assertion_type": "remittance",
+                "transition": "received",
+                "polarity": "affirmed",
+                "temporal_orientation": "past",
+                "invoice_refs": ["INV-1"],
+                "amount": None,
+                "currency": None,
+                "asserted_date": None,
+                "reference": None,
+                "full_current_balance": False,
+                "evidence_text": note,
+                "confidence": 0.9,
+                "reason_codes": ["source_supported_remittance"],
+            }
+        ],
+        "reason_codes": [],
+    }
+    corrected_response = LLMResponse(
+        content=json.dumps(corrected_payload),
+        provider="openai",
+        model="gpt-5.6-luna",
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
     interpreter._client.complete = AsyncMock(
-        return_value=LLMResponse(
-            content=json.dumps(
-                {
-                    "extraction_status": "accepted",
-                    "assertions": [
-                        {
-                            "assertion_id": "assertion-remittance",
-                            "assertion_type": "remittance",
-                            "transition": "received",
-                            "polarity": "affirmed",
-                            "temporal_orientation": "past",
-                            "invoice_refs": ["INV-1"],
-                            "amount": None,
-                            "currency": None,
-                            "asserted_date": None,
-                            "reference": None,
-                            "full_current_balance": True,
-                            "evidence_start": 0,
-                            "evidence_end": len(note),
-                            "confidence": 0.9,
-                            "reason_codes": [],
-                        }
-                    ],
-                    "reason_codes": [],
-                }
-            ),
-            provider="vertex",
-            model="gemini-2.5-flash",
-            usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-        )
+        side_effect=[invalid_response, corrected_response, _manual_note_review_response()]
     )
 
     result = await interpreter.interpret(
@@ -425,42 +556,59 @@ async def test_manual_note_interpreter_discards_commitment_only_flag_from_remitt
 
 
 @pytest.mark.asyncio
-async def test_manual_note_interpreter_drops_unscoped_negative_remittance():
+async def test_manual_note_interpreter_semantic_review_can_abstain():
     from src.engine.manual_note_interpreter import ManualNoteInterpreter
 
     note = "NEW STATEMENTS TO BE SENT WITH FIRM EMAIL. CUSTOMER DID NOT MAKE PAYMENT"
     interpreter = ManualNoteInterpreter()
+    proposed_response = LLMResponse(
+        content=json.dumps(
+            {
+                "extraction_status": "accepted",
+                "assertions": [
+                    {
+                        "assertion_id": "assertion-remittance",
+                        "assertion_type": "remittance",
+                        "transition": "not_received",
+                        "polarity": "affirmed",
+                        "temporal_orientation": "past",
+                        "invoice_refs": ["INV-1"],
+                        "amount": None,
+                        "currency": None,
+                        "asserted_date": None,
+                        "reference": None,
+                        "full_current_balance": False,
+                        "evidence_text": note[45:],
+                        "confidence": 1.0,
+                        "reason_codes": [],
+                    }
+                ],
+                "reason_codes": [],
+            }
+        ),
+        provider="vertex",
+        model="gemini-2.5-flash",
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
+    abstained_response = LLMResponse(
+        content=json.dumps(
+            {
+                "extraction_status": "abstained",
+                "assertions": [],
+                "reason_codes": ["no_safe_operational_assertion"],
+            }
+        ),
+        provider="openai",
+        model="gpt-5.6-luna",
+        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    )
     interpreter._client.complete = AsyncMock(
-        return_value=LLMResponse(
-            content=json.dumps(
-                {
-                    "extraction_status": "accepted",
-                    "assertions": [
-                        {
-                            "assertion_id": "assertion-remittance",
-                            "assertion_type": "remittance",
-                            "transition": "not_received",
-                            "polarity": "affirmed",
-                            "temporal_orientation": "past",
-                            "invoice_refs": ["INV-1"],
-                            "amount": None,
-                            "currency": None,
-                            "asserted_date": None,
-                            "reference": None,
-                            "full_current_balance": True,
-                            "evidence_start": 45,
-                            "evidence_end": len(note),
-                            "confidence": 1.0,
-                            "reason_codes": [],
-                        }
-                    ],
-                    "reason_codes": [],
-                }
-            ),
-            provider="vertex",
-            model="gemini-2.5-flash",
-            usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-        )
+        side_effect=[
+            proposed_response,
+            _manual_note_review_response("reject", ["routine_outreach_not_remittance"]),
+            abstained_response,
+            _manual_note_review_response(),
+        ]
     )
 
     result = await interpreter.interpret(
@@ -482,7 +630,7 @@ async def test_manual_note_interpreter_drops_unscoped_negative_remittance():
 
     assert result.extraction_status == "abstained"
     assert result.assertions == []
-    assert "unscoped_negative_remittance_dropped" in result.reason_codes
+    assert "semantic_guardrail_corrected" in result.reason_codes
 
 
 @pytest.mark.asyncio
@@ -509,8 +657,7 @@ async def test_manual_note_interpreter_rejects_cross_invoice_and_ambiguous_amoun
                             "asserted_date": None,
                             "reference": None,
                             "full_current_balance": False,
-                            "evidence_start": 0,
-                            "evidence_end": 4,
+                            "evidence_text": "paid",
                             "confidence": 0.99,
                             "reason_codes": [],
                         }

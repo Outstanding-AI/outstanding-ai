@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -16,14 +16,13 @@ from solvix_contracts.ai import (
 )
 
 from src.api.errors import LLMResponseInvalidError
-from src.config.settings import settings
 from src.llm.factory import LLMProviderWithFallback
 
 from .audit import build_ai_audit
 from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "manual_note_interpretation"
-PROMPT_TEMPLATE_VERSION = "v3"
+PROMPT_TEMPLATE_VERSION = "v4"
 TAXONOMY_VERSION = "manual_note_controls.v1"
 
 
@@ -64,10 +63,12 @@ class _ManualNoteLLMAssertion(BaseModel):
     amount: float | None = None
     currency: str | None = None
     asserted_date: str | None = None
+    date_evidence_text: str | None = None
     reference: str | None = None
+    reference_evidence_text: str | None = None
+    amount_evidence_text: str | None = None
     full_current_balance: bool = False
-    evidence_start: int
-    evidence_end: int
+    evidence_text: str
     confidence: float
     reason_codes: list[str]
 
@@ -82,65 +83,85 @@ class _ManualNoteLLMResponse(BaseModel):
     reason_codes: list[str]
 
 
-_SYSTEM_PROMPT = """Extract source-grounded invoice control assertions from one operator manual note.
-Return strict JSON with exactly: extraction_status, assertions, reason_codes.
-The note is evidence of what the operator reported; it is never proof of accounting settlement.
-Allowed assertion_type values: query, commitment, remittance, other.
-invoice_facts is the exact invoice scope already linked or uniquely resolved for this note. Use only
-invoice numbers present in invoice_facts; never choose an invoice from debtor identity alone. When
-invoice_facts contains exactly one invoice, a clear control statement applies to that invoice even
-when the note does not repeat its invoice number.
-For every assertion return: assertion_id, assertion_type, transition, polarity, temporal_orientation,
-invoice_refs, amount, currency, asserted_date, reference, full_current_balance, evidence_start,
-evidence_end, confidence, reason_codes. evidence_start/end are zero-based offsets into the exact note
-and must cover non-empty supporting text.
+class _ManualNoteReviewResponse(BaseModel):
+    """Narrow semantic verdict; the reviewer never regenerates extraction fields."""
 
-Extract invoice controls, not collection activity. Sending a statement, sending an invoice, emailing,
-chasing, requesting status, awaiting a reply to a chase, planning to send a reminder, and recording
-that an invoice is just due are ordinary outreach. They are not queries, commitments, or remittances.
-The purpose field is context only; the note text must support the assertion.
+    model_config = ConfigDict(extra="forbid")
 
-A query is a substantive invoice blocker or dispute that should pause chasing, such as a missing POD
-or invoice, a portal/upload problem, deductions or contra work, undelivered goods, an incorrect charge,
-or an explicitly disputed invoice. A collector asking the debtor for invoice/payment status is not a
-query. "Chased for update", "emailed for invoice status", "sent statement and requested status", and
-"will email for status" must not create a query.
+    verdict: Literal["accept", "reject"]
+    reason_codes: list[str]
 
-A commitment is a debtor/counterparty commitment to pay on one exact calendar date. The date at the
-start of an operator note, an invoice due date, a chase date, or a reminder date is not a commitment
-date. Predictions and hedges such as "hope to pay mid August", "likely be paid", "should be paid",
-"should be included on the next payment", and "can then be paid" are not commitments. A statement
-that the operator will send a reminder is never a commitment. "Kevin confirmed payment is expected
-14/08/2026" is a commitment dated 2026-08-14; a following clause saying the operator emailed for
-status is only outreach and must not add a query.
 
-A remittance is a claim that payment has actually been sent or received. "Payment expected", "should
-be paid", and "next payment" are not remittances. "Part paid" may be partially_received, while the
-remaining undelivered or disputed balance may separately support a query.
+_SYSTEM_PROMPT = """You are a zero-shot semantic extractor for operator-authored accounts-receivable notes.
+Return strict JSON matching the supplied schema. Do not add prose or undocumented keys.
 
-Manual notes can contain several dated history clauses. Attach a date only to the assertion expressed
-by the same clause. Do not turn a date into a control merely because it appears in the note. Prefer the
-current operational state; do not emit a historical resolved assertion when the same note says current
-confirmation, contra work, documents, or another blocker remains outstanding.
+SOURCE AUTHORITY
+- The note is the only source for control type, transition, date, amount, currency, and reference.
+- occurred_at, invoice due dates, balances, existing controls, and accounting watermarks are context;
+  they are not evidence for a newly asserted fact.
+- Never invent, calculate, copy from metadata, or complete a missing control fact.
 
-Commitments require an explicit exact date. If a dated commitment has no amount, set
-full_current_balance=true. For every non-commitment assertion, full_current_balance must be false.
-Never divide one total among several invoices. If one explicit total is ambiguous across multiple
-invoices, abstain. Remittance received is only an operator claim; do not mark it verified. Query
-raised/active can be asserted without an accounting-system flag. Treat negation, uncertainty,
-cancellation, and resolution explicitly. Do not invent dates, amounts, currencies, references, or
-invoice numbers. When nothing safe is asserted, return
-{"extraction_status":"abstained","assertions":[],"reason_codes":["no_safe_operational_assertion"]}.
-Example: for the exact note "REMIT RECEIVED" with one invoice_fact, return one remittance assertion
-with transition="received", polarity="affirmed", temporal_orientation="current", that invoice number
-in invoice_refs, no amount/date/reference, and the full note as evidence. This remains an unverified
-operator claim and must never use transition="verified".
-Example: "INVOICE HAS NOT BEEN SENT PENDING POD. CHASED" is one active query for the linked invoice.
-Example: "CANT SEE ON PORTAL WILL CHECK AND UPLOAD IF MISSED" is one active query.
-Example: "SENT OVERDUE STATEMENT REMINDER" has no operational assertion and must abstain.
-Example: "SENT STATEMENT AND REQ STATUS" has no operational assertion and must abstain.
-Example: "JUST DUE SHOULD BE PAID END OF WEEK" has no operational assertion and must abstain.
-Do not add prose or any other key."""
+OPERATOR PURPOSE
+- query, commitment, and remittance are authoritative control-family selections. Emit assertions only
+  from the selected family. The note determines the transition and extracted fields.
+- chase is collection activity and must produce no query, commitment, or remittance assertion.
+- general and internal_note do not constrain the family; extract any control directly supported by the note.
+- If the purpose and prose conflict, or the required facts are absent, abstain rather than changing family.
+
+INVOICE SCOPE
+- invoice_facts is the complete maximum scope selected by the operator. Never add another invoice.
+- For an actionable purpose, apply the supported control to all selected invoices even when invoice
+  numbers are not repeated in the prose. Do not infer an amount allocation across multiple invoices.
+- For general or internal_note, include only selected invoices to which the prose actually applies.
+
+CONTROL ONTOLOGY
+- query: a substantive invoice dispute, documentation/fulfilment blocker, incorrect charge, portal
+  blocker, deduction, or other condition that pauses normal chasing. Routine outreach or a request by
+  the collector for status is not a query.
+- commitment: a debtor or counterparty commitment to pay on an explicit exact calendar date. Hopes,
+  forecasts, conditional possibilities, invoice due dates, note timestamps, chase dates, and reminder
+  dates are not commitment dates. An active/made/revised commitment without an exact payment date must
+  abstain or be marked invalid.
+- remittance: a claim that payment has actually been sent or received. It remains unverified accounting
+  evidence. A completed statement that payment was sent or received uses transition=received; use
+  partially_received only when the note says only part was paid. expected is limited to a future
+  remittance document or advice and must never represent a future promise to pay. A date, amount,
+  currency, or reference is optional unless explicitly present in the note.
+- outreach activity alone has no operational invoice control.
+
+TRANSITION CONTRACT
+- query: raised, active, awaiting_response, updated, resolved, reopened, cancelled, or unclear.
+- commitment: made, revised, active, kept, partially_kept, broken, cancelled, superseded, or unclear.
+- remittance: received, expected, partially_received, not_received, unmatched, rejected, cancelled, or
+  unclear. The verified transition is reserved for accounting and is forbidden for manual notes.
+- other: no_operational_effect or unclear.
+
+TEMPORAL AND CURRENT-STATE REASONING
+- A note may contain multiple dated clauses. Bind each date only to the fact expressed in the same
+  semantic clause; never choose a date merely because it appears earlier or later in the note.
+- Prefer the final current state expressed by the note. Do not emit redundant historical and current
+  assertions for the same control unless they describe distinct, simultaneously operative facts.
+- Preserve negation, cancellation, uncertainty, resolution, and supersession.
+
+GROUNDING
+- evidence_text must be the smallest exact verbatim substring of the note supporting the assertion.
+- For every non-null asserted_date, amount, or reference, return the corresponding field-specific
+  evidence_text as an exact verbatim substring inside the assertion evidence. Use null field evidence
+  when the field is null. Extend a quote only when needed to make its occurrence unique in the note.
+- Normalize every non-null asserted_date as an ISO calendar date in YYYY-MM-DD form. Preserve the
+  source's original date formatting only in date_evidence_text.
+- Commitments without an explicit amount set full_current_balance=true. Every non-commitment sets it false.
+- Never mark a remittance verified and never treat a manual note as accounting settlement.
+- When no safe assertion exists, return extraction_status=abstained with no assertions.
+"""
+
+_REVIEW_PROMPT = """Act as an independent semantic guardrail for a proposed manual-note extraction.
+Return only a strict accept/reject verdict matching the supplied schema; never regenerate extraction fields.
+Use the original note as the only factual source and enforce the operator purpose and selected invoice
+scope. Check control family, transition, negation, current state, invoice coverage, and semantic clause
+ownership of every date, amount, and reference. Reject an unsupported assertion or an incorrect abstention.
+Use short snake_case reason codes without quoting or reproducing note content. Do not add prose.
+"""
 
 _TRANSITIONS_BY_TYPE = {
     "query": {
@@ -178,24 +199,9 @@ _TRANSITIONS_BY_TYPE = {
     "other": {"no_operational_effect", "unclear"},
 }
 
-_EXPLICIT_SINGLE_INVOICE_REMITTANCE_RECEIVED = re.compile(
-    r"^\s*(?:remit|remittance)(?:\s+(?:has\s+been|was))?\s+received\s*[.!]?\s*$",
-    re.IGNORECASE,
-)
-_EXPLICIT_REMITTANCE_EVIDENCE = re.compile(
-    r"\bremit(?:tance)?\b|\bpayment\s+(?:advice|confirmation|reference)\b",
-    re.IGNORECASE,
-)
 
-
-def _remittance_date_is_explicit_in_note(value: object, note: str) -> bool:
-    """Return whether a normalised remittance date is explicitly in the note.
-
-    ``occurred_at`` is provided as request metadata, not source evidence.  A
-    model must therefore never turn it into a claimed payment date.  The
-    bounded variants cover the calendar representations we can safely recover
-    without interpreting relative language such as "tomorrow".
-    """
+def _date_is_explicit_in_span(value: object, span: str) -> bool:
+    """Verify a model-extracted date against its model-selected source span."""
 
     try:
         parsed = date.fromisoformat(str(value))
@@ -211,7 +217,7 @@ def _remittance_date_is_explicit_in_note(value: object, note: str) -> bool:
         f"{parsed.day} {parsed.strftime('%B')} {parsed.year}",
         f"{parsed.strftime('%B')} {parsed.day}, {parsed.year}",
     }
-    source = str(note or "").casefold()
+    source = str(span or "").casefold()
     return any(candidate.casefold() in source for candidate in candidates)
 
 
@@ -219,113 +225,158 @@ def _normalize_ref(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
 
-def _recover_explicit_single_invoice_remittance(
-    request: ManualNoteInterpretationRequestV1,
-    *,
-    status: str,
-    assertions: list[ManualNoteAssertionV1],
-) -> tuple[str, list[ManualNoteAssertionV1], list[str]] | None:
-    """Recover one narrow, source-explicit claim when the model abstains."""
+def _locate_evidence(note: str, evidence: object, *, field: str) -> tuple[int, int, str]:
+    if not isinstance(evidence, str) or not evidence.strip():
+        raise ValueError(f"{field}_evidence_text_required")
+    start = note.find(evidence)
+    if start < 0:
+        raise ValueError(f"{field}_evidence_not_verbatim")
+    if note.find(evidence, start + 1) >= 0:
+        raise ValueError(f"{field}_evidence_not_unique")
+    return start, start + len(evidence), evidence
 
-    if status != "abstained" or assertions or len(request.invoice_facts) != 1:
+
+def _validate_optional_field_evidence(
+    *,
+    note: str,
+    candidate: dict[str, object],
+    field: str,
+    assertion_evidence: str,
+) -> str | None:
+    value = candidate.get(field)
+    evidence_key = f"{field.removeprefix('asserted_')}_evidence_text"
+    evidence = candidate.get(evidence_key)
+    if value is None:
+        if evidence is not None:
+            raise ValueError(f"null_{field}_must_not_have_evidence")
         return None
-    note = str(request.note or "")
-    if not _EXPLICIT_SINGLE_INVOICE_REMITTANCE_RECEIVED.fullmatch(note):
-        return None
-    invoice_number = str(request.invoice_facts[0].invoice_number)
-    assertion = ManualNoteAssertionV1(
-        assertion_id=str(
-            uuid.uuid5(
-                uuid.NAMESPACE_URL,
-                f"{request.touch_id}:explicit-single-invoice-remittance-received",
-            )
-        ),
-        assertion_type="remittance",
-        transition="received",
-        polarity="affirmed",
-        temporal_orientation="current",
-        invoice_refs=[invoice_number],
-        amount=None,
-        currency=None,
-        asserted_date=None,
-        reference=None,
-        full_current_balance=False,
-        evidence_start=0,
-        evidence_end=len(note),
-        confidence=1.0,
-        reason_codes=["explicit_single_invoice_remittance_received"],
-    )
-    return "accepted", [assertion], ["deterministic_explicit_claim_recovery"]
+    _, _, span = _locate_evidence(note, evidence, field=field)
+    if span not in assertion_evidence:
+        raise ValueError(f"{field}_evidence_outside_assertion")
+    return span
+
+
+def _amount_is_explicit_in_span(value: object, span: str) -> bool:
+    try:
+        expected = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+    for raw in re.findall(r"(?<![A-Za-z0-9])\d[\d,]*(?:\.\d+)?", span):
+        try:
+            if Decimal(raw.replace(",", "")) == expected:
+                return True
+        except InvalidOperation:
+            continue
+    return False
+
+
+def _reference_is_explicit_in_span(value: object, span: str) -> bool:
+    normalized_value = _normalize_ref(str(value or ""))
+    return bool(normalized_value) and normalized_value in _normalize_ref(span)
 
 
 def _validated_assertions(
     request: ManualNoteInterpretationRequestV1,
     raw_assertions: object,
-) -> tuple[list[ManualNoteAssertionV1], list[str]]:
+) -> list[ManualNoteAssertionV1]:
     if not isinstance(raw_assertions, list):
         raise ValueError("assertions_must_be_list")
     allowed_refs = {
         _normalize_ref(row.invoice_number): row.invoice_number for row in request.invoice_facts
     }
+    purpose = str(request.purpose)
+    allowed_types_by_purpose: dict[str, set[str] | None] = {
+        "query": {"query"},
+        "commitment": {"commitment"},
+        "remittance": {"remittance"},
+        "chase": set(),
+        "general": None,
+        "internal_note": None,
+    }
+    if purpose not in allowed_types_by_purpose:
+        raise ValueError("manual_note_purpose_unsupported")
+    purpose_types = allowed_types_by_purpose[purpose]
     assertions: list[ManualNoteAssertionV1] = []
-    normalization_reason_codes: list[str] = []
-    has_existing_remittance = any(
-        control.remittance_received_at
-        or control.remittance_amount is not None
-        or control.remittance_reference
-        for control in request.existing_controls
-    )
-    for index, raw in enumerate(raw_assertions):
+    duplicate_keys: set[tuple[str, str, tuple[str, ...]]] = set()
+    for raw in raw_assertions:
         if not isinstance(raw, dict):
             raise ValueError("assertion_must_be_object")
         candidate = dict(raw)
-        candidate.setdefault(
-            "assertion_id",
-            str(
-                uuid.uuid5(
-                    uuid.NAMESPACE_URL,
-                    f"{request.touch_id}:{index}:{json.dumps(raw, sort_keys=True)}",
-                )
-            ),
-        )
-        if candidate.get("assertion_type") != "commitment":
-            candidate["full_current_balance"] = False
         assertion_type = candidate.get("assertion_type")
         transition = candidate.get("transition")
-        # A remittance date is optional.  Do not reject an otherwise safe
-        # claim merely because a model copied request metadata (for example
-        # ``occurred_at``) as a timestamp.  Drop only that ungrounded optional
-        # detail; the accounting reconciler remains the verification authority.
-        if (
-            assertion_type == "remittance"
-            and candidate.get("asserted_date")
-            and not _remittance_date_is_explicit_in_note(
-                candidate.get("asserted_date"), request.note
+        if assertion_type not in _TRANSITIONS_BY_TYPE:
+            raise ValueError("assertion_type_unsupported")
+        if purpose_types is not None and assertion_type not in purpose_types:
+            raise ValueError("assertion_conflicts_with_operator_purpose")
+        if transition not in _TRANSITIONS_BY_TYPE[assertion_type]:
+            raise ValueError("assertion_transition_type_mismatch")
+        if assertion_type == "remittance" and transition == "verified":
+            raise ValueError("manual_note_cannot_verify_remittance")
+
+        assertion_start, assertion_end, assertion_evidence = _locate_evidence(
+            request.note,
+            candidate.get("evidence_text"),
+            field="assertion",
+        )
+        date_span = _validate_optional_field_evidence(
+            note=request.note,
+            candidate=candidate,
+            field="asserted_date",
+            assertion_evidence=assertion_evidence,
+        )
+        amount_span = _validate_optional_field_evidence(
+            note=request.note,
+            candidate=candidate,
+            field="amount",
+            assertion_evidence=assertion_evidence,
+        )
+        reference_span = _validate_optional_field_evidence(
+            note=request.note,
+            candidate=candidate,
+            field="reference",
+            assertion_evidence=assertion_evidence,
+        )
+        if date_span is not None:
+            try:
+                date.fromisoformat(str(candidate.get("asserted_date")))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("asserted_date_must_be_iso_date") from exc
+            if not _date_is_explicit_in_span(candidate.get("asserted_date"), date_span):
+                raise ValueError("asserted_date_not_grounded_in_field_evidence")
+        if amount_span is not None and not _amount_is_explicit_in_span(
+            candidate.get("amount"), amount_span
+        ):
+            raise ValueError("amount_not_grounded_in_field_evidence")
+        if reference_span is not None and not _reference_is_explicit_in_span(
+            candidate.get("reference"), reference_span
+        ):
+            raise ValueError("reference_not_grounded_in_field_evidence")
+        if candidate.get("currency") is not None and candidate.get("amount") is None:
+            raise ValueError("currency_requires_amount")
+
+        contract_candidate = {
+            key: candidate.get(key)
+            for key in (
+                "assertion_id",
+                "assertion_type",
+                "transition",
+                "polarity",
+                "temporal_orientation",
+                "invoice_refs",
+                "amount",
+                "currency",
+                "asserted_date",
+                "reference",
+                "full_current_balance",
+                "confidence",
+                "reason_codes",
             )
-        ):
-            candidate["asserted_date"] = None
-            normalization_reason_codes.append("ungrounded_remittance_date_dropped")
-        if (
-            assertion_type in _TRANSITIONS_BY_TYPE
-            and transition not in _TRANSITIONS_BY_TYPE[assertion_type]
-        ):
-            normalization_reason_codes.append("unsupported_assertion_transition_dropped")
-            continue
-        if (
-            assertion_type == "remittance"
-            and transition in {"not_received", "unmatched", "rejected", "cancelled"}
-            and not has_existing_remittance
-            and not _EXPLICIT_REMITTANCE_EVIDENCE.search(request.note)
-        ):
-            normalization_reason_codes.append("unscoped_negative_remittance_dropped")
-            continue
-        assertion = ManualNoteAssertionV1.model_validate(candidate)
+        }
+        contract_candidate["evidence_start"] = assertion_start
+        contract_candidate["evidence_end"] = assertion_end
+        assertion = ManualNoteAssertionV1.model_validate(contract_candidate)
         if assertion.transition not in _TRANSITIONS_BY_TYPE[assertion.assertion_type]:
             raise ValueError("assertion_transition_type_mismatch")
-        if assertion.evidence_end > len(request.note):
-            raise ValueError("assertion_evidence_span_out_of_bounds")
-        if not request.note[assertion.evidence_start : assertion.evidence_end].strip():
-            raise ValueError("assertion_evidence_span_empty")
         resolved_refs: list[str] = []
         for invoice_ref in assertion.invoice_refs:
             normalized = _normalize_ref(invoice_ref)
@@ -348,91 +399,308 @@ def _validated_assertions(
                 and not assertion.asserted_date
             ):
                 raise ValueError("commitment_date_required")
-            if assertion.amount is None and assertion.transition in {"made", "revised", "active"}:
-                assertion.full_current_balance = True
+            if (
+                assertion.amount is None
+                and assertion.transition in {"made", "revised", "active"}
+                and not assertion.full_current_balance
+            ):
+                raise ValueError("commitment_without_amount_requires_full_current_balance")
+        duplicate_key = (
+            assertion.assertion_type,
+            assertion.transition,
+            tuple(sorted(_normalize_ref(value) for value in assertion.invoice_refs)),
+        )
+        if duplicate_key in duplicate_keys:
+            raise ValueError("redundant_current_assertion")
+        duplicate_keys.add(duplicate_key)
         assertions.append(assertion)
-    return assertions, normalization_reason_codes
+    if purpose_types is not None and purpose != "chase" and assertions:
+        covered_refs = {
+            _normalize_ref(invoice_ref)
+            for assertion in assertions
+            for invoice_ref in assertion.invoice_refs
+        }
+        if covered_refs != set(allowed_refs):
+            raise ValueError("actionable_purpose_must_cover_selected_invoices")
+    return assertions
+
+
+def _validation_code(exc: Exception) -> str:
+    if isinstance(exc, ValueError) and str(exc):
+        code = str(exc)
+        if re.fullmatch(r"[a-z0-9_]+", code):
+            return code
+    return "manual_note_response_schema_invalid"
+
+
+def _decode_response(
+    request: ManualNoteInterpretationRequestV1,
+    response: object,
+) -> tuple[dict[str, object], str, list[ManualNoteAssertionV1], list[str]]:
+    raw = _parse_response_object(response.content)
+    if set(raw) - {"extraction_status", "assertions", "reason_codes"}:
+        raise ValueError("manual_note_response_unknown_fields")
+    status = raw.get("extraction_status", "invalid")
+    if status not in {"accepted", "abstained", "invalid"}:
+        raise ValueError("manual_note_extraction_status_invalid")
+    assertions = _validated_assertions(request, raw.get("assertions") or [])
+    if status == "accepted" and not assertions:
+        raise ValueError("accepted_response_requires_assertions")
+    if status != "accepted" and assertions:
+        raise ValueError("non_accepted_response_contains_assertions")
+    reason_codes = raw.get("reason_codes") or []
+    if not isinstance(reason_codes, list) or not all(
+        isinstance(value, str) for value in reason_codes
+    ):
+        raise ValueError("manual_note_reason_codes_invalid")
+    return raw, status, assertions, list(dict.fromkeys(reason_codes))
+
+
+def _prompt_input(request: ManualNoteInterpretationRequestV1) -> dict[str, object]:
+    """Return the source-minimal LLM payload.
+
+    Balance, currency, due date, occurrence time, and accounting metadata are
+    intentionally excluded. They are useful to reconciliation after extraction
+    but are not note evidence and previously invited the model to copy metadata
+    into asserted fields.
+    """
+
+    return {
+        "note": request.note,
+        "purpose": str(request.purpose),
+        "channel": request.channel,
+        "direction": request.direction,
+        "tenant_timezone": request.tenant_timezone,
+        "selected_invoices": [
+            {
+                "obligation_id": row.obligation_id,
+                "invoice_number": row.invoice_number,
+            }
+            for row in request.invoice_facts
+        ],
+        "existing_control_states": [
+            {
+                "obligation_id": row.obligation_id,
+                "collection_status": row.collection_status,
+                "promise_status": row.promise_status,
+                "has_remittance_claim": bool(
+                    row.remittance_received_at
+                    or row.remittance_amount is not None
+                    or row.remittance_reference
+                ),
+            }
+            for row in request.existing_controls
+        ],
+    }
 
 
 class ManualNoteInterpreter:
     def __init__(self) -> None:
+        # Manual controls can suppress legally and commercially significant
+        # collection activity. Use the stronger context model as primary.
         self._client = LLMProviderWithFallback(
-            primary_provider="vertex", fallback_provider="openai"
+            primary_provider="openai", fallback_provider="vertex"
         )
+
+    async def _complete(
+        self,
+        *,
+        system_prompt: str,
+        payload: dict[str, object],
+        response_schema: type[BaseModel] = _ManualNoteLLMResponse,
+    ):
+        user_prompt = json.dumps(payload, ensure_ascii=True, sort_keys=True, default=str)
+        response = await self._client.complete(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.0,
+            json_mode=True,
+            response_schema=response_schema,
+            reasoning_effort="low",
+            caller="manual_note_interpretation",
+        )
+        return response, user_prompt
+
+    async def _review(
+        self,
+        *,
+        request_payload: dict[str, object],
+        proposed_extraction: dict[str, object],
+    ):
+        payload = {
+            "request": request_payload,
+            "proposed_extraction": proposed_extraction,
+        }
+        response, user_prompt = await self._complete(
+            system_prompt=_REVIEW_PROMPT,
+            payload=payload,
+            response_schema=_ManualNoteReviewResponse,
+        )
+        try:
+            raw = _parse_response_object(response.content)
+            review = _ManualNoteReviewResponse.model_validate(raw)
+            if not all(re.fullmatch(r"[a-z0-9_]+", value) for value in review.reason_codes):
+                raise ValueError("manual_note_review_reason_codes_invalid")
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise LLMResponseInvalidError(
+                message="LLM returned invalid manual-note semantic review",
+                details={
+                    "operation": "manual_note_interpretation_review",
+                    "validation_code": _validation_code(exc),
+                    "telemetry": _invalid_response_telemetry(response),
+                },
+            ) from exc
+        return review, response, user_prompt, payload
+
+    async def _generate_validated(
+        self,
+        *,
+        request: ManualNoteInterpretationRequestV1,
+        system_prompt: str,
+        initial_payload: dict[str, object],
+        source_request_payload: dict[str, object],
+        max_attempts: int,
+    ):
+        payload = initial_payload
+        responses: list[object] = []
+        last_exc: Exception | None = None
+        response = None
+        user_prompt = ""
+        for _ in range(max_attempts):
+            response, user_prompt = await self._complete(
+                system_prompt=system_prompt,
+                payload=payload,
+            )
+            responses.append(response)
+            try:
+                raw, status, assertions, reason_codes = _decode_response(request, response)
+                return (
+                    raw,
+                    status,
+                    assertions,
+                    reason_codes,
+                    response,
+                    user_prompt,
+                    payload,
+                    responses,
+                )
+            except (ValidationError, ValueError, TypeError) as exc:
+                last_exc = exc
+                try:
+                    proposed = _parse_response_object(response.content)
+                except (ValidationError, ValueError, TypeError):
+                    proposed = None
+                payload = {
+                    "request": source_request_payload,
+                    "proposed_extraction": proposed,
+                    "validation_feedback": _validation_code(exc),
+                }
+        assert response is not None and last_exc is not None
+        raise LLMResponseInvalidError(
+            message="LLM returned invalid manual-note interpretation",
+            details={
+                "operation": "manual_note_interpretation",
+                "validation_code": _validation_code(last_exc),
+                "attempt_count": len(responses),
+                "telemetry": _invalid_response_telemetry(response),
+            },
+        ) from last_exc
 
     async def interpret(
         self,
         request: ManualNoteInterpretationRequestV1,
     ) -> ManualNoteInterpretationResponseV1:
-        prompt_input = request.model_dump(mode="json", exclude_none=True)
-        user_prompt = json.dumps(prompt_input, ensure_ascii=True, sort_keys=True, default=str)
-        response = await self._client.complete(
+        prompt_input = _prompt_input(request)
+        (
+            raw,
+            status,
+            assertions,
+            reason_codes,
+            response,
+            user_prompt,
+            final_prompt_input,
+            responses,
+        ) = await self._generate_validated(
+            request=request,
             system_prompt=_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            temperature=settings.classification_temperature,
-            json_mode=True,
-            response_schema=_ManualNoteLLMResponse,
-            caller="manual_note_interpretation",
+            initial_payload=prompt_input,
+            source_request_payload=prompt_input,
+            max_attempts=3,
         )
-        try:
-            raw = _parse_response_object(response.content)
-            if set(raw) - {"extraction_status", "assertions", "reason_codes"}:
-                raise ValueError("manual_note_response_unknown_fields")
-            status = raw.get("extraction_status", "invalid")
-            if status not in {"accepted", "abstained", "invalid"}:
-                raise ValueError("manual_note_extraction_status_invalid")
-            assertions, normalization_reason_codes = _validated_assertions(
-                request,
-                raw.get("assertions") or [],
+        review, response, user_prompt, final_prompt_input = await self._review(
+            request_payload=prompt_input,
+            proposed_extraction=raw,
+        )
+        responses.append(response)
+        review_code = "semantic_guardrail_reviewed"
+        if review.verdict == "reject":
+            correction_payload = {
+                "request": prompt_input,
+                "proposed_extraction": raw,
+                "semantic_review_feedback": review.reason_codes,
+            }
+            (
+                raw,
+                status,
+                assertions,
+                reason_codes,
+                _,
+                _,
+                _,
+                correction_responses,
+            ) = await self._generate_validated(
+                request=request,
+                system_prompt=_SYSTEM_PROMPT,
+                initial_payload=correction_payload,
+                source_request_payload=prompt_input,
+                max_attempts=3,
             )
-            if status == "accepted" and not assertions:
-                status = "abstained"
-            if status != "accepted" and assertions:
-                raise ValueError("non_accepted_response_contains_assertions")
-            reason_codes = raw.get("reason_codes") or []
-            if not isinstance(reason_codes, list) or not all(
-                isinstance(value, str) for value in reason_codes
-            ):
-                raise ValueError("manual_note_reason_codes_invalid")
-            reason_codes = list(dict.fromkeys([*reason_codes, *normalization_reason_codes]))
-            recovered = _recover_explicit_single_invoice_remittance(
-                request,
-                status=status,
-                assertions=assertions,
+            responses.extend(correction_responses)
+            review, response, user_prompt, final_prompt_input = await self._review(
+                request_payload=prompt_input,
+                proposed_extraction=raw,
             )
-            if recovered is not None:
-                status, assertions, reason_codes = recovered
-        except (ValidationError, ValueError, TypeError) as exc:
-            raise LLMResponseInvalidError(
-                message="LLM returned invalid manual-note interpretation",
-                details={
-                    "operation": "manual_note_interpretation",
-                    "telemetry": _invalid_response_telemetry(response),
-                },
-            ) from exc
+            responses.append(response)
+            if review.verdict == "reject":
+                raise LLMResponseInvalidError(
+                    message="LLM semantic guardrail rejected manual-note interpretation",
+                    details={
+                        "operation": "manual_note_interpretation_review",
+                        "validation_code": "semantic_guardrail_rejected",
+                        "review_reason_codes": review.reason_codes,
+                        "telemetry": _invalid_response_telemetry(response),
+                    },
+                )
+            review_code = "semantic_guardrail_corrected"
+        final_system_prompt = _REVIEW_PROMPT
+        reason_codes = list(dict.fromkeys([*reason_codes, review_code]))
 
-        usage = response.usage or {}
+        usage = {
+            key: sum(int((item.usage or {}).get(key, 0) or 0) for item in responses)
+            for key in ("total_tokens", "prompt_tokens", "completion_tokens", "reasoning_tokens")
+        }
         return ManualNoteInterpretationResponseV1(
             extraction_status=status,
             assertions=assertions,
             reason_codes=reason_codes,
-            tokens_used=usage.get("total_tokens", 0),
-            prompt_tokens=usage.get("prompt_tokens", 0),
-            completion_tokens=usage.get("completion_tokens", 0),
+            tokens_used=usage["total_tokens"],
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
             provider=response.provider,
             model=response.model,
-            is_fallback=response.provider != self._client.primary_provider_name,
+            is_fallback=bool(getattr(response, "is_fallback", False)),
             ai_audit=build_ai_audit(
                 response=response,
                 prompt_template_id=PROMPT_TEMPLATE_ID,
                 prompt_template_version=PROMPT_TEMPLATE_VERSION,
-                system_prompt=_SYSTEM_PROMPT,
+                system_prompt=final_system_prompt,
                 user_prompt=user_prompt,
-                prompt_input=prompt_input,
-                token_count=usage.get("total_tokens", 0),
-                prompt_tokens=usage.get("prompt_tokens", 0),
-                completion_tokens=usage.get("completion_tokens", 0),
-                reasoning_tokens=usage.get("reasoning_tokens", 0),
+                prompt_input=final_prompt_input,
+                guardrail_pipeline_version="manual-note-semantic-grounding.v1",
+                token_count=usage["total_tokens"],
+                prompt_tokens=usage["prompt_tokens"],
+                completion_tokens=usage["completion_tokens"],
+                reasoning_tokens=usage["reasoning_tokens"],
                 inference_profile="manual_note_interpretation",
             ).model_dump(mode="json"),
         )
