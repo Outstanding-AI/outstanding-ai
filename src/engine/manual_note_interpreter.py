@@ -148,6 +148,10 @@ GROUNDING
 - For every non-null asserted_date, amount, or reference, return the corresponding field-specific
   evidence_text as an exact verbatim substring inside the assertion evidence. Use null field evidence
   when the field is null. Extend a quote only when needed to make its occurrence unique in the note.
+- Never convert relative time language into asserted_date. A phrase such as next week, end of month,
+  or in a few days is not an exact calendar date. For query and remittance assertions, leave
+  asserted_date and date_evidence_text null unless the note contains an exact calendar date. For a
+  commitment requiring a date, abstain when the note contains only relative time language.
 - Normalize every non-null asserted_date as an ISO calendar date in YYYY-MM-DD form. Preserve the
   source's original date formatting only in date_evidence_text.
 - Commitments without an explicit amount set full_current_balance=true. Every non-commitment sets it false.
@@ -160,6 +164,9 @@ Return only a strict accept/reject verdict matching the supplied schema; never r
 Use the original note as the only factual source and enforce the operator purpose and selected invoice
 scope. Check control family, transition, negation, current state, invoice coverage, and semantic clause
 ownership of every date, amount, and reference. Reject an unsupported assertion or an incorrect abstention.
+The operator purpose is absolute: when purpose is chase, an abstained extraction with zero assertions is
+correct and must be accepted even if the prose mentions payment, a query, remittance, or a date. Chase
+content records collection activity; it cannot create an invoice control.
 Use short snake_case reason codes without quoting or reproducing note content. Do not add prose.
 """
 
@@ -197,6 +204,22 @@ _TRANSITIONS_BY_TYPE = {
         "unclear",
     },
     "other": {"no_operational_effect", "unclear"},
+}
+
+_VALIDATION_REMEDIATION = {
+    "asserted_date_not_grounded_in_field_evidence": (
+        "Do not infer a calendar date from relative language or metadata. Set asserted_date and "
+        "date_evidence_text to null unless an exact calendar date is present in the note's quoted "
+        "field evidence. If the selected control requires an exact date, abstain."
+    ),
+    "amount_not_grounded_in_field_evidence": (
+        "Set amount, currency, and amount_evidence_text to null unless the exact amount occurs in "
+        "the note's quoted field evidence."
+    ),
+    "reference_not_grounded_in_field_evidence": (
+        "Set reference and reference_evidence_text to null unless the exact reference occurs in "
+        "the note's quoted field evidence."
+    ),
 }
 
 
@@ -318,12 +341,28 @@ def _validated_assertions(
             candidate.get("evidence_text"),
             field="assertion",
         )
-        date_span = _validate_optional_field_evidence(
-            note=request.note,
-            candidate=candidate,
-            field="asserted_date",
-            assertion_evidence=assertion_evidence,
-        )
+        try:
+            date_span = _validate_optional_field_evidence(
+                note=request.note,
+                candidate=candidate,
+                field="asserted_date",
+                assertion_evidence=assertion_evidence,
+            )
+            if date_span is not None:
+                date.fromisoformat(str(candidate.get("asserted_date")))
+                if not _date_is_explicit_in_span(candidate.get("asserted_date"), date_span):
+                    raise ValueError("asserted_date_not_grounded_in_field_evidence")
+        except ValueError:
+            if assertion_type not in {"query", "remittance"}:
+                raise
+            candidate["asserted_date"] = None
+            candidate["date_evidence_text"] = None
+            candidate["reason_codes"] = list(
+                dict.fromkeys(
+                    [*(candidate.get("reason_codes") or []), "ungrounded_optional_date_removed"]
+                )
+            )
+            date_span = None
         amount_span = _validate_optional_field_evidence(
             note=request.note,
             candidate=candidate,
@@ -336,13 +375,6 @@ def _validated_assertions(
             field="reference",
             assertion_evidence=assertion_evidence,
         )
-        if date_span is not None:
-            try:
-                date.fromisoformat(str(candidate.get("asserted_date")))
-            except (TypeError, ValueError) as exc:
-                raise ValueError("asserted_date_must_be_iso_date") from exc
-            if not _date_is_explicit_in_span(candidate.get("asserted_date"), date_span):
-                raise ValueError("asserted_date_not_grounded_in_field_evidence")
         if amount_span is not None and not _amount_is_explicit_in_span(
             candidate.get("amount"), amount_span
         ):
@@ -562,13 +594,14 @@ class ManualNoteInterpreter:
         max_attempts: int,
     ):
         payload = initial_payload
+        active_system_prompt = system_prompt
         responses: list[object] = []
         last_exc: Exception | None = None
         response = None
         user_prompt = ""
         for _ in range(max_attempts):
             response, user_prompt = await self._complete(
-                system_prompt=system_prompt,
+                system_prompt=active_system_prompt,
                 payload=payload,
             )
             responses.append(response)
@@ -586,6 +619,11 @@ class ManualNoteInterpreter:
                 )
             except (ValidationError, ValueError, TypeError) as exc:
                 last_exc = exc
+                validation_code = _validation_code(exc)
+                required_correction = _VALIDATION_REMEDIATION.get(
+                    validation_code,
+                    "Correct the proposed extraction to satisfy the system contract exactly.",
+                )
                 try:
                     proposed = _parse_response_object(response.content)
                 except (ValidationError, ValueError, TypeError):
@@ -593,8 +631,14 @@ class ManualNoteInterpreter:
                 payload = {
                     "request": source_request_payload,
                     "proposed_extraction": proposed,
-                    "validation_feedback": _validation_code(exc),
+                    "validation_feedback": validation_code,
+                    "required_correction": required_correction,
                 }
+                active_system_prompt = (
+                    f"{system_prompt}\n\nVALIDATION CORRECTION MODE\n"
+                    f"The previous output failed {validation_code}. {required_correction} "
+                    "Return a fresh corrected extraction and do not repeat the invalid field value."
+                )
         assert response is not None and last_exc is not None
         raise LLMResponseInvalidError(
             message="LLM returned invalid manual-note interpretation",
@@ -627,13 +671,16 @@ class ManualNoteInterpreter:
             source_request_payload=prompt_input,
             max_attempts=3,
         )
-        review, response, user_prompt, final_prompt_input = await self._review(
-            request_payload=prompt_input,
-            proposed_extraction=raw,
-        )
-        responses.append(response)
         review_code = "semantic_guardrail_reviewed"
-        if review.verdict == "reject":
+        if str(request.purpose) == "chase" and status == "abstained" and not assertions:
+            review_code = "authoritative_chase_abstention"
+        else:
+            review, response, user_prompt, final_prompt_input = await self._review(
+                request_payload=prompt_input,
+                proposed_extraction=raw,
+            )
+            responses.append(response)
+        if review_code == "semantic_guardrail_reviewed" and review.verdict == "reject":
             correction_payload = {
                 "request": prompt_input,
                 "proposed_extraction": raw,
@@ -672,7 +719,9 @@ class ManualNoteInterpreter:
                     },
                 )
             review_code = "semantic_guardrail_corrected"
-        final_system_prompt = _REVIEW_PROMPT
+        final_system_prompt = (
+            _SYSTEM_PROMPT if review_code == "authoritative_chase_abstention" else _REVIEW_PROMPT
+        )
         reason_codes = list(dict.fromkeys([*reason_codes, review_code]))
 
         usage = {

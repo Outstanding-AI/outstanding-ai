@@ -409,37 +409,8 @@ async def test_manual_note_interpreter_retries_ungrounded_remittance_timestamp()
         model="gpt-5.6-luna",
         usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
     )
-    corrected_response = LLMResponse(
-        content=json.dumps(
-            {
-                "extraction_status": "accepted",
-                "assertions": [
-                    {
-                        "assertion_id": "remit-1",
-                        "assertion_type": "remittance",
-                        "transition": "received",
-                        "polarity": "affirmed",
-                        "temporal_orientation": "current",
-                        "invoice_refs": ["INV-1"],
-                        "amount": None,
-                        "currency": None,
-                        "asserted_date": None,
-                        "reference": None,
-                        "full_current_balance": False,
-                        "evidence_text": note,
-                        "confidence": 0.99,
-                        "reason_codes": ["metadata_date_removed"],
-                    }
-                ],
-                "reason_codes": [],
-            }
-        ),
-        provider="openai",
-        model="gpt-5.6-luna",
-        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-    )
     interpreter._client.complete = AsyncMock(
-        side_effect=[invalid_response, corrected_response, _manual_note_review_response()]
+        side_effect=[invalid_response, _manual_note_review_response()]
     )
 
     result = await interpreter.interpret(
@@ -461,8 +432,117 @@ async def test_manual_note_interpreter_retries_ungrounded_remittance_timestamp()
 
     assert result.extraction_status == "accepted"
     assert result.assertions[0].asserted_date is None
+    assert "ungrounded_optional_date_removed" in result.assertions[0].reason_codes
     assert "semantic_guardrail_reviewed" in result.reason_codes
-    assert interpreter._client.complete.await_count == 3
+    assert interpreter._client.complete.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_manual_note_interpreter_accepts_authoritative_chase_abstention():
+    from src.engine.manual_note_interpreter import ManualNoteInterpreter
+
+    interpreter = ManualNoteInterpreter()
+    interpreter._client.complete = AsyncMock(
+        return_value=LLMResponse(
+            content=json.dumps(
+                {
+                    "extraction_status": "abstained",
+                    "assertions": [],
+                    "reason_codes": ["operator_purpose_chase"],
+                }
+            ),
+            provider="openai",
+            model="gpt-5.6-luna",
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        )
+    )
+
+    result = await interpreter.interpret(
+        ManualNoteInterpretationRequestV1(
+            touch_id="touch-chase",
+            note="Customer expects to pay next Friday; chased for an update.",
+            purpose="chase",
+            occurred_at="2026-07-31T10:00:00Z",
+            tenant_timezone="Europe/London",
+            invoice_facts=[
+                {
+                    "obligation_id": "obligation-1",
+                    "invoice_number": "INV-1",
+                    "amount_due": 100,
+                    "currency": "GBP",
+                }
+            ],
+        )
+    )
+
+    assert result.extraction_status == "abstained"
+    assert result.assertions == []
+    assert "authoritative_chase_abstention" in result.reason_codes
+    assert interpreter._client.complete.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_manual_note_interpreter_removes_inferred_relative_query_date():
+    from src.engine.manual_note_interpreter import ManualNoteInterpreter
+
+    note = "Delivery evidence is missing and should be available next week."
+    invalid_response = LLMResponse(
+        content=json.dumps(
+            {
+                "extraction_status": "accepted",
+                "assertions": [
+                    {
+                        "assertion_id": "query-1",
+                        "assertion_type": "query",
+                        "transition": "active",
+                        "polarity": "affirmed",
+                        "temporal_orientation": "current",
+                        "invoice_refs": ["INV-1"],
+                        "amount": None,
+                        "currency": None,
+                        "asserted_date": "2026-08-07",
+                        "date_evidence_text": "next week",
+                        "reference": None,
+                        "full_current_balance": False,
+                        "evidence_text": note,
+                        "confidence": 0.9,
+                        "reason_codes": [],
+                    }
+                ],
+                "reason_codes": [],
+            }
+        ),
+        provider="openai",
+        model="gpt-5.6-luna",
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
+    interpreter = ManualNoteInterpreter()
+    interpreter._client.complete = AsyncMock(
+        side_effect=[invalid_response, _manual_note_review_response()]
+    )
+
+    result = await interpreter.interpret(
+        ManualNoteInterpretationRequestV1(
+            touch_id="touch-query-relative-date",
+            note=note,
+            purpose="query",
+            occurred_at="2026-07-31T10:00:00Z",
+            tenant_timezone="Europe/London",
+            invoice_facts=[
+                {
+                    "obligation_id": "obligation-1",
+                    "invoice_number": "INV-1",
+                    "amount_due": 100,
+                    "currency": "GBP",
+                }
+            ],
+        )
+    )
+
+    assert result.extraction_status == "accepted"
+    assert result.assertions[0].asserted_date is None
+    assert "ungrounded_optional_date_removed" in result.assertions[0].reason_codes
+    assert interpreter._client.complete.await_count == 2
 
 
 @pytest.mark.asyncio
