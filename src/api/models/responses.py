@@ -10,6 +10,8 @@ class ExtractedData(BaseModel):
     # PROMISE_TO_PAY
     promise_date: Optional[date] = None
     promise_amount: Optional[float] = None
+    promise_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    promise_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
     # PROMISE_TO_PAY — strength of the commitment. ``firm`` (default) takes
     # full grace_days suppression downstream; ``soft`` takes half;
     # ``aspirational`` only defers next_touch_due_at without suppressing
@@ -20,9 +22,12 @@ class ExtractedData(BaseModel):
     dispute_reason: Optional[str] = None
     invoice_refs: Optional[List[str]] = None
     disputed_amount: Optional[float] = None
+    disputed_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
     # PAYMENT_TIMING_DISPUTE
     claimed_due_date: Optional[date] = None
     claimed_payment_date: Optional[date] = None
+    claimed_due_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    claimed_payment_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
     payment_timing_reason: Optional[str] = None
     # DEBTOR_INTERNAL_PROCESSING_BLOCKER
     internal_blocker_type: Optional[
@@ -50,6 +55,8 @@ class ExtractedData(BaseModel):
     # ALREADY_PAID
     claimed_amount: Optional[float] = None
     claimed_date: Optional[date] = None
+    claimed_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    claimed_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
     claimed_reference: Optional[str] = None
     claimed_details: Optional[str] = None
     # INSOLVENCY

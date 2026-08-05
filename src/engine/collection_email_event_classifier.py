@@ -34,7 +34,7 @@ from .audit import build_ai_audit
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v8"
+PROMPT_TEMPLATE_VERSION = "v9"
 _MAX_GROUNDING_ATTEMPTS = 3
 
 _GROUNDING_VALIDATION_REMEDIATION = {
@@ -115,7 +115,11 @@ Return a JSON object only, with exactly these keys and types:
   "secondary_intents": [uppercase taxonomy values],
   "intent_details": [{"intent": uppercase taxonomy value,
       "extracted_data": {"invoice_refs": [strings], and only the controlled
-      fields belonging to this intent}}],
+      fields belonging to this intent. For every non-null promise_amount,
+      disputed_amount, or claimed_amount include its matching
+      *_amount_evidence_text field. For every non-null promise_date,
+      claimed_date, claimed_due_date, or claimed_payment_date include its
+      matching *_date_evidence_text field.}}],
   "invoice_assertions": ["invoice reference"],
   "amount_assertions": [{"invoice_ref": string-or-null, "amount":
       number-or-null, "currency": string-or-null, "assertion_type":
@@ -217,8 +221,55 @@ def _apply_grounding(
         _grounded_or_nulled_amount(item, body=body) for item in parsed.amount_assertions
     ]
     grounded_dates = [_grounded_or_nulled_date(item, body=body) for item in parsed.date_assertions]
+    grounded_details = []
+    for detail in parsed.intent_details:
+        extracted = detail.extracted_data
+        if extracted is None:
+            grounded_details.append(detail)
+            continue
+        updates: dict[str, object] = {}
+        for value_field, evidence_field in (
+            ("promise_amount", "promise_amount_evidence_text"),
+            ("disputed_amount", "disputed_amount_evidence_text"),
+            ("claimed_amount", "claimed_amount_evidence_text"),
+        ):
+            value = getattr(extracted, value_field)
+            evidence = getattr(extracted, evidence_field)
+            if value is None:
+                continue
+            if not evidence:
+                updates[value_field] = None
+                updates[evidence_field] = None
+                continue
+            _, _, span = locate_evidence(body, evidence, field="amount")
+            if not amount_is_explicit_in_span(value, span):
+                raise ValueError("amount_evidence_does_not_support_value")
+        for value_field, evidence_field in (
+            ("promise_date", "promise_date_evidence_text"),
+            ("claimed_date", "claimed_date_evidence_text"),
+            ("claimed_due_date", "claimed_due_date_evidence_text"),
+            ("claimed_payment_date", "claimed_payment_date_evidence_text"),
+        ):
+            value = getattr(extracted, value_field)
+            evidence = getattr(extracted, evidence_field)
+            if value is None:
+                continue
+            if not evidence:
+                updates[value_field] = None
+                updates[evidence_field] = None
+                continue
+            _, _, span = locate_evidence(body, evidence, field="date")
+            if not date_is_explicit_in_span(value, span):
+                raise ValueError("date_evidence_does_not_support_value")
+        grounded_details.append(
+            detail.model_copy(update={"extracted_data": extracted.model_copy(update=updates)})
+        )
     return parsed.model_copy(
-        update={"amount_assertions": grounded_amounts, "date_assertions": grounded_dates}
+        update={
+            "amount_assertions": grounded_amounts,
+            "date_assertions": grounded_dates,
+            "intent_details": grounded_details,
+        }
     )
 
 
@@ -273,9 +324,22 @@ class CollectionEmailEventClassifier:
             fallback_provider="openai",
             model_override=default_override,
         )
+        manual_outbound_override = {
+            key: value
+            for key, value in {
+                "vertex": settings.manual_outbound_email_vertex_model,
+                "openai": settings.manual_outbound_email_openai_model,
+            }.items()
+            if value
+        }
+        self._manual_outbound_client = LLMProviderWithFallback(
+            primary_provider="vertex",
+            fallback_provider="openai",
+            model_override=manual_outbound_override,
+        )
 
     async def classify(self, request: CollectionEmailEventRequest) -> CollectionEmailEventResponse:
-        client = self._client
+        client = self._manual_outbound_client if request.mode == "manual_outbound" else self._client
         if request.model_override:
             # Eval-harness path only (see the field docstring on
             # CollectionEmailEventRequest) — build a one-off client instead of
@@ -354,7 +418,7 @@ class CollectionEmailEventClassifier:
                     response=response,
                     prompt_template_id=PROMPT_TEMPLATE_ID,
                     prompt_template_version=PROMPT_TEMPLATE_VERSION,
-                    system_prompt=_SYSTEM_PROMPT,
+                    system_prompt=active_system_prompt,
                     user_prompt=user_prompt,
                     prompt_input=prompt_input,
                     token_count=response.usage.get("total_tokens", 0),

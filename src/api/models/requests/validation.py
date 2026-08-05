@@ -86,6 +86,21 @@ class CollectionEmailEventRequest(BaseModel):
     # collection_email_ai_stages.py's production payload builder.
     model_override: dict[str, str] | None = None
 
+    @field_validator("model_override")
+    @classmethod
+    def validate_model_override(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        allowed = {"vertex", "openai"}
+        if set(value) - allowed:
+            raise ValueError("model_override supports only vertex and openai")
+        normalized = {str(provider): str(model).strip() for provider, model in value.items()}
+        if any(not model or len(model) > 200 for model in normalized.values()):
+            raise ValueError(
+                "model_override values must be non-empty model names of at most 200 characters"
+            )
+        return normalized
+
 
 class CollectionEmailFactExtractionRequest(BaseModel):
     """One message and bounded email-native context for fact extraction only."""

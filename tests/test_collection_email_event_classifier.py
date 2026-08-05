@@ -181,7 +181,7 @@ def test_collection_email_event_reuses_per_intent_debtor_response_scope():
     assert parsed.intent_details[1].extracted_data.invoice_refs == ["INV-B"]
     assert "candidate_count is 1" in _SYSTEM_PROMPT
     assert "Never assign one promise, dispute, or" in _SYSTEM_PROMPT
-    assert PROMPT_TEMPLATE_VERSION == "v8"
+    assert PROMPT_TEMPLATE_VERSION == "v9"
     assert "only earlier retained events" in _SYSTEM_PROMPT
     assert "GROUNDING" in _SYSTEM_PROMPT
     assert "amount_evidence_text" in _SYSTEM_PROMPT

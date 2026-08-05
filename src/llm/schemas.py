@@ -54,6 +54,11 @@ class LLMExtractedData(BaseModel):
     # PROMISE_TO_PAY
     promise_date: Optional[str] = None  # String from LLM, parsed to date in engine
     promise_amount: Optional[float] = None
+    # The response stage consumes these per-intent values, so each operational
+    # amount/date must carry its own verbatim support. Grounding only the
+    # parallel top-level assertion ledger is not sufficient.
+    promise_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    promise_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
     # PROMISE_TO_PAY — strength of the commitment. Captured for future
     # use only (2026-04-28). At the moment lane reply routing
     # treats every PROMISE_TO_PAY identically (full ``promise_suppressed``
@@ -66,9 +71,12 @@ class LLMExtractedData(BaseModel):
     dispute_reason: Optional[str] = None
     invoice_refs: Optional[list[str]] = None
     disputed_amount: Optional[float] = None
+    disputed_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
     # PAYMENT_TIMING_DISPUTE
     claimed_due_date: Optional[str] = None
     claimed_payment_date: Optional[str] = None
+    claimed_due_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    claimed_payment_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
     payment_timing_reason: Optional[str] = None
     # DEBTOR_INTERNAL_PROCESSING_BLOCKER
     internal_blocker_type: Optional[
@@ -97,6 +105,8 @@ class LLMExtractedData(BaseModel):
     # ALREADY_PAID
     claimed_amount: Optional[float] = None
     claimed_date: Optional[str] = None
+    claimed_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    claimed_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
     claimed_reference: Optional[str] = None
     claimed_details: Optional[str] = None
     # INSOLVENCY
