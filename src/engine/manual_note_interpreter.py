@@ -23,7 +23,7 @@ from .audit import build_ai_audit
 from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "manual_note_interpretation"
-PROMPT_TEMPLATE_VERSION = "v2"
+PROMPT_TEMPLATE_VERSION = "v3"
 TAXONOMY_VERSION = "manual_note_controls.v1"
 
 
@@ -95,7 +95,35 @@ invoice_refs, amount, currency, asserted_date, reference, full_current_balance, 
 evidence_end, confidence, reason_codes. evidence_start/end are zero-based offsets into the exact note
 and must cover non-empty supporting text.
 
-Commitments require an explicit date. If a dated commitment has no amount, set
+Extract invoice controls, not collection activity. Sending a statement, sending an invoice, emailing,
+chasing, requesting status, awaiting a reply to a chase, planning to send a reminder, and recording
+that an invoice is just due are ordinary outreach. They are not queries, commitments, or remittances.
+The purpose field is context only; the note text must support the assertion.
+
+A query is a substantive invoice blocker or dispute that should pause chasing, such as a missing POD
+or invoice, a portal/upload problem, deductions or contra work, undelivered goods, an incorrect charge,
+or an explicitly disputed invoice. A collector asking the debtor for invoice/payment status is not a
+query. "Chased for update", "emailed for invoice status", "sent statement and requested status", and
+"will email for status" must not create a query.
+
+A commitment is a debtor/counterparty commitment to pay on one exact calendar date. The date at the
+start of an operator note, an invoice due date, a chase date, or a reminder date is not a commitment
+date. Predictions and hedges such as "hope to pay mid August", "likely be paid", "should be paid",
+"should be included on the next payment", and "can then be paid" are not commitments. A statement
+that the operator will send a reminder is never a commitment. "Kevin confirmed payment is expected
+14/08/2026" is a commitment dated 2026-08-14; a following clause saying the operator emailed for
+status is only outreach and must not add a query.
+
+A remittance is a claim that payment has actually been sent or received. "Payment expected", "should
+be paid", and "next payment" are not remittances. "Part paid" may be partially_received, while the
+remaining undelivered or disputed balance may separately support a query.
+
+Manual notes can contain several dated history clauses. Attach a date only to the assertion expressed
+by the same clause. Do not turn a date into a control merely because it appears in the note. Prefer the
+current operational state; do not emit a historical resolved assertion when the same note says current
+confirmation, contra work, documents, or another blocker remains outstanding.
+
+Commitments require an explicit exact date. If a dated commitment has no amount, set
 full_current_balance=true. For every non-commitment assertion, full_current_balance must be false.
 Never divide one total among several invoices. If one explicit total is ambiguous across multiple
 invoices, abstain. Remittance received is only an operator claim; do not mark it verified. Query
@@ -107,6 +135,11 @@ Example: for the exact note "REMIT RECEIVED" with one invoice_fact, return one r
 with transition="received", polarity="affirmed", temporal_orientation="current", that invoice number
 in invoice_refs, no amount/date/reference, and the full note as evidence. This remains an unverified
 operator claim and must never use transition="verified".
+Example: "INVOICE HAS NOT BEEN SENT PENDING POD. CHASED" is one active query for the linked invoice.
+Example: "CANT SEE ON PORTAL WILL CHECK AND UPLOAD IF MISSED" is one active query.
+Example: "SENT OVERDUE STATEMENT REMINDER" has no operational assertion and must abstain.
+Example: "SENT STATEMENT AND REQ STATUS" has no operational assertion and must abstain.
+Example: "JUST DUE SHOULD BE PAID END OF WEEK" has no operational assertion and must abstain.
 Do not add prose or any other key."""
 
 _TRANSITIONS_BY_TYPE = {
