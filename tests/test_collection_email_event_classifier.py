@@ -154,6 +154,107 @@ async def test_retry_succeeds_once_the_model_supplies_a_verifiable_amount_span()
     assert classifier._client.complete.await_count == 2
 
 
+@pytest.mark.asyncio
+async def test_per_intent_amount_and_date_without_evidence_are_nulled_not_trusted():
+    """Per-intent controls require their own verbatim evidence, not just the ledger's."""
+    classifier = CollectionEmailEventClassifier()
+    classifier._client.complete = AsyncMock(
+        return_value=_llm_response(
+            {
+                **_BASE_PAYLOAD,
+                "intent_details": [
+                    {
+                        "intent": "PROMISE_TO_PAY",
+                        "extracted_data": {
+                            "invoice_refs": ["INV-1"],
+                            "promise_amount": 100.0,
+                            "promise_date": "2026-08-14",
+                        },
+                    }
+                ],
+            }
+        )
+    )
+
+    result = await classifier.classify(
+        CollectionEmailEventRequest(
+            mode="known_collection_inbound",
+            current_message={"body": "We will pay £100.00 for INV-1 on 2026-08-14."},
+        )
+    )
+
+    extracted = result.intent_details[0].extracted_data
+    assert extracted is not None
+    assert extracted.promise_amount is None
+    assert extracted.promise_date is None
+    assert classifier._client.complete.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_per_intent_evidence_span_that_does_not_support_value_exhausts_retries():
+    """A verbatim per-intent span cannot support a different asserted amount."""
+    classifier = CollectionEmailEventClassifier()
+    classifier._client.complete = AsyncMock(
+        return_value=_llm_response(
+            {
+                **_BASE_PAYLOAD,
+                "intent_details": [
+                    {
+                        "intent": "PROMISE_TO_PAY",
+                        "extracted_data": {
+                            "invoice_refs": ["INV-1"],
+                            "promise_amount": 999.0,
+                            "promise_amount_evidence_text": "£100.00",
+                            "promise_date": "2026-08-14",
+                            "promise_date_evidence_text": "2026-08-14",
+                        },
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(LLMResponseInvalidError) as raised:
+        await classifier.classify(
+            CollectionEmailEventRequest(
+                mode="known_collection_inbound",
+                current_message={"body": "We will pay £100.00 for INV-1 on 2026-08-14."},
+            )
+        )
+
+    assert raised.value.details["validation_errors"] == [
+        {"location": "grounding", "type": "amount_evidence_does_not_support_value"}
+    ]
+    assert raised.value.details["attempt_count"] == 3
+    assert classifier._client.complete.await_count == 3
+    last_call_system_prompt = classifier._client.complete.await_args_list[-1].kwargs[
+        "system_prompt"
+    ]
+    assert "VALIDATION CORRECTION MODE" in last_call_system_prompt
+    assert "amount_evidence_does_not_support_value" in last_call_system_prompt
+
+
+@pytest.mark.asyncio
+async def test_manual_outbound_mode_uses_its_dedicated_client():
+    """Manual outbound uses its separately configured model client by default."""
+    classifier = CollectionEmailEventClassifier()
+    classifier._client.complete = AsyncMock(return_value=_llm_response(_BASE_PAYLOAD))
+    classifier._manual_outbound_client.complete = AsyncMock(
+        return_value=_llm_response(_BASE_PAYLOAD)
+    )
+
+    result = await classifier.classify(
+        CollectionEmailEventRequest(
+            mode="manual_outbound",
+            current_message={"body": "Please arrange payment for INV-1."},
+        )
+    )
+
+    assert result.semantic_classification == "PROMISE_TO_PAY"
+    assert classifier._manual_outbound_client.complete.await_count == 1
+    assert classifier._client.complete.await_count == 0
+
+
 def test_collection_email_event_schema_is_strict_for_post_provider_validation():
     """Do not reintroduce open-ended ``dict`` items into validated output."""
     schema = CollectionEmailEventLLMResponse.model_json_schema()
