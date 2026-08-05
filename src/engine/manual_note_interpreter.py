@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from datetime import date
-from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -18,6 +17,14 @@ from solvix_contracts.ai import (
 from src.api.errors import LLMResponseInvalidError
 from src.llm.factory import LLMProviderWithFallback
 
+from ._evidence_grounding import (
+    amount_is_explicit_in_span,
+    date_is_explicit_in_span,
+    locate_evidence,
+    normalize_ref,
+    reference_is_explicit_in_span,
+    validate_optional_field_evidence,
+)
 from .audit import build_ai_audit
 from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
@@ -205,40 +212,11 @@ _VALIDATION_REMEDIATION = {
 }
 
 
-def _date_is_explicit_in_span(value: object, span: str) -> bool:
-    """Verify a model-extracted date against its model-selected source span."""
-
-    try:
-        parsed = date.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return False
-    candidates = {
-        parsed.isoformat(),
-        parsed.strftime("%d/%m/%Y"),
-        parsed.strftime("%d-%m-%Y"),
-        parsed.strftime("%d.%m.%Y"),
-        f"{parsed.day}/{parsed.month}/{parsed.year}",
-        f"{parsed.day}-{parsed.month}-{parsed.year}",
-        f"{parsed.day} {parsed.strftime('%B')} {parsed.year}",
-        f"{parsed.strftime('%B')} {parsed.day}, {parsed.year}",
-    }
-    source = str(span or "").casefold()
-    return any(candidate.casefold() in source for candidate in candidates)
-
-
-def _normalize_ref(value: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
-
-
-def _locate_evidence(note: str, evidence: object, *, field: str) -> tuple[int, int, str]:
-    if not isinstance(evidence, str) or not evidence.strip():
-        raise ValueError(f"{field}_evidence_text_required")
-    start = note.find(evidence)
-    if start < 0:
-        raise ValueError(f"{field}_evidence_not_verbatim")
-    if note.find(evidence, start + 1) >= 0:
-        raise ValueError(f"{field}_evidence_not_unique")
-    return start, start + len(evidence), evidence
+_date_is_explicit_in_span = date_is_explicit_in_span
+_normalize_ref = normalize_ref
+_locate_evidence = locate_evidence
+_amount_is_explicit_in_span = amount_is_explicit_in_span
+_reference_is_explicit_in_span = reference_is_explicit_in_span
 
 
 def _validate_optional_field_evidence(
@@ -248,36 +226,13 @@ def _validate_optional_field_evidence(
     field: str,
     assertion_evidence: str,
 ) -> str | None:
-    value = candidate.get(field)
-    evidence_key = f"{field.removeprefix('asserted_')}_evidence_text"
-    evidence = candidate.get(evidence_key)
-    if value is None:
-        if evidence is not None:
-            raise ValueError(f"null_{field}_must_not_have_evidence")
-        return None
-    _, _, span = _locate_evidence(note, evidence, field=field)
-    if span not in assertion_evidence:
-        raise ValueError(f"{field}_evidence_outside_assertion")
-    return span
-
-
-def _amount_is_explicit_in_span(value: object, span: str) -> bool:
-    try:
-        expected = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        return False
-    for raw in re.findall(r"(?<![A-Za-z0-9])\d[\d,]*(?:\.\d+)?", span):
-        try:
-            if Decimal(raw.replace(",", "")) == expected:
-                return True
-        except InvalidOperation:
-            continue
-    return False
-
-
-def _reference_is_explicit_in_span(value: object, span: str) -> bool:
-    normalized_value = _normalize_ref(str(value or ""))
-    return bool(normalized_value) and normalized_value in _normalize_ref(span)
+    return validate_optional_field_evidence(
+        source_text=note,
+        candidate=candidate,
+        field=field,
+        assertion_evidence=assertion_evidence,
+        evidence_key=f"{field.removeprefix('asserted_')}_evidence_text",
+    )
 
 
 def _validated_assertions(

@@ -294,6 +294,7 @@ class CollectionEmailAmountAssertionResponse(BaseModel):
         "remittance_amount",
         "unknown",
     ] = "unknown"
+    amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
 
 
 class CollectionEmailDateAssertionResponse(BaseModel):
@@ -310,6 +311,7 @@ class CollectionEmailDateAssertionResponse(BaseModel):
         "remittance_date",
         "other",
     ] = "other"
+    date_evidence_text: Optional[str] = Field(default=None, max_length=500)
 
 
 class CollectionEmailEventResponse(BaseModel):

@@ -445,6 +445,12 @@ class CollectionEmailAmountAssertion(BaseModel):
         "remittance_amount",
         "unknown",
     ] = "unknown"
+    # Verbatim substring of the current message body supporting ``amount``.
+    # Optional on the wire (a model that omits it gets its amount nulled out
+    # by post-validation grounding rather than trusted blind — see
+    # collection_email_event_classifier.py's grounding pass), but when
+    # present it must actually verify or the response is retried.
+    amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
 
 
 class CollectionEmailDateAssertion(BaseModel):
@@ -461,6 +467,9 @@ class CollectionEmailDateAssertion(BaseModel):
         "remittance_date",
         "other",
     ] = "other"
+    # Verbatim substring of the current message body supporting ``date_value``
+    # — same grounding contract as ``amount_evidence_text`` above.
+    date_evidence_text: Optional[str] = Field(default=None, max_length=500)
 
 
 class CollectionEmailEventLLMResponse(BaseModel):

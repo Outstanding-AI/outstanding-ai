@@ -14,6 +14,146 @@ from src.llm.base import LLMResponse
 from src.llm.schemas import CollectionEmailEventLLMResponse
 
 
+def _llm_response(payload: dict) -> LLMResponse:
+    return LLMResponse(
+        content=json.dumps(payload),
+        provider="vertex",
+        model="gemini-2.5-flash",
+        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    )
+
+
+_BASE_PAYLOAD = {
+    "relevance_status": "collection",
+    "lifecycle_status": "pending_financial_confirmation",
+    "semantic_classification": "PROMISE_TO_PAY",
+    "secondary_intents": [],
+    "intent_details": [
+        {"intent": "PROMISE_TO_PAY", "extracted_data": {"invoice_refs": ["INV-1"]}},
+    ],
+    "invoice_assertions": ["INV-1"],
+    "date_assertions": [],
+    "reason_codes": [],
+    "confidence": 0.9,
+}
+
+
+@pytest.mark.asyncio
+async def test_amount_without_evidence_text_is_nulled_not_trusted():
+    """A model that omits amount_evidence_text is treated as abstention, not a hallucination risk."""
+    classifier = CollectionEmailEventClassifier()
+    classifier._client.complete = AsyncMock(
+        return_value=_llm_response(
+            {
+                **_BASE_PAYLOAD,
+                "amount_assertions": [
+                    {
+                        "invoice_ref": "INV-1",
+                        "amount": 100.0,
+                        "currency": "GBP",
+                        "assertion_type": "promised_payment",
+                    }
+                ],
+            }
+        )
+    )
+
+    result = await classifier.classify(
+        CollectionEmailEventRequest(
+            mode="known_collection_inbound",
+            current_message={"body": "We will pay £100.00 for INV-1."},
+        )
+    )
+
+    assert result.amount_assertions[0].amount is None
+    assert result.amount_assertions[0].currency is None
+    assert classifier._client.complete.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_amount_evidence_that_does_not_verify_exhausts_retries_and_raises():
+    classifier = CollectionEmailEventClassifier()
+    classifier._client.complete = AsyncMock(
+        return_value=_llm_response(
+            {
+                **_BASE_PAYLOAD,
+                "amount_assertions": [
+                    {
+                        "invoice_ref": "INV-1",
+                        "amount": 100.0,
+                        "currency": "GBP",
+                        "assertion_type": "promised_payment",
+                        "amount_evidence_text": "£999.00",
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(LLMResponseInvalidError) as raised:
+        await classifier.classify(
+            CollectionEmailEventRequest(
+                mode="known_collection_inbound",
+                current_message={"body": "We will pay £100.00 for INV-1."},
+            )
+        )
+
+    assert raised.value.details["validation_errors"] == [
+        {"location": "grounding", "type": "amount_evidence_not_verbatim"}
+    ]
+    assert raised.value.details["attempt_count"] == 3
+    assert classifier._client.complete.await_count == 3
+    last_call_system_prompt = classifier._client.complete.await_args_list[-1].kwargs[
+        "system_prompt"
+    ]
+    assert "VALIDATION CORRECTION MODE" in last_call_system_prompt
+    assert "amount_evidence_not_verbatim" in last_call_system_prompt
+
+
+@pytest.mark.asyncio
+async def test_retry_succeeds_once_the_model_supplies_a_verifiable_amount_span():
+    classifier = CollectionEmailEventClassifier()
+    bad_response = _llm_response(
+        {
+            **_BASE_PAYLOAD,
+            "amount_assertions": [
+                {
+                    "invoice_ref": "INV-1",
+                    "amount": 100.0,
+                    "currency": "GBP",
+                    "assertion_type": "promised_payment",
+                    "amount_evidence_text": "£999.00",
+                }
+            ],
+        }
+    )
+    good_response = _llm_response(
+        {
+            **_BASE_PAYLOAD,
+            "amount_assertions": [
+                {
+                    "invoice_ref": "INV-1",
+                    "amount": 100.0,
+                    "currency": "GBP",
+                    "assertion_type": "promised_payment",
+                    "amount_evidence_text": "£100.00",
+                }
+            ],
+        }
+    )
+    classifier._client.complete = AsyncMock(side_effect=[bad_response, good_response])
+
+    result = await classifier.classify(
+        CollectionEmailEventRequest(
+            mode="known_collection_inbound",
+            current_message={"body": "We will pay £100.00 for INV-1."},
+        )
+    )
+
+    assert result.amount_assertions[0].amount == 100.0
+    assert classifier._client.complete.await_count == 2
+
+
 def test_collection_email_event_schema_is_strict_for_post_provider_validation():
     """Do not reintroduce open-ended ``dict`` items into validated output."""
     schema = CollectionEmailEventLLMResponse.model_json_schema()
@@ -41,8 +181,10 @@ def test_collection_email_event_reuses_per_intent_debtor_response_scope():
     assert parsed.intent_details[1].extracted_data.invoice_refs == ["INV-B"]
     assert "candidate_count is 1" in _SYSTEM_PROMPT
     assert "Never assign one promise, dispute, or" in _SYSTEM_PROMPT
-    assert PROMPT_TEMPLATE_VERSION == "v7"
+    assert PROMPT_TEMPLATE_VERSION == "v8"
     assert "only earlier retained events" in _SYSTEM_PROMPT
+    assert "GROUNDING" in _SYSTEM_PROMPT
+    assert "amount_evidence_text" in _SYSTEM_PROMPT
 
 
 def test_collection_email_event_schema_rejects_unrecognised_output_fields():
@@ -150,6 +292,7 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
                             "amount": 100.0,
                             "currency": "GBP",
                             "assertion_type": "promised_payment",
+                            "amount_evidence_text": "£100.00",
                         }
                     ],
                     "date_assertions": [
@@ -157,6 +300,7 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
                             "invoice_ref": "INV-1",
                             "date_value": "2026-07-15",
                             "assertion_type": "promise_date",
+                            "date_evidence_text": "2026-07-15",
                         }
                     ],
                     "reason_codes": ["debtor_payment_commitment"],
@@ -171,7 +315,7 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
     result = await classifier.classify(
         CollectionEmailEventRequest(
             mode="known_collection_inbound",
-            current_message={"body": "We will pay INV-1 tomorrow."},
+            current_message={"body": "We will pay £100.00 for INV-1 on 2026-07-15."},
         )
     )
 
@@ -186,5 +330,6 @@ async def test_collection_email_event_uses_vertex_primary_and_strict_schema():
             "amount": 100.0,
             "currency": "GBP",
             "assertion_type": "promised_payment",
+            "amount_evidence_text": "£100.00",
         }
     ]
