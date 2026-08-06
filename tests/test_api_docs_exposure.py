@@ -2,7 +2,11 @@ from src.config.settings import Settings
 
 
 def test_api_docs_are_disabled_by_default_in_production():
-    settings = Settings(environment="production", service_auth_token="test-token")
+    settings = Settings(
+        environment="production",
+        service_auth_token="test-token",
+        llm_provider="openai",
+    )
 
     assert settings.api_docs_enabled() is False
     assert settings.public_paths() == {"/health", "/ping"}
