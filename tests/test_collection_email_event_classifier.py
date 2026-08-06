@@ -240,7 +240,14 @@ async def test_manual_outbound_mode_uses_its_dedicated_client():
     classifier = CollectionEmailEventClassifier()
     classifier._client.complete = AsyncMock(return_value=_llm_response(_BASE_PAYLOAD))
     classifier._manual_outbound_client.complete = AsyncMock(
-        return_value=_llm_response(_BASE_PAYLOAD)
+        return_value=_llm_response(
+            {
+                **_BASE_PAYLOAD,
+                "lifecycle_status": "awaiting_debtor_response",
+                "semantic_classification": "OUTBOUND_COLLECTION_ACTION",
+                "intent_details": [],
+            }
+        )
     )
 
     result = await classifier.classify(
@@ -250,7 +257,7 @@ async def test_manual_outbound_mode_uses_its_dedicated_client():
         )
     )
 
-    assert result.semantic_classification == "PROMISE_TO_PAY"
+    assert result.semantic_classification == "OUTBOUND_COLLECTION_ACTION"
     assert classifier._manual_outbound_client.complete.await_count == 1
     assert classifier._client.complete.await_count == 0
 
@@ -282,7 +289,7 @@ def test_collection_email_event_reuses_per_intent_debtor_response_scope():
     assert parsed.intent_details[1].extracted_data.invoice_refs == ["INV-B"]
     assert "candidate_count is 1" in _SYSTEM_PROMPT
     assert "Never assign one promise, dispute, or" in _SYSTEM_PROMPT
-    assert PROMPT_TEMPLATE_VERSION == "v9"
+    assert PROMPT_TEMPLATE_VERSION == "v10"
     assert "only earlier retained events" in _SYSTEM_PROMPT
     assert "GROUNDING" in _SYSTEM_PROMPT
     assert "amount_evidence_text" in _SYSTEM_PROMPT

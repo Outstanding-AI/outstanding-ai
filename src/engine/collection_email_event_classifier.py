@@ -34,8 +34,22 @@ from .audit import build_ai_audit
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v9"
+PROMPT_TEMPLATE_VERSION = "v10"
 _MAX_GROUNDING_ATTEMPTS = 3
+
+# A manual outbound message is authored by our organisation. It can record a
+# collection touch, escalation, or acknowledgement, but cannot truthfully
+# report a debtor-authored promise, dispute, remittance, or payment claim.
+_MANUAL_OUTBOUND_SEMANTIC_CLASSES = frozenset(
+    {
+        "OUTBOUND_COLLECTION_ACTION",
+        "OUTBOUND_ESCALATION_ACTION",
+        "OUTBOUND_PROMISE_ACKNOWLEDGEMENT",
+    }
+)
+_MANUAL_OUTBOUND_LIFECYCLE_STATUSES = frozenset(
+    {"active", "awaiting_debtor_response", "not_applicable", "uncertain"}
+)
 
 _GROUNDING_VALIDATION_REMEDIATION = {
     "amount_evidence_not_verbatim": (
@@ -65,6 +79,20 @@ _GROUNDING_VALIDATION_REMEDIATION = {
         "The quoted date_evidence_text does not contain the calendar date you asserted. Either "
         "correct date_value to match the quoted text, or set date_value and date_evidence_text to "
         "null."
+    ),
+    "manual_outbound_semantic_classification_invalid": (
+        "For mode manual_outbound, semantic_classification and every secondary intent must be null "
+        "or one of OUTBOUND_COLLECTION_ACTION, OUTBOUND_ESCALATION_ACTION, and "
+        "OUTBOUND_PROMISE_ACKNOWLEDGEMENT. Debtor-authored response categories are invalid."
+    ),
+    "manual_outbound_lifecycle_status_invalid": (
+        "For mode manual_outbound, lifecycle_status must be active, awaiting_debtor_response, "
+        "not_applicable, or uncertain. A manual outbound email cannot itself claim financial "
+        "confirmation or close a collection conversation."
+    ),
+    "manual_outbound_neutral_intent_details_invalid": (
+        "When manual_outbound has no semantic_classification, secondary_intents and intent_details "
+        "must both be empty."
     ),
 }
 
@@ -154,6 +182,36 @@ contextual link as described above — never invent an invoice number."""
 )
 
 _USER_PROMPT = """Mode: {mode}\n\nEmail event evidence:\n{payload}"""
+
+_MANUAL_OUTBOUND_MODE_CONTRACT = """
+MANUAL-OUTBOUND MODE CONTRACT
+The current message was authored by our organisation. Classify only its current
+operational meaning; earlier-chain context may resolve scope after a current
+meaning is established, but can never create that meaning.
+
+For this mode, semantic_classification may be only null,
+OUTBOUND_COLLECTION_ACTION, OUTBOUND_ESCALATION_ACTION, or
+OUTBOUND_PROMISE_ACKNOWLEDGEMENT. Do not use debtor-authored response
+categories such as PROMISE_TO_PAY, REQUEST_INFO, ALREADY_PAID, DISPUTE,
+REMITTANCE_ADVICE, GENERIC_ACKNOWLEDGEMENT, or COOPERATIVE.
+
+Choose OUTBOUND_COLLECTION_ACTION only when the current authored message
+expressly asks the recipient to pay, settle, or provide a payment date, status,
+or update for an invoice or account balance. Choose
+OUTBOUND_ESCALATION_ACTION only when the current authored message expressly
+communicates an escalation or consequence of continued non-payment. Choose
+OUTBOUND_PROMISE_ACKNOWLEDGEMENT only when the current authored message
+expressly acknowledges a debtor's previously stated payment promise or payment
+confirmation.
+
+Otherwise semantic_classification must be null with empty secondary_intents
+and intent_details. Invoice issuance, attachment, statement distribution,
+document resend, reference numbers, due dates, and invitations to ask questions
+are neutral unless the current text also contains one of the explicit meanings
+above. Before selecting a non-null value, decide whether that meaning remains
+in the current message after ignoring prior_messages, prior_evidence, and
+chain_status. If it does not, return null.
+"""
 
 
 def _parse_response_object(content: str) -> dict:
@@ -273,6 +331,22 @@ def _apply_grounding(
     )
 
 
+def _validate_manual_outbound_contract(parsed: CollectionEmailEventLLMResponse) -> None:
+    """Fail closed when a sender-role-specific output contradicts manual-outbound mode."""
+
+    if parsed.lifecycle_status not in _MANUAL_OUTBOUND_LIFECYCLE_STATUSES:
+        raise ValueError("manual_outbound_lifecycle_status_invalid")
+    intents = [
+        value
+        for value in [parsed.semantic_classification, *parsed.secondary_intents]
+        if value is not None
+    ]
+    if any(intent not in _MANUAL_OUTBOUND_SEMANTIC_CLASSES for intent in intents):
+        raise ValueError("manual_outbound_semantic_classification_invalid")
+    if not parsed.semantic_classification and (parsed.secondary_intents or parsed.intent_details):
+        raise ValueError("manual_outbound_neutral_intent_details_invalid")
+
+
 def _grounding_validation_code(exc: Exception) -> str:
     """Map a raised validation/grounding error to a stable snake_case code.
 
@@ -353,7 +427,11 @@ class CollectionEmailEventClassifier:
             mode="json", exclude_none=True, exclude={"model_override"}
         )
         body = str((request.current_message or {}).get("body") or "")
-        active_system_prompt = _SYSTEM_PROMPT
+        active_system_prompt = (
+            _SYSTEM_PROMPT + _MANUAL_OUTBOUND_MODE_CONTRACT
+            if request.mode == "manual_outbound"
+            else _SYSTEM_PROMPT
+        )
         last_exc: Exception | None = None
         response = None
         user_prompt = ""
@@ -378,6 +456,8 @@ class CollectionEmailEventClassifier:
             try:
                 parsed = CollectionEmailEventLLMResponse(**_parse_response_object(response.content))
                 parsed = _apply_grounding(parsed, body=body)
+                if request.mode == "manual_outbound":
+                    _validate_manual_outbound_contract(parsed)
             except (ValidationError, ValueError, TypeError) as exc:
                 last_exc = exc
                 validation_code = _grounding_validation_code(exc)
@@ -386,7 +466,9 @@ class CollectionEmailEventClassifier:
                     "Correct the proposed extraction to satisfy the system contract exactly.",
                 )
                 active_system_prompt = (
-                    f"{_SYSTEM_PROMPT}\n\nVALIDATION CORRECTION MODE\n"
+                    f"{_SYSTEM_PROMPT}"
+                    f"{_MANUAL_OUTBOUND_MODE_CONTRACT if request.mode == 'manual_outbound' else ''}"
+                    "\n\nVALIDATION CORRECTION MODE\n"
                     f"The previous output failed {validation_code}. {remediation} "
                     "Return a fresh corrected extraction and do not repeat the invalid field value."
                 )
