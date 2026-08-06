@@ -43,6 +43,21 @@ _VERTEX_POLICY_DENIAL = re.compile(
 )
 
 
+def _is_vertex_rate_limit_error(exc: VertexClientError) -> bool:
+    """Recognise quota errors that google-genai exposes as generic 4xx errors.
+
+    ``google.genai.errors.ClientError`` represents every HTTP 4xx response,
+    including Vertex's 429 ``RESOURCE_EXHAUSTED``.  Treating that concrete
+    provider condition as malformed structured output prevents the factory
+    from applying its transient-failure cooldown/fallback policy.
+    """
+
+    return (
+        int(getattr(exc, "code", 0) or 0) == 429
+        or str(getattr(exc, "status", "") or "").upper() == "RESOURCE_EXHAUSTED"
+    )
+
+
 def _log_retry(retry_state):
     """Log retry attempts with structured metrics."""
     exception = retry_state.outcome.exception()
@@ -208,6 +223,20 @@ class VertexProvider(BaseLLMProvider):
             )
             raise LLMProviderUnavailableError(str(exc)) from exc
         except VertexClientError as exc:
+            if _is_vertex_rate_limit_error(exc):
+                logger.error(
+                    "Vertex provider rate limited",
+                    extra={
+                        "caller": caller,
+                        "provider": "vertex",
+                        "model": self._model,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                        "structured": bool(response_schema),
+                    },
+                    exc_info=True,
+                )
+                raise LLMRateLimitedError(str(exc)) from exc
             if _VERTEX_POLICY_DENIAL.search(str(exc)):
                 logger.warning(
                     "Vertex provider policy denied request; eligible for fallback",
