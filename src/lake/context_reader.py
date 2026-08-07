@@ -48,6 +48,7 @@ DRAFTS_CURRENT = "silver_app_drafts_current"
 COLLECTION_MAIL_INVOICES_CURRENT = "silver_app_collection_mail_invoices_current"
 MAIL_MESSAGES_CURRENT = "silver_core_mail_messages_current"
 PARTY_COLLECTION_STATE_CURRENT = "party_collection_state_events_current"
+PARTY_OPERATOR_OVERRIDES_CURRENT = "party_operator_override_versions_current"
 PARTY_COMM_STATE_CURRENT = "party_comm_state_events_current"
 PARTY_BEHAVIOR_PROFILE_CURRENT = "party_behavior_profile_versions_current"
 
@@ -131,7 +132,20 @@ class ContextReadRepository:
                 p.silver_observed_at,
                 cs.case_state,
                 cs.pause_reason,
-                cs.do_not_contact_until,
+                CASE
+                    WHEN NOT COALESCE(
+                        contains(
+                            TRY(CAST(json_parse(COALESCE(po.managed_fields_json, '[]')) AS ARRAY(VARCHAR))),
+                            'operator_do_not_contact_until'
+                        ),
+                        FALSE
+                    ) THEN CAST(cs.do_not_contact_until AS DATE)
+                    WHEN cs.do_not_contact_until IS NULL THEN po.operator_do_not_contact_until
+                    WHEN po.operator_do_not_contact_until IS NULL THEN CAST(cs.do_not_contact_until AS DATE)
+                    WHEN CAST(cs.do_not_contact_until AS DATE) >= po.operator_do_not_contact_until
+                        THEN CAST(cs.do_not_contact_until AS DATE)
+                    ELSE po.operator_do_not_contact_until
+                END AS do_not_contact_until,
                 cs.active_dispute_id AS dispute_type,
                 comm.touch_count,
                 comm.last_outbound_at AS last_touch_at,
@@ -152,10 +166,34 @@ class ContextReadRepository:
                 CAST(NULL AS VARCHAR) AS behaviour_profile,
                 CAST(NULL AS VARCHAR) AS behaviour_segment,
                 CAST(TRUE AS BOOLEAN) AS is_verified,
-                CAST(NULL AS VARCHAR) AS relationship_tier,
-                CAST(NULL AS VARCHAR) AS tone_override,
-                CAST(NULL AS INTEGER) AS grace_days_override,
-                CAST(NULL AS INTEGER) AS touch_cap_override,
+                CASE WHEN COALESCE(
+                    contains(
+                        TRY(CAST(json_parse(COALESCE(po.managed_fields_json, '[]')) AS ARRAY(VARCHAR))),
+                        'relationship_tier'
+                    ),
+                    FALSE
+                ) THEN po.relationship_tier ELSE p.relationship_tier END AS relationship_tier,
+                CASE WHEN COALESCE(
+                    contains(
+                        TRY(CAST(json_parse(COALESCE(po.managed_fields_json, '[]')) AS ARRAY(VARCHAR))),
+                        'tone_override'
+                    ),
+                    FALSE
+                ) THEN po.tone_override ELSE p.tone_override END AS tone_override,
+                CASE WHEN COALESCE(
+                    contains(
+                        TRY(CAST(json_parse(COALESCE(po.managed_fields_json, '[]')) AS ARRAY(VARCHAR))),
+                        'grace_days_override'
+                    ),
+                    FALSE
+                ) THEN po.grace_days_override ELSE p.grace_days_override END AS grace_days_override,
+                CASE WHEN COALESCE(
+                    contains(
+                        TRY(CAST(json_parse(COALESCE(po.managed_fields_json, '[]')) AS ARRAY(VARCHAR))),
+                        'touch_cap_override'
+                    ),
+                    FALSE
+                ) THEN po.touch_cap_override ELSE p.touch_cap_override END AS touch_cap_override,
                 CAST(0 AS INTEGER) AS monthly_touch_count,
                 CAST(FALSE AS BOOLEAN) AS hardship_indicated,
                 CAST(FALSE AS BOOLEAN) AS unsubscribe_requested,
@@ -165,6 +203,9 @@ class ContextReadRepository:
             LEFT JOIN {current_projection(self.source(PARTY_COLLECTION_STATE_CURRENT), "cs")}
               ON cs.party_id = p.id
              AND cs.tenant_id = p.tenant_id
+            LEFT JOIN {current_projection(self.source(PARTY_OPERATOR_OVERRIDES_CURRENT), "po")}
+              ON po.party_id = p.id
+             AND po.tenant_id = p.tenant_id
             LEFT JOIN {current_projection(self.source(PARTY_COMM_STATE_CURRENT), "comm")}
               ON comm.party_id = p.id
              AND comm.tenant_id = p.tenant_id
@@ -177,6 +218,7 @@ class ContextReadRepository:
             [
                 self.tenant_id,
                 tuple(party_ids),
+                self.tenant_id,
                 self.tenant_id,
                 self.tenant_id,
                 self.tenant_id,
