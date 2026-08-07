@@ -34,7 +34,7 @@ from .audit import build_ai_audit
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v10"
+PROMPT_TEMPLATE_VERSION = "v11"
 _MAX_GROUNDING_ATTEMPTS = 3
 
 # A manual outbound message is authored by our organisation. It can record a
@@ -120,6 +120,47 @@ controlled debtor-response taxonomy as the operational classifier:
 For a known collection chain, preserve collection relevance unless this event
 explicitly closes or reopens the email conversation. A debtor payment or
 promise claim is pending_financial_confirmation, never proof of payment.
+
+DISPUTE TRIAGE — APPLY BEFORE RULING AN INBOUND DEBTOR RESPONSE NON-DISPUTE
+First inspect the current debtor-authored text for a challenge to the invoice,
+amount, payment terms, delivery, billing party, tax, price, contractual basis,
+or another condition that prevents or questions payment. Do not rely on a
+subject line, quoted history, prior messages, or silence. The absence of the
+word “dispute” is not enough to rule out a challenge; equally, a missing or
+vague challenge is never enough to create a blocking dispute control.
+
+Use these mutually exclusive decision boundaries for each invoice-scoped
+statement:
+* DISPUTE: the debtor challenges whether an invoice is valid or payable at all,
+  or asks for correction/investigation because of an asserted invoice error,
+  ownership/billing issue, delivery/service issue, duplicate/incorrect charge,
+  tax issue, cancellation, credit, or contractual objection.
+* AMOUNT_DISAGREEMENT: the debtor accepts that the invoice is owed but asserts
+  that its balance, rate, quantity, tax, credit, or other monetary figure is
+  wrong.
+* PAYMENT_TIMING_DISPUTE: the debtor challenges the invoice's due date,
+  payment terms, or whether it is currently payable. A future payment date is
+  not this intent when it is an unqualified payment commitment; use
+  PROMISE_TO_PAY instead.
+* DEBTOR_INTERNAL_PROCESSING_BLOCKER: the debtor does not challenge the
+  invoice's correctness, but expressly says a concrete debtor-side process
+  prevents payment—for example an unresolved approval, matching, receipt,
+  portal, or payment-run dependency. Do not turn a debtor-side processing
+  blocker into DISPUTE.
+* QUERY_QUESTION: the debtor asks for information but does not assert a
+  challenge or a concrete payment-blocking process.
+
+Statements such as an acknowledgement, “checking”, “looking into it”,
+“please assist”, “not seen yet”, a bare PO/reference, a generic portal link,
+or a generic request-receipt SLA do not prove a dispute or blocker. If the
+current text plausibly signals an invoice concern but does not establish one
+of the boundaries above, abstain from a material control: set
+semantic_classification to null, use lifecycle_status="uncertain", leave
+intent_details empty, and add reason_codes containing
+"possible_invoice_concern_insufficient_for_control". Never use a material
+dispute class just to avoid missing a concern; the system retains that
+uncertainty for later evidence without inventing a query state.
+
 ``prior_evidence`` can contain one ``chain_invoice_context`` object. Its
 invoice_candidates are body-free identifiers explicitly established in earlier
 messages from this chain; they are not Sage results. For each response intent:
