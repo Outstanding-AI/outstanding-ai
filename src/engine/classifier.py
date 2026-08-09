@@ -57,7 +57,7 @@ from .formatters import format_industry_context_for_classification, format_invoi
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT_TEMPLATE_ID = "classification"
-CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_date_precision_v1"
+CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_chase_schedule_v2"
 CLASSIFICATION_GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 _WEEKDAY_INDEX = {
@@ -69,6 +69,7 @@ _WEEKDAY_INDEX = {
     "saturday": 5,
     "sunday": 6,
 }
+_WEEKDAY_ABBREVIATION_INDEX = {name[:3]: value for name, value in _WEEKDAY_INDEX.items()}
 _WEEKDAY_PATTERN = "|".join(_WEEKDAY_INDEX)
 _NEXT_WEEKDAY_RE = re.compile(rf"\bnext\s+({_WEEKDAY_PATTERN})\b", re.IGNORECASE)
 _THIS_WEEKDAY_RE = re.compile(rf"\bthis\s+({_WEEKDAY_PATTERN})\b", re.IGNORECASE)
@@ -80,6 +81,12 @@ _VAGUE_PROMISE_TIMING_RE = re.compile(
     r"\b(?:end\s+of\s+(?:the\s+)?(?:month|"
     r"january|february|march|april|may|june|july|august|september|october|november|december)"
     r"|next\s+payment\s+run|upcoming\s+payment\s+run|later\s+this\s+month|soon)\b",
+    re.IGNORECASE,
+)
+_BOUNDED_PROMISE_PERIOD_RE = re.compile(
+    r"\b(?:next\s+week|next\s+month|"
+    r"(?:in|within)\s+(?:one|two|three|four|\d+)\s+(?:week|weeks|month|months)|"
+    r"(?:one|two|three|four|\d+)\s+(?:week|weeks|month|months)(?:'|’)?\s+time)\b",
     re.IGNORECASE,
 )
 _EXACT_DATE_CUE_RE = re.compile(
@@ -144,6 +151,10 @@ class EmailClassifier:
         # and detect per-invoice intents (e.g., "we paid INV-1234").
         invoice_table = format_invoice_table(request.context)
         reference_date = _classification_reference_date(request)
+        commitment_chase_dates = _configured_commitment_chase_dates(
+            request,
+            reference_date=reference_date,
+        )
         received_at_display = (
             request.email.received_at.isoformat() if request.email.received_at else "not supplied"
         )
@@ -173,6 +184,7 @@ class EmailClassifier:
             ),
             received_at=received_at_display,
             reference_date=reference_date.isoformat(),
+            commitment_chase_dates=_format_commitment_chase_dates(commitment_chase_dates),
             from_name=request.email.from_name or "Unknown",
             from_address=request.email.from_address,
             subject=sanitize_delimiter_tags(request.email.subject),
@@ -212,6 +224,7 @@ class EmailClassifier:
             reference_date=reference_date,
             source_text=relative_date_source,
             intent=result.classification,
+            allowed_commitment_dates=commitment_chase_dates,
         )
 
         intent_details: list[IntentDetail] | None = None
@@ -223,6 +236,7 @@ class EmailClassifier:
                     reference_date=reference_date,
                     source_text=relative_date_source,
                     intent=detail.intent,
+                    allowed_commitment_dates=commitment_chase_dates,
                 )
                 parsed_details.append(
                     IntentDetail(intent=detail.intent, extracted_data=detail_extracted)
@@ -326,6 +340,7 @@ def _build_extracted_data(
     reference_date: date | None = None,
     source_text: str | None = None,
     intent: str | None = None,
+    allowed_commitment_dates: tuple[date, ...] = (),
 ) -> ExtractedData | None:
     """Convert an ``LLMExtractedData`` (string dates) to ``ExtractedData`` (date objects).
 
@@ -369,13 +384,21 @@ def _build_extracted_data(
         "promise_date",
         {"PROMISE_TO_PAY"},
     )
+    promise_date_evidence_text = raw.promise_date_evidence_text
     if normalized_intent == "PROMISE_TO_PAY" and _requires_schedule_date_fallback(source_text):
-        promise_date = None
+        # Vague but bounded debtor timing is normalized only to one of the
+        # tenant's configured collection dates supplied to the model.  This
+        # keeps the LLM useful for semantic interpretation without allowing
+        # it to invent an arbitrary calendar date.
+        if promise_date not in set(allowed_commitment_dates):
+            promise_date = None
+        elif not promise_date_evidence_text:
+            promise_date_evidence_text = _vague_promise_period_evidence(source_text)
 
     return ExtractedData(
         promise_date=promise_date,
         promise_amount=raw.promise_amount,
-        promise_date_evidence_text=raw.promise_date_evidence_text,
+        promise_date_evidence_text=promise_date_evidence_text,
         promise_amount_evidence_text=raw.promise_amount_evidence_text,
         promise_strength=raw.promise_strength,
         dispute_type=raw.dispute_type,
@@ -488,9 +511,74 @@ def _requires_schedule_date_fallback(text: str | None) -> bool:
     configured draft-generation date.
     """
 
-    if not text or not _VAGUE_PROMISE_TIMING_RE.search(str(text)):
+    if not text:
         return False
-    return _EXACT_DATE_CUE_RE.search(str(text)) is None
+    value = str(text)
+    vague_timing = bool(
+        _VAGUE_PROMISE_TIMING_RE.search(value) or _BOUNDED_PROMISE_PERIOD_RE.search(value)
+    )
+    return vague_timing and _EXACT_DATE_CUE_RE.search(value) is None
+
+
+def _vague_promise_period_evidence(text: str | None) -> str | None:
+    if not text:
+        return None
+    match = _BOUNDED_PROMISE_PERIOD_RE.search(str(text))
+    if match:
+        return match.group(0)
+    match = _VAGUE_PROMISE_TIMING_RE.search(str(text))
+    return match.group(0) if match else None
+
+
+def _configured_commitment_chase_dates(
+    request: ClassifyRequest,
+    *,
+    reference_date: date,
+    horizon_days: int = 124,
+) -> tuple[date, ...]:
+    """Return future tenant collection dates allowed for vague commitments.
+
+    Dates are derived only from the tenant's effective draft-generation
+    windows.  The LLM receives these as a closed list; it cannot create a
+    chase date that is not configured by the collection protocol.
+    """
+
+    tenant_settings = request.context.tenant_settings or {}
+    protocol = tenant_settings.get("escalation_protocol") or {}
+    global_config = protocol.get("global") if isinstance(protocol, dict) else None
+    policy = (
+        global_config.get("draft_generation_policy") if isinstance(global_config, dict) else None
+    )
+    if not isinstance(policy, dict) or policy.get("mode") != "scheduled_prep":
+        return ()
+
+    weekdays: set[int] = set()
+    for window in policy.get("windows") or []:
+        if not isinstance(window, dict):
+            continue
+        weekday_name = str(window.get("weekday") or "").strip().lower()
+        weekday = _WEEKDAY_INDEX.get(weekday_name)
+        if weekday is None:
+            weekday = _WEEKDAY_ABBREVIATION_INDEX.get(weekday_name[:3])
+        if weekday is not None:
+            weekdays.add(weekday)
+    if not weekdays:
+        return ()
+
+    dates: list[date] = []
+    cursor = reference_date + timedelta(days=1)
+    end = reference_date + timedelta(days=max(1, horizon_days))
+    while cursor <= end:
+        if cursor.weekday() in weekdays:
+            dates.append(cursor)
+        cursor += timedelta(days=1)
+    return tuple(dates)
+
+
+def _format_commitment_chase_dates(values: tuple[date, ...]) -> str:
+    if not values:
+        return "None configured; leave vague commitment dates null."
+    return "\n".join(f"- {value.isoformat()} ({value.strftime('%A')})" for value in values)
 
 
 def _next_weekday(
