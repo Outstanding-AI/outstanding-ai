@@ -54,6 +54,10 @@ class LLMExtractedData(BaseModel):
     # PROMISE_TO_PAY
     promise_date: Optional[str] = None  # String from LLM, parsed to date in engine
     promise_amount: Optional[float] = None
+    # Provenance-bearing full-balance default for an amount-less promise.  It
+    # deliberately carries no numeric value: accounting supplies the current
+    # invoice balance only after downstream scope reconciliation.
+    full_current_balance: bool = False
     # The response stage consumes these per-intent values, so each operational
     # amount/date must carry its own verbatim support. Grounding only the
     # parallel top-level assertion ledger is not sufficient.
@@ -133,6 +137,12 @@ class LLMExtractedData(BaseModel):
     # default to all open obligations — they should restrict to the
     # message's lane (see ETL classification_service._resolve_promise_scope).
     account_wide: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def validate_promise_amount_provenance(self) -> "LLMExtractedData":
+        if self.promise_amount is not None and self.full_current_balance:
+            raise ValueError("promise_amount and full_current_balance are mutually exclusive")
+        return self
 
 
 class IntentDetailLLM(BaseModel):

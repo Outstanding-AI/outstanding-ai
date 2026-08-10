@@ -57,7 +57,7 @@ from .formatters import format_industry_context_for_classification, format_invoi
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT_TEMPLATE_ID = "classification"
-CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_chase_schedule_v2"
+CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_full_balance_v3"
 CLASSIFICATION_GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
 
 _WEEKDAY_INDEX = {
@@ -398,6 +398,12 @@ def _build_extracted_data(
     return ExtractedData(
         promise_date=promise_date,
         promise_amount=raw.promise_amount,
+        # An amount-less debtor commitment means the full current balance for
+        # its resolved invoice scope.  Keep the numeric field empty so a Sage
+        # balance is never represented as debtor-authored evidence.  If the
+        # model proposed any amount (even one later rejected by another
+        # boundary), it must not simultaneously claim this default.
+        full_current_balance=(normalized_intent == "PROMISE_TO_PAY" and raw.promise_amount is None),
         promise_date_evidence_text=promise_date_evidence_text,
         promise_amount_evidence_text=raw.promise_amount_evidence_text,
         promise_strength=raw.promise_strength,

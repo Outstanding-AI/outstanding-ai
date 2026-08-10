@@ -34,7 +34,7 @@ from .audit import build_ai_audit
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_ID = "collection_email_event"
-PROMPT_TEMPLATE_VERSION = "v11"
+PROMPT_TEMPLATE_VERSION = "v12"
 _MAX_GROUNDING_ATTEMPTS = 3
 
 # A manual outbound message is authored by our organisation. It can record a
@@ -188,7 +188,10 @@ Return a JSON object only, with exactly these keys and types:
       disputed_amount, or claimed_amount include its matching
       *_amount_evidence_text field. For every non-null promise_date,
       claimed_date, claimed_due_date, or claimed_payment_date include its
-      matching *_date_evidence_text field.}}],
+      matching *_date_evidence_text field. A PROMISE_TO_PAY with no numeric
+      amount stated in the current debtor-authored text must carry
+      "promise_amount": null and "full_current_balance": true. An explicitly
+      stated numeric promise amount must carry "full_current_balance": false.}}],
   "invoice_assertions": ["invoice reference"],
   "amount_assertions": [{"invoice_ref": string-or-null, "amount":
       number-or-null, "currency": string-or-null, "assertion_type":
@@ -216,6 +219,13 @@ the body. Never paraphrase, reformat, or normalize the quoted text — copy it
 exactly as written, including original date/number formatting. If you cannot
 find or quote exact verbatim text supporting an amount or date, set that
 amount/date_value and its evidence field to null rather than guessing.
+For PROMISE_TO_PAY, an amount-less commitment means the full current balance
+of the safely reconciled invoice scope: set full_current_balance=true while
+keeping promise_amount, promise_amount_evidence_text, and promised-payment
+amount_assertions empty. This flag is accounting-resolution provenance, not a
+claim that the debtor stated a number. If the debtor states a numeric partial
+or exact amount, set full_current_balance=false and ground that amount
+verbatim. Never derive a debtor-stated amount from chain metadata or context.
 Invoice references you name explicitly in intent_details/invoice_assertions
 do not require a separate evidence field, but must still come from text
 actually present in the current message or a valid single-candidate
@@ -327,6 +337,15 @@ def _apply_grounding(
             grounded_details.append(detail)
             continue
         updates: dict[str, object] = {}
+        # Decide amount provenance from the model's original monetary claim,
+        # before grounding can null an unsupported value. A genuinely
+        # amount-less promise defaults to the full current balance; a proposed
+        # explicit amount that fails grounding must remain neither a trusted
+        # partial amount nor a silently widened full-balance promise.
+        if str(detail.intent or "").upper() == "PROMISE_TO_PAY":
+            updates["full_current_balance"] = extracted.promise_amount is None
+        else:
+            updates["full_current_balance"] = False
         for value_field, evidence_field in (
             ("promise_amount", "promise_amount_evidence_text"),
             ("disputed_amount", "disputed_amount_evidence_text"),

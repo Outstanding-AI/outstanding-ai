@@ -15,11 +15,15 @@ from typing import Any
 from solvix_contracts import __version__ as contracts_version
 from solvix_contracts.datalake.v2 import load_manifest_v2
 
-from src.api.models.requests import CollectionEmailFactExtractionRequest
+from src.api.models.requests import (
+    CollectionEmailEventRequest,
+    CollectionEmailFactExtractionRequest,
+)
 from src.api.models.responses import (
     CollectionEmailEventResponse,
     CollectionEmailFactExtractionResponse,
 )
+from src.engine.collection_email_event_classifier import CollectionEmailEventClassifier
 from src.engine.collection_email_fact_extractor import CollectionEmailFactExtractor
 from src.llm.base import LLMProviderUnavailableError
 from src.llm.schemas import (
@@ -126,18 +130,121 @@ async def validate_live(*, force_fallback: bool) -> dict[str, Any]:
     }
 
 
+def _promise_detail(response: CollectionEmailEventResponse) -> dict[str, Any]:
+    assert response.semantic_classification == "PROMISE_TO_PAY"
+    detail = next(item for item in response.intent_details if item.intent == "PROMISE_TO_PAY")
+    assert detail.extracted_data is not None
+    return detail.extracted_data.model_dump(mode="json")
+
+
+async def validate_promise_amount_provenance(*, force_fallback: bool) -> dict[str, Any]:
+    """Exercise full-balance and explicit-partial promises against a real provider.
+
+    Synthetic invoice references keep the release check customer-data-free.
+    Only aggregate provider telemetry is returned to stdout.
+    """
+
+    classifier = CollectionEmailEventClassifier()
+    if force_fallback:
+        classifier._client._primary = _TransientVertexFailure()
+
+    common = {
+        "mode": "known_collection_inbound",
+        "prior_messages": [],
+        "prior_evidence": [
+            {
+                "chain_invoice_context": {
+                    "invoice_candidates": [{"invoice_ref": "TEST-100"}],
+                    "candidate_count": 1,
+                    "is_truncated": False,
+                }
+            }
+        ],
+        "chain_status": {"status": "active"},
+    }
+    amount_less = await classifier.classify(
+        CollectionEmailEventRequest(
+            **common,
+            current_message={
+                "direction": "inbound",
+                "body": "We will pay invoice TEST-100 on 2026-08-14.",
+                "quote_removal_status": "complete",
+            },
+        )
+    )
+    full_balance = _promise_detail(amount_less)
+    assert full_balance["promise_amount"] is None
+    assert full_balance["full_current_balance"] is True
+    assert not any(
+        item.amount is not None and item.assertion_type == "promised_payment"
+        for item in amount_less.amount_assertions
+    )
+
+    explicit_partial = await classifier.classify(
+        CollectionEmailEventRequest(
+            **common,
+            current_message={
+                "direction": "inbound",
+                "body": "We will pay GBP 125.00 against invoice TEST-100 on 2026-08-14.",
+                "quote_removal_status": "complete",
+            },
+        )
+    )
+    partial = _promise_detail(explicit_partial)
+    assert partial["promise_amount"] == 125.0
+    assert partial["full_current_balance"] is False
+    assert partial["promise_amount_evidence_text"]
+
+    expected_provider = "openai" if force_fallback else "vertex"
+    for response in (amount_less, explicit_partial):
+        assert response.provider == expected_provider
+        assert response.is_fallback is force_fallback
+        assert int(response.prompt_tokens or 0) > 0
+        assert int(response.completion_tokens or 0) > 0
+        assert response.ai_audit is not None
+        assert response.ai_audit.prompt_input_hash
+
+    return {
+        "promise_amount_provenance_valid": True,
+        "provider": expected_provider,
+        "calls": 2,
+        "full_balance_default_valid": True,
+        "explicit_partial_grounding_valid": True,
+        "prompt_tokens": sum(
+            int(item.prompt_tokens or 0) for item in (amount_less, explicit_partial)
+        ),
+        "completion_tokens": sum(
+            int(item.completion_tokens or 0) for item in (amount_less, explicit_partial)
+        ),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
-        choices=("schema", "vertex", "openai-fallback"),
+        choices=(
+            "schema",
+            "vertex",
+            "openai-fallback",
+            "promise-vertex",
+            "promise-openai-fallback",
+        ),
         default="schema",
     )
     args = parser.parse_args()
 
     result = validate_schema()
-    if args.mode != "schema":
+    if args.mode in {"vertex", "openai-fallback"}:
         result.update(asyncio.run(validate_live(force_fallback=args.mode == "openai-fallback")))
+    elif args.mode in {"promise-vertex", "promise-openai-fallback"}:
+        result.update(
+            asyncio.run(
+                validate_promise_amount_provenance(
+                    force_fallback=args.mode == "promise-openai-fallback"
+                )
+            )
+        )
     print(json.dumps(result, sort_keys=True))
 
 

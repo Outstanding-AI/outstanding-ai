@@ -10,6 +10,12 @@ class ExtractedData(BaseModel):
     # PROMISE_TO_PAY
     promise_date: Optional[date] = None
     promise_amount: Optional[float] = None
+    # True means the debtor made a payment commitment without specifying a
+    # numeric amount.  The downstream invoice-grain reducer resolves the
+    # current outstanding balance after scope validation; the AI must not copy
+    # a Sage/context balance into ``promise_amount`` or pretend it was stated
+    # by the debtor.
+    full_current_balance: bool = False
     promise_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
     promise_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
     # PROMISE_TO_PAY — strength of the commitment. ``firm`` (default) takes
