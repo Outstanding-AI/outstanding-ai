@@ -293,6 +293,9 @@ jobs:
     if: github.event_name == 'push'
     needs: [lint-smoke, pre-commit-verify]
     runs-on: ubuntu-latest
+    # A deployment must fail with diagnostics rather than leave an Action
+    # worker waiting indefinitely after ECS has already converged.
+    timeout-minutes: 10
     environment: production
     env:
       AWS_REGION: eu-west-2
@@ -429,14 +432,48 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ steps.meta.outputs.image }}
 
-      - name: Deploy to ECS
+      - name: Update ECS service
+        id: deploy
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.render.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
-          wait-for-minutes: 10
+          # The action's built-in waiter can remain live after a desired=0
+          # service has already reached ECS COMPLETED. Verify the deployed
+          # task definition ourselves below with a strict deadline instead.
+          wait-for-service-stability: false
+
+      - name: Verify ECS deployment (six-minute deadline)
+        env:
+          EXPECTED_IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 360))
+          while (( SECONDS < deadline )); do
+            read -r ROLLOUT DESIRED RUNNING PENDING FAILED TASK_DEFINITION <<< "$(aws ecs describe-services \
+              --cluster "$ECS_CLUSTER" \
+              --services "$ECS_SERVICE" \
+              --query 'services[0].[deployments[?status==`PRIMARY`]|[0].rolloutState,desiredCount,runningCount,pendingCount,failedTasks,taskDefinition]' \
+              --output text)"
+            DEPLOYED_IMAGE="$(aws ecs describe-task-definition \
+              --task-definition "$TASK_DEFINITION" \
+              --query "taskDefinition.containerDefinitions[?name=='$CONTAINER_NAME'].image | [0]" \
+              --output text)"
+            echo "rollout=$ROLLOUT desired=$DESIRED running=$RUNNING pending=$PENDING failed=$FAILED image=$DEPLOYED_IMAGE"
+            if [[ "$ROLLOUT" == "FAILED" ]]; then
+              aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --output json
+              exit 1
+            fi
+            if [[ "$ROLLOUT" == "COMPLETED" && "$DEPLOYED_IMAGE" == "$EXPECTED_IMAGE" ]]; then
+              echo "ECS deployment converged on the requested image."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::ECS deployment did not converge within six minutes."
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --output json
+          exit 1
 
       - name: Deploy AI Engine class task definitions
         run: |
