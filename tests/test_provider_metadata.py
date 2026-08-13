@@ -47,28 +47,18 @@ class TestProviderMetadata:
             mock_llm.complete = AsyncMock(return_value=mock_response)
             mock_llm.primary_provider_name = "vertex"
 
-            with patch("src.engine.classifier.guardrail_pipeline") as mock_pipeline:
-                mock_result = type(
-                    "MockResult",
-                    (),
-                    {
-                        "all_passed": True,
-                        "should_block": False,
-                        "results": [],
-                        "blocking_guardrails": [],
-                        "review_findings": [],
-                    },
-                )()
-                mock_pipeline.validate.return_value = mock_result
-
-                result = await classifier.classify(sample_classify_request)
+            result = await classifier.classify(sample_classify_request)
 
         assert result.provider == "vertex"
         assert result.model == "gemini-2.5-flash"
         assert result.is_fallback is False
         assert result.classification_evidence_only is True
+        # Classification is structured internal evidence.  The outbound-draft
+        # guardrail pipeline does not apply to its explanation text.
+        assert result.guardrail_validation is None
         assert result.ai_audit is not None
         assert result.ai_audit.prompt_template_id == "classification"
+        assert result.ai_audit.guardrail_pipeline_version is None
 
     @pytest.mark.asyncio
     async def test_generate_response_includes_metadata(self, sample_generate_draft_request):

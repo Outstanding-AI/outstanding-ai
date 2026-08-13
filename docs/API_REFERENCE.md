@@ -85,7 +85,7 @@ Classify an inbound debtor email into one of **25** categories (multi-intent cap
 - `intent_details: Optional[List[IntentDetail]]` — per-intent extraction; `intent_details[0]` is primary and matches `classification`, the rest align with `secondary_intents`
 - `tokens_used` / `prompt_tokens` / `completion_tokens: Optional[int]`
 - `forbidden_content_detected: List[dict]` (default `[]`)
-- `guardrail_validation: Optional[GuardrailValidation]` — guardrails run over the LLM **reasoning** text
+- `guardrail_validation: Optional[GuardrailValidation]` — always `null` for classification: it returns internal structured evidence, which the backend reconciles against current accounting before durable controls can change
 - `provider`, `model: Optional[str]`
 - `is_fallback: bool = False`
 - `classification_evidence_only: bool = True`
@@ -253,7 +253,7 @@ Multi-intent: `secondary_intents` + per-intent `intent_details`; invoice refs ar
 
 ## Guardrails Pipeline
 
-`GuardrailPipeline._get_default_guardrails` registers **12 guardrails** (singleton `guardrail_pipeline`, shared by the generator and the classifier). The pipeline sorts by severity (CRITICAL first). Default execution is **parallel** via a module-level `ThreadPoolExecutor(max_workers=6, thread_name_prefix="guardrail")` (sequential mode supports fail-fast on first CRITICAL).
+`GuardrailPipeline._get_default_guardrails` registers **12 guardrails** for debtor-facing draft generation (singleton `guardrail_pipeline`). The pipeline does not run over an internal classifier rationale: classification is evidence-only and its structured output is reconciled by the backend against scoped, current accounting before it affects collection controls. Default execution is **parallel** via a module-level `ThreadPoolExecutor(max_workers=6, thread_name_prefix="guardrail")` (sequential mode supports fail-fast on first CRITICAL).
 
 Severity → blocking: CRITICAL and HIGH **block** (`should_block=True`); MEDIUM = warn/allow; LOW = log-only; REVIEW = non-blocking operator-review finding. Any exception inside a guardrail is converted to a HIGH (blocking) failure by the executor.
 
@@ -272,7 +272,7 @@ Severity → blocking: CRITICAL and HIGH **block** (`should_block=True`); MEDIUM
 | 11 | `temporal_consistency` | MEDIUM | no | Promise dates in the future (today OK; >90 days flagged); prose due dates match obligation `due_date` ±1 day. |
 | 12 | `contextual_coherence` | LOW | no | Situational-awareness heuristics + structural checks (refs in prose vs structured obligations, no chasing of paid invoices). Log-only by design. |
 
-`GuardrailValidation` (on both classify and generate responses): `all_passed`, `guardrails_run`, `guardrails_passed`, `blocking_failures`, `warnings`, `review_findings`, `factual_accuracy` (0..1, default 1.0), `results` (per-check pass/fail, severity, expected/found).
+`GuardrailValidation` (on debtor-facing generate responses; `null` on evidence-only classify responses): `all_passed`, `guardrails_run`, `guardrails_passed`, `blocking_failures`, `warnings`, `review_findings`, `factual_accuracy` (0..1, default 1.0), `results` (per-check pass/fail, severity, expected/found).
 
 Generator retry: when guardrails `should_block` and `len(blocking_guardrails) <= 2`, the generator retries main generation with targeted feedback up to `MAX_GUARDRAIL_RETRIES` (default 2 → 3 attempts total). Pipeline result version constant: `silver_application_v1`.
 
@@ -360,7 +360,7 @@ Built by `src/engine/audit.py::build_ai_audit`; returned by classify, generate-d
 ai_provider, ai_model, ai_region: str|None
 prompt_template_id, prompt_template_version: str|None
 system_prompt_hash, user_prompt_hash, prompt_input_hash: str|None       # SHA-256
-guardrail_pipeline_version: str|None                                    # "silver_application_v1"
+guardrail_pipeline_version: str|None                                    # draft pipeline version; null for evidence-only classification
 guardrail_result_ids: list[str]|None
 input_silver_version_ids_json: str|None
 input_sent_draft_analysis_event_ids_json, input_sent_draft_analysis_hashes_json: str|None
