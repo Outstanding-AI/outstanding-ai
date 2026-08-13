@@ -21,10 +21,12 @@ Categories (grouped by post-classification draft action):
     UNCLEAR, GENERIC_ACKNOWLEDGEMENT, PAYMENT_CONFIRMATION,
     REMITTANCE_ADVICE, EMAIL_BOUNCE, PARTIAL_PAYMENT_NOTIFICATION
 
-The classifier runs guardrails on its own *reasoning* output to validate
-any facts the LLM mentions (invoice numbers, amounts).  Guardrail results
-are returned alongside the classification but do NOT block classification
-delivery -- they serve as a quality signal for downstream consumers.
+The classifier returns evidence only.  Its structured extraction is later
+reconciled by the backend against the current, scoped accounting records
+before it can affect a collection control.  Do not run debtor-facing draft
+guardrails over the classifier's internal reasoning: those rules validate
+email salutation, identity, tone, policy language, and collection wording,
+none of which exists in a classification rationale.
 """
 
 import json
@@ -37,15 +39,8 @@ from pydantic import ValidationError
 
 from src.api.errors import LLMResponseInvalidError
 from src.api.models.requests import ClassifyRequest
-from src.api.models.responses import (
-    ClassifyResponse,
-    ExtractedData,
-    GuardrailValidation,
-    IntentDetail,
-)
+from src.api.models.responses import ClassifyResponse, ExtractedData, IntentDetail
 from src.config.settings import settings
-from src.guardrails.base import GuardrailSeverity
-from src.guardrails.pipeline import guardrail_pipeline
 from src.llm.factory import llm_client
 from src.llm.schemas import ClassificationLLMResponse
 from src.prompts import CLASSIFY_EMAIL_SYSTEM, CLASSIFY_EMAIL_USER
@@ -57,8 +52,13 @@ from .formatters import format_industry_context_for_classification, format_invoi
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT_TEMPLATE_ID = "classification"
-CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_full_balance_v3"
-CLASSIFICATION_GUARDRAIL_PIPELINE_VERSION = "silver_application_v1"
+CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_payment_run_schedule_v4"
+# Classifier responses are structured evidence, not debtor-facing drafts.
+# The outbound guardrail pipeline must remain absent here.  In particular,
+# IdentityScopeGuardrail's required ``Hello`` salutation is valid only for a
+# rendered collection email and was producing false HIGH-severity alerts when
+# applied to a one-line internal classification rationale.
+CLASSIFICATION_GUARDRAIL_PIPELINE_VERSION: str | None = None
 
 _WEEKDAY_INDEX = {
     "monday": 0,
@@ -81,6 +81,10 @@ _VAGUE_PROMISE_TIMING_RE = re.compile(
     r"\b(?:end\s+of\s+(?:the\s+)?(?:month|"
     r"january|february|march|april|may|june|july|august|september|october|november|december)"
     r"|next\s+payment\s+run|upcoming\s+payment\s+run|later\s+this\s+month|soon)\b",
+    re.IGNORECASE,
+)
+_NEXT_PAYMENT_RUN_RE = re.compile(
+    r"\b(?:the\s+)?next\s+payment\s+run\b",
     re.IGNORECASE,
 )
 _BOUNDED_PROMISE_PERIOD_RE = re.compile(
@@ -114,9 +118,9 @@ class EmailClassifier:
        industry context, and the raw email (subject + body).
     2. Call the LLM with ``ClassificationLLMResponse`` structured output.
     3. Parse extracted data (promise dates, amounts, redirect contacts).
-    4. Run guardrails on the LLM reasoning text.
-    5. Return classification, confidence, extracted data, and guardrail
-       validation metadata.
+    4. Return classification evidence.  The backend reconciles structured
+       invoice scope and financial controls against its current, sync-scoped
+       accounting context before durable side effects are applied.
     """
 
     async def classify(self, request: ClassifyRequest) -> ClassifyResponse:
@@ -253,42 +257,14 @@ class EmailClassifier:
                 )
                 extracted = primary_detail.extracted_data
 
-        # Run guardrails on LLM reasoning (validate any facts mentioned)
+        # ``reasoning`` is an internal explanation of the structured evidence,
+        # never an email body.  It must not enter the outbound draft guardrail
+        # pipeline: that pipeline enforces customer-email shape (including an
+        # exact ``Hello`` greeting) and interprets debtor claims as our own
+        # asserted accounting figures.  The authoritative enforcement boundary
+        # for classifier output is the backend's scoped, current-accounting
+        # reconciliation before it writes collection controls.
         guardrail_validation = None
-        if result.reasoning:
-            guardrail_result = guardrail_pipeline.validate(
-                output=result.reasoning,
-                context=request.context,
-                extracted_data=extracted,
-            )
-
-            # Calculate factual accuracy
-            total_checks = len(guardrail_result.results)
-            passed_checks = sum(1 for r in guardrail_result.results if r.passed)
-            factual_accuracy = passed_checks / total_checks if total_checks > 0 else 1.0
-
-            # Separate warnings from blocking failures
-            warnings = [
-                r.guardrail_name
-                for r in guardrail_result.results
-                if not r.passed and r.severity in (GuardrailSeverity.MEDIUM, GuardrailSeverity.LOW)
-            ]
-
-            guardrail_validation = GuardrailValidation(
-                all_passed=guardrail_result.all_passed,
-                guardrails_run=total_checks,
-                guardrails_passed=passed_checks,
-                blocking_failures=guardrail_result.blocking_guardrails,
-                warnings=warnings,
-                review_findings=guardrail_result.review_findings,
-                factual_accuracy=factual_accuracy,
-            )
-
-            if not guardrail_result.all_passed:
-                logger.warning(
-                    f"Guardrails failed for {request.context.party.customer_code}: "
-                    f"blocking={guardrail_result.blocking_guardrails}, warnings={warnings}"
-                )
 
         logger.info(
             f"Classified email for {request.context.party.customer_code}: "
@@ -390,7 +366,20 @@ def _build_extracted_data(
         # tenant's configured collection dates supplied to the model.  This
         # keeps the LLM useful for semantic interpretation without allowing
         # it to invent an arbitrary calendar date.
-        if promise_date not in set(allowed_commitment_dates):
+        payment_run_date = _resolve_next_payment_run_date(
+            source_text,
+            reference_date=reference_date,
+            allowed_commitment_dates=allowed_commitment_dates,
+        )
+        if payment_run_date is not None:
+            # "Next payment run" is a debtor-authored commitment, but not an
+            # exact calendar date.  Its operational date is therefore derived
+            # deterministically from the tenant's configured collection
+            # calendar, never accepted from the model.  Preserve the original
+            # debtor wording as evidence so the resolved date is auditable.
+            promise_date = payment_run_date
+            promise_date_evidence_text = _vague_promise_period_evidence(source_text)
+        elif promise_date not in set(allowed_commitment_dates):
             promise_date = None
         elif not promise_date_evidence_text:
             promise_date_evidence_text = _vague_promise_period_evidence(source_text)
@@ -526,10 +515,35 @@ def _requires_schedule_date_fallback(text: str | None) -> bool:
     return vague_timing and _EXACT_DATE_CUE_RE.search(value) is None
 
 
+def _resolve_next_payment_run_date(
+    text: str | None,
+    *,
+    reference_date: date | None,
+    allowed_commitment_dates: tuple[date, ...],
+) -> date | None:
+    """Resolve an unqualified next-payment-run promise from tenant policy.
+
+    A debtor can firmly commit to their next payment run without stating a
+    calendar date.  The collection policy already supplies an ordered, closed
+    list of future commitment follow-up dates.  Use its earliest date strictly
+    after the received/application reference date; this is a deterministic
+    operational interpretation, not an LLM-generated date.  Other vague
+    phrases keep their existing bounded-period handling.
+    """
+
+    if not text or not reference_date or not _NEXT_PAYMENT_RUN_RE.search(str(text)):
+        return None
+    future_dates = sorted(value for value in allowed_commitment_dates if value > reference_date)
+    return future_dates[0] if future_dates else None
+
+
 def _vague_promise_period_evidence(text: str | None) -> str | None:
     if not text:
         return None
     match = _BOUNDED_PROMISE_PERIOD_RE.search(str(text))
+    if match:
+        return match.group(0)
+    match = _NEXT_PAYMENT_RUN_RE.search(str(text))
     if match:
         return match.group(0)
     match = _VAGUE_PROMISE_TIMING_RE.search(str(text))
