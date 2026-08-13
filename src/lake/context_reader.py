@@ -14,6 +14,7 @@ from typing import Any, Protocol
 from src.api.models.requests import ObligationInfo
 
 from . import context_evidence as evidence
+from .materialized_current_registry import approved_materialized_current_source
 
 
 class ContextHydrationError(RuntimeError):
@@ -86,8 +87,8 @@ class ContextReadRepository:
     def source(self, canonical_view: str) -> str:
         """Return a backend-issued identifier-safe serving source or canonical view."""
 
-        source = str(self.current_source_map.get(canonical_view) or canonical_view)
-        return source if source.replace("_", "").isalnum() else canonical_view
+        source = self.current_source_map.get(canonical_view)
+        return approved_materialized_current_source(canonical_view, str(source) if source else None)
 
     def load_party(self, party_id: str) -> dict[str, Any]:
         rows = self._fetch_parties([party_id])

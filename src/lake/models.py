@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .materialized_current_registry import approved_materialized_current_source
+
 _AWS_REGION_RE = re.compile(r"^[a-z]{2}(?:-gov)?-[a-z]+-\d$")
 
 
@@ -106,4 +108,8 @@ class DraftGenerationHandoff(BaseModel):
                 raise ValueError("current_source_map contains an invalid view name")
             if not re.fullmatch(r"[a-z][a-z0-9_]{0,159}", str(table_name)):
                 raise ValueError("current_source_map contains an invalid table name")
+            if approved_materialized_current_source(str(view_name), str(table_name)) != str(
+                table_name
+            ):
+                raise ValueError("current_source_map contains an unapproved compact source pair")
         return self

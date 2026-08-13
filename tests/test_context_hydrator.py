@@ -666,6 +666,14 @@ def test_hydrator_uses_only_backend_issued_materialized_source_tokens() -> None:
         "tenant-1", reader, current_source_map={"silver_core_parties_current": "bad-table;drop"}
     )
     assert bad._source("silver_core_parties_current") == "silver_core_parties_current"
+    wrong_pair = CaseContextHydrator(
+        "tenant-1",
+        reader,
+        current_source_map={
+            "silver_core_parties_current": "silver_current_silver_core_obligations_current"
+        },
+    )
+    assert wrong_pair._source("silver_core_parties_current") == "silver_core_parties_current"
 
 
 def test_hydrate_batch_partial_failure_when_lane_missing() -> None:
