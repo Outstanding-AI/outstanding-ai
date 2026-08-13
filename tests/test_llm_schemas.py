@@ -18,7 +18,7 @@ def test_intent_details_reject_secondary_material_intent_without_extraction():
         )
 
 
-def test_intent_details_drops_secondary_shared_invoice_refs():
+def test_intent_details_keeps_secondary_shared_invoice_refs_for_atomic_controls():
     response = ClassificationLLMResponse(
         classification="ALREADY_PAID",
         confidence=0.9,
@@ -35,10 +35,12 @@ def test_intent_details_drops_secondary_shared_invoice_refs():
         ],
     )
 
-    assert response.secondary_intents == []
-    assert len(response.intent_details or []) == 1
+    assert response.secondary_intents == ["PROMISE_TO_PAY"]
+    assert len(response.intent_details or []) == 2
     assert response.intent_details[0].intent == "ALREADY_PAID"
     assert response.intent_details[0].extracted_data.invoice_refs == ["INV-1"]
+    assert response.intent_details[1].intent == "PROMISE_TO_PAY"
+    assert response.intent_details[1].extracted_data.invoice_refs == ["INV-1"]
 
 
 def test_intent_details_keeps_distinct_secondary_refs_after_normalization():
@@ -66,7 +68,7 @@ def test_intent_details_keeps_distinct_secondary_refs_after_normalization():
 
     assert response.secondary_intents == ["PROMISE_TO_PAY"]
     assert len(response.intent_details or []) == 2
-    assert response.intent_details[1].extracted_data.invoice_refs == ["INV-002"]
+    assert response.intent_details[1].extracted_data.invoice_refs == ["INV 001", "INV-002"]
 
 
 def test_forbidden_content_findings_are_strict_for_structured_outputs():

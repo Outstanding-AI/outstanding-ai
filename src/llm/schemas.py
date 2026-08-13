@@ -273,23 +273,14 @@ class ClassificationLLMResponse(BaseModel):
         if first_intent != primary_intent:
             raise ValueError("intent_details[0].intent must match classification")
 
-        # The canonical representation of a partial settlement is one
-        # AMOUNT_DISAGREEMENT detail with its embedded proposed-payment
-        # fields.  We nevertheless accept the legacy/alternative two-detail
-        # representation (PROMISE_TO_PAY + AMOUNT_DISAGREEMENT for the same
-        # invoice) so the reducer can coalesce it rather than silently drop
-        # either supported debtor claim.  No other overlapping material scope
-        # is permitted.
-        partial_settlement_refs = {
-            _normalize_invoice_ref(invoice_ref)
-            for detail in self.intent_details
-            if str(detail.intent or "").upper() == "AMOUNT_DISAGREEMENT"
-            and detail.extracted_data
-            and detail.extracted_data.partial_settlement
-            for invoice_ref in (detail.extracted_data.invoice_refs or [])
-            if _normalize_invoice_ref(invoice_ref)
-        }
-        seen_invoice_refs: dict[str, str] = {}
+        # A debtor can make several independent controls against one invoice:
+        # e.g. promise 4,000 on Monday, promise 2,000 on Thursday, dispute
+        # 500 for a pricing issue and remit the remaining balance.  Do not
+        # collapse overlapping material scopes here.  Each intent-detail is
+        # an atomic, evidence-bearing allocation and downstream validates its
+        # amount against the accounting balance and all currently active
+        # allocations.  Previous logic kept only the first material intent
+        # for an invoice, silently losing later controls.
         retained_details: list[IntentDetailLLM] = []
         retained_secondary_intents: list[str] = []
         for index, detail in enumerate(self.intent_details):
@@ -310,37 +301,6 @@ class ClassificationLLMResponse(BaseModel):
             detail.extracted_data.invoice_refs = _dedupe_preserve_order(
                 detail.extracted_data.invoice_refs
             )
-            retained_refs: list[str] = []
-            dropped_duplicate_scope = False
-            for raw_ref in detail.extracted_data.invoice_refs or []:
-                invoice_ref = _normalize_invoice_ref(raw_ref)
-                if not invoice_ref:
-                    continue
-                previous_intent = seen_invoice_refs.get(invoice_ref)
-                if previous_intent and previous_intent != intent:
-                    allowed_partial_settlement_overlap = (
-                        invoice_ref in partial_settlement_refs
-                        and {previous_intent, intent} == {"PROMISE_TO_PAY", "AMOUNT_DISAGREEMENT"}
-                    )
-                    if not allowed_partial_settlement_overlap:
-                        dropped_duplicate_scope = True
-                        continue
-                seen_invoice_refs[invoice_ref] = intent
-                retained_refs.append(raw_ref)
-
-            detail.extracted_data.invoice_refs = retained_refs or None
-            if (
-                index > 0
-                and intent in MATERIAL_SCOPE_INTENTS
-                and dropped_duplicate_scope
-                and not retained_refs
-                and not detail.extracted_data.account_wide
-            ):
-                # The same invoice cannot safely drive two material side-effects.
-                # Keep the first/primary interpretation and drop the now-unscoped
-                # secondary intent rather than rejecting the whole LLM response.
-                continue
-
             retained_details.append(detail)
             if index > 0:
                 retained_secondary_intents.append(intent)

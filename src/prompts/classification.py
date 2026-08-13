@@ -70,8 +70,10 @@ Many debtor emails contain MULTIPLE intents across different invoices. For examp
    - But if the overall tone is cooperative and the debtor is working with you, consider COOPERATIVE
 2. **Emit per-intent extraction via `intent_details`.** This is the preferred
    shape when an email has multiple intents:
-   - One entry per detected intent. The FIRST entry MUST match the primary
-     `classification` field.
+   - One entry per atomic debtor assertion. The FIRST entry MUST match the
+     primary `classification` field. The same intent may appear more than
+     once, and the same invoice may appear in more than one entry, when the
+     debtor made separate, independently evidenced allocations.
    - Each entry's `extracted_data` carries ONLY the fields that belong to
      that intent — e.g. ALREADY_PAID carries `claimed_*` + its own
      `invoice_refs` (the paid ones), while PROMISE_TO_PAY carries
@@ -80,6 +82,13 @@ Many debtor emails contain MULTIPLE intents across different invoices. For examp
    - For mixed replies, every material intent must have its own
      `intent_details[*].extracted_data`; never copy invoice references from
      one intent to another just because they appear in the same email.
+   - If the debtor allocates more than one amount or date to one invoice,
+     emit one detail per allocation. For example, “INV-7: 4,000 Monday, 2,000
+     Thursday, 500 disputed for pricing, remainder remitted” requires four
+     details with the same `invoice_refs:["INV-7"]`: two PROMISE_TO_PAY,
+     one AMOUNT_DISAGREEMENT/DISPUTE and one REMITTANCE_ADVICE. Each numeric
+     amount/date needs its own verbatim evidence. Never merge, net, or infer
+     the residual; the accounting-boundary reducer validates the total.
    - The newest debtor-authored text determines the current state. Quoted
      historic debtor replies, operator follow-ups, and generated chasers are
      case history, not today's intent. If the newest text says an invoice is
@@ -101,7 +110,8 @@ Many debtor emails contain MULTIPLE intents across different invoices. For examp
    intent's extraction — this is kept for backward compatibility with
    consumers that haven't upgraded to `intent_details` yet.
 4. Use `secondary_intents` to list the non-primary intents in the same
-   order they appear in `intent_details`.
+   order they appear in `intent_details`; duplicates are allowed when there
+   are multiple atomic allocations of the same type.
 5. Use `invoice_refs` to list ONLY the invoices specifically mentioned by
    the debtor for that intent — do NOT list all invoices.
 6. Set `account_wide: true` ONLY when the debtor uses explicit account-wide
