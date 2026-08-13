@@ -246,6 +246,7 @@ async def test_manual_outbound_mode_uses_its_dedicated_client():
                 "lifecycle_status": "awaiting_debtor_response",
                 "semantic_classification": "OUTBOUND_COLLECTION_ACTION",
                 "intent_details": [],
+                "invoice_assertions": [],
             }
         )
     )

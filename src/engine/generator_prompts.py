@@ -988,6 +988,30 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 "invoice outside the deterministic candidate invoice table."
             )
 
+        manual_outbound_labels = {
+            "OUTBOUND_COLLECTION_ACTION": "operator collection follow-up",
+            "OUTBOUND_ESCALATION_ACTION": "operator escalation action",
+            "OUTBOUND_PROMISE_ACKNOWLEDGEMENT": "operator acknowledgement of a prior debtor promise",
+        }
+        manual_outbound_lines = []
+        for signal in getattr(operator_context, "manual_outbound_trail_signals", None) or []:
+            classification = str(getattr(signal, "classification", "") or "")
+            label = manual_outbound_labels.get(classification)
+            message_date = str(getattr(signal, "message_date", "") or "").strip()
+            if label and message_date:
+                manual_outbound_lines.append(f"- {message_date}: {label}.")
+        if manual_outbound_lines:
+            sections.append(
+                "\n\n**Recent Operator Outbound Trail Signals (writing only):**\n"
+                + "\n".join(manual_outbound_lines)
+                + "\n\nThese are semantic labels from captured, non-draft operator emails in the exact "
+                "selected Outlook conversation. They are not invoice scope, accounting, payment, query, "
+                "commitment, remittance, settlement, or last-contact-date authority. Use them only to avoid "
+                "contradictory or needlessly repetitive wording. Do not quote, mention, or derive a contact "
+                "date from this section; deterministic invoice-scoped prior-outreach text is the only authority "
+                "for historical-contact statements."
+            )
+
     remittance_lines = []
     for remittance in getattr(request.context, "remittances", []) or []:
         received_at = getattr(remittance, "remittance_received_at", None)

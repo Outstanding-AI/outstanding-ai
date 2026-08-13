@@ -365,11 +365,32 @@ class VerificationResolutionGuidance(BaseModel):
     resolved_at: Optional[str] = Field(default=None, max_length=40)
 
 
+class ManualOutboundTrailSignal(BaseModel):
+    """A non-financial semantic label for one sent operator email.
+
+    This is deliberately not invoice, balance, payment, query, commitment, or
+    remittance evidence.  It lets the draft model avoid contradictory or
+    duplicate wording within the exact selected email conversation while the
+    deterministic candidate fact packet remains the sole authority for a
+    collection demand.
+    """
+
+    message_date: str = Field(min_length=10, max_length=40)
+    classification: Literal[
+        "OUTBOUND_COLLECTION_ACTION",
+        "OUTBOUND_ESCALATION_ACTION",
+        "OUTBOUND_PROMISE_ACKNOWLEDGEMENT",
+    ]
+
+
 class OperatorContext(BaseModel):
     """Operator-authored writing guidance, never a source of control truth."""
 
     relationship_notes: Optional[str] = Field(default=None, max_length=1200)
     verification_resolutions: List[VerificationResolutionGuidance] = Field(
+        default_factory=list, max_length=3
+    )
+    manual_outbound_trail_signals: List[ManualOutboundTrailSignal] = Field(
         default_factory=list, max_length=3
     )
     truncation_count: int = Field(default=0, ge=0, le=4)

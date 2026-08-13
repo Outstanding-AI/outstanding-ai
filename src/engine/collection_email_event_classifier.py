@@ -94,6 +94,11 @@ _GROUNDING_VALIDATION_REMEDIATION = {
         "When manual_outbound has no semantic_classification, secondary_intents and intent_details "
         "must both be empty."
     ),
+    "manual_outbound_nonsemantic_fields_invalid": (
+        "For mode manual_outbound, secondary_intents, intent_details, invoice_assertions, "
+        "amount_assertions, and date_assertions must all be empty. A manually authored "
+        "outbound email records only one non-financial operator-action label."
+    ),
 }
 
 _CONTROLLED_TAXONOMY = ", ".join(sorted(CLASSIFICATION_CATEGORIES))
@@ -262,6 +267,12 @@ are neutral unless the current text also contains one of the explicit meanings
 above. Before selecting a non-null value, decide whether that meaning remains
 in the current message after ignoring prior_messages, prior_evidence, and
 chain_status. If it does not, return null.
+
+Return exactly one semantic classification or null. Always leave
+secondary_intents, intent_details, invoice_assertions, amount_assertions, and
+date_assertions empty. Do not extract or infer invoice scope, balance, payment
+amount, payment date, promise, remittance, dispute, query, or settlement fact
+from an operator-authored email.
 """
 
 
@@ -405,6 +416,16 @@ def _validate_manual_outbound_contract(parsed: CollectionEmailEventLLMResponse) 
         raise ValueError("manual_outbound_semantic_classification_invalid")
     if not parsed.semantic_classification and (parsed.secondary_intents or parsed.intent_details):
         raise ValueError("manual_outbound_neutral_intent_details_invalid")
+    if any(
+        (
+            parsed.secondary_intents,
+            parsed.intent_details,
+            parsed.invoice_assertions,
+            parsed.amount_assertions,
+            parsed.date_assertions,
+        )
+    ):
+        raise ValueError("manual_outbound_nonsemantic_fields_invalid")
 
 
 def _grounding_validation_code(exc: Exception) -> str:
