@@ -34,6 +34,7 @@ import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import ValidationError
 
@@ -52,7 +53,7 @@ from .formatters import format_industry_context_for_classification, format_invoi
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT_TEMPLATE_ID = "classification"
-CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_payment_run_schedule_v4"
+CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_payment_run_day_before_draft_v5"
 # Classifier responses are structured evidence, not debtor-facing drafts.
 # The outbound guardrail pipeline must remain absent here.  In particular,
 # IdentityScopeGuardrail's required ``Hello`` salutation is valid only for a
@@ -446,23 +447,55 @@ def _build_extracted_data(
     )
 
 
+def _classification_policy(request: ClassifyRequest) -> dict[str, Any]:
+    """Return the effective scheduled-prep policy, if the tenant has one."""
+
+    tenant_settings = request.context.tenant_settings or {}
+    protocol = tenant_settings.get("escalation_protocol") or {}
+    global_config = protocol.get("global") if isinstance(protocol, dict) else None
+    policy = (
+        global_config.get("draft_generation_policy") if isinstance(global_config, dict) else None
+    )
+    return policy if isinstance(policy, dict) else {}
+
+
+def _classification_business_timezone(request: ClassifyRequest) -> ZoneInfo:
+    """Use the collection policy's IANA timezone for debtor-relative dates.
+
+    The generation policy is evaluated in tenant business time, so a payment
+    run must use the same local calendar.  Fall back to UTC only for legacy or
+    invalid policies, preserving the prior safe behaviour.
+    """
+
+    timezone_name = str(_classification_policy(request).get("timezone") or "UTC")
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        logger.warning("Invalid collection policy timezone; using UTC", timezone_name=timezone_name)
+        return ZoneInfo("UTC")
+
+
 def _classification_reference_date(request: ClassifyRequest) -> date:
+    business_timezone = _classification_business_timezone(request)
     if request.email.received_at:
-        return request.email.received_at.astimezone(timezone.utc).date()
+        return request.email.received_at.astimezone(business_timezone).date()
 
     cutoff = getattr(request.context, "application_decision_cutoff", None)
     if isinstance(cutoff, datetime):
         if cutoff.tzinfo is None:
             cutoff = cutoff.replace(tzinfo=timezone.utc)
-        return cutoff.astimezone(timezone.utc).date()
+        return cutoff.astimezone(business_timezone).date()
     if isinstance(cutoff, date):
         return cutoff
     if isinstance(cutoff, str):
         try:
-            return datetime.fromisoformat(cutoff.replace("Z", "+00:00")).date()
+            parsed = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                return parsed.date()
+            return parsed.astimezone(business_timezone).date()
         except ValueError:
             pass
-    return datetime.now(timezone.utc).date()
+    return datetime.now(business_timezone).date()
 
 
 def _relative_date_source_text(request: ClassifyRequest) -> str:
@@ -525,16 +558,39 @@ def _resolve_next_payment_run_date(
 
     A debtor can firmly commit to their next payment run without stating a
     calendar date.  The collection policy already supplies an ordered, closed
-    list of future commitment follow-up dates.  Use its earliest date strictly
-    after the received/application reference date; this is a deterministic
-    operational interpretation, not an LLM-generated date.  Other vague
-    phrases keep their existing bounded-period handling.
+    list of tenant-local payment-run dates (the day before a draft window).
+    Select the earliest permitted date on or after the debtor's local received
+    date.  When the debtor says ``next week`` or ``next month``, constrain the
+    selection to that period before falling forward.  This is a deterministic
+    operational interpretation, not an LLM-generated date.
     """
 
     if not text or not reference_date or not _NEXT_PAYMENT_RUN_RE.search(str(text)):
         return None
-    future_dates = sorted(value for value in allowed_commitment_dates if value > reference_date)
-    return future_dates[0] if future_dates else None
+    future_dates = sorted(value for value in allowed_commitment_dates if value >= reference_date)
+    if not future_dates:
+        return None
+
+    lowered = str(text).lower()
+    if re.search(r"\bnext\s+week\b", lowered):
+        period_start = reference_date + timedelta(days=7 - reference_date.weekday())
+        period_end = period_start + timedelta(days=6)
+        in_period = [value for value in future_dates if period_start <= value <= period_end]
+        if in_period:
+            return in_period[0]
+        after_period = [value for value in future_dates if value > period_end]
+        return after_period[0] if after_period else None
+    if re.search(r"\bnext\s+month\b", lowered):
+        first_of_this_month = reference_date.replace(day=1)
+        period_start = (first_of_this_month + timedelta(days=32)).replace(day=1)
+        following_month = (period_start + timedelta(days=32)).replace(day=1)
+        period_end = following_month - timedelta(days=1)
+        in_period = [value for value in future_dates if period_start <= value <= period_end]
+        if in_period:
+            return in_period[0]
+        after_period = [value for value in future_dates if value > period_end]
+        return after_period[0] if after_period else None
+    return future_dates[0]
 
 
 def _vague_promise_period_evidence(text: str | None) -> str | None:
@@ -556,19 +612,16 @@ def _configured_commitment_chase_dates(
     reference_date: date,
     horizon_days: int = 124,
 ) -> tuple[date, ...]:
-    """Return future tenant collection dates allowed for vague commitments.
+    """Return future payment-run dates allowed for vague commitments.
 
-    Dates are derived only from the tenant's effective draft-generation
-    windows.  The LLM receives these as a closed list; it cannot create a
-    chase date that is not configured by the collection protocol.
+    An unqualified debtor statement that payment is in its "next payment
+    run" means payment is due on the calendar day immediately before the next
+    scheduled draft-generation day.  We derive that operational payment date
+    from the tenant's configured draft-generation windows; the LLM receives
+    the resulting closed list and cannot invent an arbitrary calendar date.
     """
 
-    tenant_settings = request.context.tenant_settings or {}
-    protocol = tenant_settings.get("escalation_protocol") or {}
-    global_config = protocol.get("global") if isinstance(protocol, dict) else None
-    policy = (
-        global_config.get("draft_generation_policy") if isinstance(global_config, dict) else None
-    )
+    policy = _classification_policy(request)
     if not isinstance(policy, dict) or policy.get("mode") != "scheduled_prep":
         return ()
 
@@ -590,7 +643,11 @@ def _configured_commitment_chase_dates(
     end = reference_date + timedelta(days=max(1, horizon_days))
     while cursor <= end:
         if cursor.weekday() in weekdays:
-            dates.append(cursor)
+            payment_run_date = cursor - timedelta(days=1)
+            # Do not backdate a newly received promise.  A payment run whose
+            # operational date is already past is not a future commitment.
+            if payment_run_date >= reference_date:
+                dates.append(payment_run_date)
         cursor += timedelta(days=1)
     return tuple(dates)
 
