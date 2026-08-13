@@ -76,6 +76,15 @@ class LLMExtractedData(BaseModel):
     invoice_refs: Optional[list[str]] = None
     disputed_amount: Optional[float] = None
     disputed_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    # AMOUNT_DISAGREEMENT may contain an explicit commitment for part of the
+    # same invoice.  Keep it in one intent detail so generic multi-intent
+    # scope dedupe cannot silently discard either half.  Amount arithmetic is
+    # intentionally downstream against current accounting facts.
+    partial_settlement: bool = False
+    proposed_payment_amount: Optional[float] = None
+    proposed_payment_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    proposed_payment_date: Optional[str] = None
+    proposed_payment_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
     # PAYMENT_TIMING_DISPUTE
     claimed_due_date: Optional[str] = None
     claimed_payment_date: Optional[str] = None
@@ -142,6 +151,15 @@ class LLMExtractedData(BaseModel):
     def validate_promise_amount_provenance(self) -> "LLMExtractedData":
         if self.promise_amount is not None and self.full_current_balance:
             raise ValueError("promise_amount and full_current_balance are mutually exclusive")
+        if self.partial_settlement and self.proposed_payment_amount is None:
+            raise ValueError("partial_settlement requires proposed_payment_amount")
+        if not self.partial_settlement and (
+            self.proposed_payment_amount is not None
+            or self.proposed_payment_date is not None
+            or self.proposed_payment_amount_evidence_text is not None
+            or self.proposed_payment_date_evidence_text is not None
+        ):
+            raise ValueError("proposed payment fields require partial_settlement")
         return self
 
 
@@ -255,6 +273,22 @@ class ClassificationLLMResponse(BaseModel):
         if first_intent != primary_intent:
             raise ValueError("intent_details[0].intent must match classification")
 
+        # The canonical representation of a partial settlement is one
+        # AMOUNT_DISAGREEMENT detail with its embedded proposed-payment
+        # fields.  We nevertheless accept the legacy/alternative two-detail
+        # representation (PROMISE_TO_PAY + AMOUNT_DISAGREEMENT for the same
+        # invoice) so the reducer can coalesce it rather than silently drop
+        # either supported debtor claim.  No other overlapping material scope
+        # is permitted.
+        partial_settlement_refs = {
+            _normalize_invoice_ref(invoice_ref)
+            for detail in self.intent_details
+            if str(detail.intent or "").upper() == "AMOUNT_DISAGREEMENT"
+            and detail.extracted_data
+            and detail.extracted_data.partial_settlement
+            for invoice_ref in (detail.extracted_data.invoice_refs or [])
+            if _normalize_invoice_ref(invoice_ref)
+        }
         seen_invoice_refs: dict[str, str] = {}
         retained_details: list[IntentDetailLLM] = []
         retained_secondary_intents: list[str] = []
@@ -284,8 +318,13 @@ class ClassificationLLMResponse(BaseModel):
                     continue
                 previous_intent = seen_invoice_refs.get(invoice_ref)
                 if previous_intent and previous_intent != intent:
-                    dropped_duplicate_scope = True
-                    continue
+                    allowed_partial_settlement_overlap = (
+                        invoice_ref in partial_settlement_refs
+                        and {previous_intent, intent} == {"PROMISE_TO_PAY", "AMOUNT_DISAGREEMENT"}
+                    )
+                    if not allowed_partial_settlement_overlap:
+                        dropped_duplicate_scope = True
+                        continue
                 seen_invoice_refs[invoice_ref] = intent
                 retained_refs.append(raw_ref)
 

@@ -53,7 +53,7 @@ from .formatters import format_industry_context_for_classification, format_invoi
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT_TEMPLATE_ID = "classification"
-CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "promise_payment_run_day_before_draft_v5"
+CLASSIFICATION_PROMPT_TEMPLATE_VERSION = "partial_settlement_atomic_v6"
 # Classifier responses are structured evidence, not debtor-facing drafts.
 # The outbound guardrail pipeline must remain absent here.  In particular,
 # IdentityScopeGuardrail's required ``Hello`` salutation is valid only for a
@@ -385,6 +385,33 @@ def _build_extracted_data(
         elif not promise_date_evidence_text:
             promise_date_evidence_text = _vague_promise_period_evidence(source_text)
 
+    proposed_payment_date = _parse_date_with_source_fallback(
+        raw.proposed_payment_date,
+        "proposed_payment_date",
+        {"AMOUNT_DISAGREEMENT"},
+    )
+    proposed_payment_date_evidence_text = raw.proposed_payment_date_evidence_text
+    if (
+        normalized_intent == "AMOUNT_DISAGREEMENT"
+        and raw.partial_settlement
+        and _requires_schedule_date_fallback(source_text)
+    ):
+        # The same bounded calendar policy applies when a debtor commits to a
+        # partial payment.  The original payment-run words remain the source
+        # evidence; the service, not the model, resolves the operational date.
+        payment_run_date = _resolve_next_payment_run_date(
+            source_text,
+            reference_date=reference_date,
+            allowed_commitment_dates=allowed_commitment_dates,
+        )
+        if payment_run_date is not None:
+            proposed_payment_date = payment_run_date
+            proposed_payment_date_evidence_text = _vague_promise_period_evidence(source_text)
+        elif proposed_payment_date not in set(allowed_commitment_dates):
+            proposed_payment_date = None
+        elif not proposed_payment_date_evidence_text:
+            proposed_payment_date_evidence_text = _vague_promise_period_evidence(source_text)
+
     return ExtractedData(
         promise_date=promise_date,
         promise_amount=raw.promise_amount,
@@ -402,6 +429,11 @@ def _build_extracted_data(
         invoice_refs=raw.invoice_refs,
         disputed_amount=raw.disputed_amount,
         disputed_amount_evidence_text=raw.disputed_amount_evidence_text,
+        partial_settlement=raw.partial_settlement,
+        proposed_payment_amount=raw.proposed_payment_amount,
+        proposed_payment_amount_evidence_text=raw.proposed_payment_amount_evidence_text,
+        proposed_payment_date=proposed_payment_date,
+        proposed_payment_date_evidence_text=proposed_payment_date_evidence_text,
         claimed_due_date=_parse_date(raw.claimed_due_date, "claimed_due_date"),
         claimed_payment_date=_parse_date_with_source_fallback(
             raw.claimed_payment_date,

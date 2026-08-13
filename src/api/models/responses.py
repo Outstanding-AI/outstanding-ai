@@ -29,6 +29,19 @@ class ExtractedData(BaseModel):
     invoice_refs: Optional[List[str]] = None
     disputed_amount: Optional[float] = None
     disputed_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    # PARTIAL SETTLEMENT / AMOUNT_DISAGREEMENT
+    #
+    # A debtor can make a commitment for one part of a current invoice while
+    # disputing the rest.  This is neither a remittance nor a payment claim:
+    # Sage remains authoritative for the full outstanding balance until cash
+    # or a credit is actually posted.  The reducer validates the stated
+    # amount against that current balance and derives any residual; the model
+    # must never calculate or invent the residual from accounting context.
+    partial_settlement: bool = False
+    proposed_payment_amount: Optional[float] = None
+    proposed_payment_amount_evidence_text: Optional[str] = Field(default=None, max_length=500)
+    proposed_payment_date: Optional[date] = None
+    proposed_payment_date_evidence_text: Optional[str] = Field(default=None, max_length=500)
     # PAYMENT_TIMING_DISPUTE
     claimed_due_date: Optional[date] = None
     claimed_payment_date: Optional[date] = None

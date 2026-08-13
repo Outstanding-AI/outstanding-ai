@@ -135,6 +135,27 @@ Extract data for ALL detected intents (primary + secondary):
 - **OUT_OF_OFFICE**: return_date (YYYY-MM-DD)
 - **REDIRECT**: redirect_name, redirect_contact, redirect_email
 - **AMOUNT_DISAGREEMENT**: disputed_amount, invoice_refs
+  - When the newest debtor-authored text says that they will pay a specific
+    amount for ONE current invoice but will not pay the balance (for example,
+    goods have not been received), emit ONE `AMOUNT_DISAGREEMENT` intent with
+    `partial_settlement=true`, `proposed_payment_amount`,
+    `proposed_payment_amount_evidence_text`, `proposed_payment_date` (only if
+    explicitly stated), `proposed_payment_date_evidence_text`, invoice_refs,
+    dispute_type, and dispute_reason. This is a proposed payment commitment,
+    NOT `ALREADY_PAID`, `PAYMENT_CONFIRMATION`, or `REMITTANCE_ADVICE`.
+  - Do not emit a second PROMISE_TO_PAY intent for that same invoice and do
+    not calculate the disputed residual from the Outstanding Invoices table.
+    If the debtor does not state the disputed amount, leave `disputed_amount`
+    null; the accounting-boundary reducer derives it only after validating the
+    stated proposed amount against current Sage facts.
+  - For a phrase such as "in our next payment run", keep the date value null
+    and copy the exact phrase into `proposed_payment_date_evidence_text`; the
+    classifier deterministically resolves the configured operational date.
+  - Compatibility: if a caller asks for per-intent rather than atomic output,
+    the same invoice may appear in a PROMISE_TO_PAY and an AMOUNT_DISAGREEMENT
+    detail only where this exact partial-settlement condition holds. Both
+    details must be grounded in the newest debtor-authored text. Prefer the
+    single atomic AMOUNT_DISAGREEMENT representation above.
 - **RETENTION_CLAIM**: disputed_amount, dispute_reason
 - **LEGAL_RESPONSE**: redirect_name (legal representative), redirect_email
 - **EMAIL_BOUNCE**: bounced_email (the failed recipient address — extract from "Original-Recipient", "Final-Recipient", "To:" of the bounce body, or any "delivery failed for X@Y" text), bounce_reason (in dispute_reason field)
