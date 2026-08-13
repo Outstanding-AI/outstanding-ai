@@ -36,7 +36,11 @@ ROLLOUT_EMPTY_HOLD_APPLICATION_TABLES: frozenset[str] = frozenset(
         "collection_email_invoice_reconciliation_evidence",
     }
 )
-ROLLOUT_DORMANT_HOLD_APPLICATION_TABLES: frozenset[str] = frozenset(
+# These were temporarily classified as dormant from an earlier bounded
+# inventory. The live signal rollup proved they remain active
+# ingress/observability contracts, so this is a reactivation record, not a
+# compact hold.
+REACTIVATED_APPLICATION_TABLES: frozenset[str] = frozenset(
     {
         "application_event_scopes",
         "application_events",
@@ -45,9 +49,7 @@ ROLLOUT_DORMANT_HOLD_APPLICATION_TABLES: frozenset[str] = frozenset(
     }
 )
 INACTIVE_APPLICATION_TABLES: frozenset[str] = frozenset(
-    set(EMPTY_HOLD_TABLES)
-    | set(ROLLOUT_EMPTY_HOLD_APPLICATION_TABLES)
-    | set(ROLLOUT_DORMANT_HOLD_APPLICATION_TABLES)
+    set(EMPTY_HOLD_TABLES) | set(ROLLOUT_EMPTY_HOLD_APPLICATION_TABLES)
 )
 
 
@@ -80,7 +82,7 @@ def approved_materialized_current_source(canonical_view: str, candidate: str | N
 __all__ = [
     "CORE_MATERIALIZED_CURRENT_VIEWS",
     "INACTIVE_APPLICATION_TABLES",
-    "ROLLOUT_DORMANT_HOLD_APPLICATION_TABLES",
+    "REACTIVATED_APPLICATION_TABLES",
     "ROLLOUT_EMPTY_HOLD_APPLICATION_TABLES",
     "USEFUL_APPLICATION_MATERIALIZED_CURRENT_VIEWS",
     "USEFUL_MATERIALIZED_CURRENT_VIEWS",
