@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from src.api.models.requests import CaseContext
 
 from . import context_evidence as evidence
+from .compact_epoch import CompactCurrentEpochV1, CurrentReadMode
 from .context_projection import assemble_case_context
 from .context_reader import ContextHydrationError, ContextReadRepository, LakeReader
 from .models import DraftCandidate
@@ -30,14 +31,20 @@ class CaseContextHydrator:
         reader: LakeReader,
         *,
         current_source_map: dict[str, str] | None = None,
+        current_read_mode: CurrentReadMode = "enforced",
+        compact_current_epoch: CompactCurrentEpochV1 | None = None,
     ) -> None:
         self.tenant_id = str(tenant_id)
         self.reader = reader
         self.current_source_map = dict(current_source_map or {})
+        self.current_read_mode = current_read_mode
+        self.compact_current_epoch = compact_current_epoch
         self._reads = ContextReadRepository(
             self.tenant_id,
             reader,
             current_source_map=self.current_source_map,
+            current_read_mode=self.current_read_mode,
+            compact_current_epoch=self.compact_current_epoch,
         )
 
     def _source(self, canonical_view: str) -> str:

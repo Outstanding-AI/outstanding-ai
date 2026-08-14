@@ -228,9 +228,13 @@ async def generate_draft_from_manifest(
         poll_interval_seconds=settings.regional_lake_poll_interval_seconds,
         timeout_seconds=settings.regional_lake_query_timeout_seconds,
     )
-    hydrator_kwargs = (
-        {"current_source_map": handoff.current_source_map} if handoff.current_source_map else {}
-    )
+    hydrator_kwargs = {}
+    if handoff.current_source_map:
+        hydrator_kwargs["current_source_map"] = handoff.current_source_map
+    if handoff.current_read_mode != "enforced":
+        hydrator_kwargs["current_read_mode"] = handoff.current_read_mode
+    if handoff.compact_current_epoch is not None:
+        hydrator_kwargs["compact_current_epoch"] = handoff.compact_current_epoch
     hydrator = CaseContextHydrator(handoff.tenant_id, reader, **hydrator_kwargs)
     # Batch-hydrate the entire candidate set with one bulk SELECT per
     # shape (parties / lanes / lane obligations / lane history / party

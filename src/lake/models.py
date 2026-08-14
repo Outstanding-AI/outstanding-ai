@@ -7,6 +7,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .compact_epoch import (
+    CompactCurrentEpochUnavailable,
+    CompactCurrentEpochV1,
+    CurrentReadMode,
+    validate_ai_context_epoch,
+)
 from .materialized_current_registry import approved_materialized_current_source
 
 _AWS_REGION_RE = re.compile(r"^[a-z]{2}(?:-gov)?-[a-z]+-\d$")
@@ -74,9 +80,10 @@ class DraftGenerationHandoff(BaseModel):
     sync_run_id: str = Field(..., max_length=255)
     manifest_uri: str = Field(..., max_length=2048)
     data_lake_region: str = Field(..., max_length=32)
-    # Table-name substitution only. The backend issues this map after proving
-    # parity and freshness; absent entries keep canonical current views.
+    # Legacy dark-rollout compatibility. Compact-only never consumes this map.
     current_source_map: dict[str, str] = Field(default_factory=dict)
+    current_read_mode: CurrentReadMode = "enforced"
+    compact_current_epoch: CompactCurrentEpochV1 | None = None
 
     @field_validator("tenant_id", "sync_run_id", "manifest_uri", "data_lake_region")
     @classmethod
@@ -103,6 +110,17 @@ class DraftGenerationHandoff(BaseModel):
         # of the payload contract, not an AI task runtime default.
         if not self.data_lake_region:
             raise ValueError("data_lake_region is required")
+        if self.current_read_mode == "compact_only":
+            if self.current_source_map:
+                raise ValueError("compact_only must not include the legacy current_source_map")
+            try:
+                validate_ai_context_epoch(
+                    self.compact_current_epoch,
+                    tenant_id=self.tenant_id,
+                )
+            except CompactCurrentEpochUnavailable as exc:
+                raise ValueError(str(exc)) from exc
+            return self
         for view_name, table_name in self.current_source_map.items():
             if not re.fullmatch(r"[a-z][a-z0-9_]{0,159}", str(view_name)):
                 raise ValueError("current_source_map contains an invalid view name")

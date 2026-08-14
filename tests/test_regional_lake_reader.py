@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.lake import DraftGenerationHandoff, RegionalLakeClients
-from src.lake.regional_reader import RegionalLakeReader
+from src.lake.regional_reader import RegionalLakeQueryError, RegionalLakeReader
 
 
 class _FakeBoto3:
@@ -126,3 +126,20 @@ def test_regional_lake_reader_executes_against_region_database_and_coerces_rows(
     assert "tenant=tenant-1" in started["QueryString"]
     assert "sync_run_id=sync-1" in started["QueryString"]
     assert "tenant_id = 'tenant-1'" in started["QueryString"]
+
+
+def test_regional_lake_reader_rejects_unresolved_current_before_athena() -> None:
+    clients = _FakeClients()
+    reader = RegionalLakeReader(
+        clients=clients,
+        poll_interval_seconds=0,
+        reject_virtual_current_sources=True,
+    )
+
+    with pytest.raises(RegionalLakeQueryError, match="silver_core_parties_current"):
+        reader.execute(
+            "SELECT id FROM silver_core_parties_current WHERE tenant_id = %s",
+            ["tenant-1"],
+        )
+
+    assert clients.athena_client.started == []

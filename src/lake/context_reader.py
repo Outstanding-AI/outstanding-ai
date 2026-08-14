@@ -14,6 +14,13 @@ from typing import Any, Protocol
 from src.api.models.requests import ObligationInfo
 
 from . import context_evidence as evidence
+from .compact_epoch import (
+    CompactCurrentEpochUnavailable,
+    CompactCurrentEpochV1,
+    CurrentReadMode,
+    compact_epoch_source,
+    validate_ai_context_epoch,
+)
 from .materialized_current_registry import approved_materialized_current_source
 
 
@@ -79,13 +86,39 @@ class ContextReadRepository:
         reader: LakeReader,
         *,
         current_source_map: dict[str, str] | None = None,
+        current_read_mode: CurrentReadMode = "enforced",
+        compact_current_epoch: CompactCurrentEpochV1 | None = None,
     ) -> None:
         self.tenant_id = str(tenant_id)
         self.reader = reader
         self.current_source_map = dict(current_source_map or {})
+        self.current_read_mode = current_read_mode
+        self.compact_current_epoch = compact_current_epoch
+        if self.current_read_mode == "compact_only":
+            try:
+                self.compact_current_epoch = validate_ai_context_epoch(
+                    self.compact_current_epoch,
+                    tenant_id=self.tenant_id,
+                )
+            except CompactCurrentEpochUnavailable as exc:
+                raise ContextHydrationError(str(exc)) from exc
 
     def source(self, canonical_view: str) -> str:
-        """Return a backend-issued identifier-safe serving source or canonical view."""
+        """Return an identifier-safe serving source for the selected read mode."""
+
+        if self.current_read_mode == "compact_only":
+            if self.compact_current_epoch is None:  # defensive after constructor validation
+                raise ContextHydrationError("compact_current_epoch is unavailable")
+            try:
+                return compact_epoch_source(
+                    self.compact_current_epoch,
+                    tenant_id=self.tenant_id,
+                    current_view=canonical_view,
+                )
+            except (CompactCurrentEpochUnavailable, ValueError) as exc:
+                raise ContextHydrationError(str(exc)) from exc
+        if self.current_read_mode == "off":
+            return canonical_view
 
         source = self.current_source_map.get(canonical_view)
         return approved_materialized_current_source(canonical_view, str(source) if source else None)

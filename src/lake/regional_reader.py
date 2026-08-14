@@ -11,6 +11,7 @@ from solvix_contracts.datalake.athena_dialect import coerce_row, render_params
 from src.common.s3_request_attribution import create_instrumented_s3_client
 from src.common.sql_attribution import athena_attribution_comment
 
+from .compact_epoch import unresolved_virtual_current_relations
 from .models import DraftGenerationHandoff
 
 
@@ -58,10 +59,15 @@ class RegionalLakeReader:
     output_location: str | None = None
     poll_interval_seconds: float = 1.0
     timeout_seconds: float = 60.0
+    reject_virtual_current_sources: bool = False
 
     @classmethod
     def from_handoff(cls, handoff: DraftGenerationHandoff, **kwargs) -> "RegionalLakeReader":
-        return cls(clients=RegionalLakeClients.from_handoff(handoff), **kwargs)
+        return cls(
+            clients=RegionalLakeClients.from_handoff(handoff),
+            reject_virtual_current_sources=handoff.current_read_mode == "compact_only",
+            **kwargs,
+        )
 
     def execute(
         self,
@@ -73,6 +79,12 @@ class RegionalLakeReader:
         tenant_id: str | None = None,
         sync_run_id: str | None = None,
     ) -> list[dict[str, Any]]:
+        if self.reject_virtual_current_sources:
+            unresolved = unresolved_virtual_current_relations(sql)
+            if unresolved:
+                raise RegionalLakeQueryError(
+                    "compact_only rejected unresolved current relations: " + ", ".join(unresolved)
+                )
         athena = self.clients.athena()
         rendered_sql = athena_attribution_comment(
             source=f"ai.lake_reader.{source}" if source else "ai.lake_reader.unknown",

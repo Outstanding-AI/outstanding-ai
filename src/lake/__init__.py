@@ -1,5 +1,10 @@
 """Regional data lake helpers for Phase 4 draft-generation handoff."""
 
+from .compact_epoch import (
+    CompactCurrentEpochMemberV1,
+    CompactCurrentEpochUnavailable,
+    CompactCurrentEpochV1,
+)
 from .context_hydrator import BatchHydrationResult, CaseContextHydrator, ContextHydrationError
 from .manifest_loader import ManifestLoadError, load_draft_candidate_manifest, parse_s3_uri
 from .models import DraftCandidate, DraftGenerationHandoff
@@ -8,6 +13,9 @@ from .regional_reader import RegionalLakeClients, RegionalLakeQueryError, Region
 __all__ = [
     "BatchHydrationResult",
     "CaseContextHydrator",
+    "CompactCurrentEpochMemberV1",
+    "CompactCurrentEpochUnavailable",
+    "CompactCurrentEpochV1",
     "ContextHydrationError",
     "DraftCandidate",
     "DraftGenerationHandoff",
