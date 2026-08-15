@@ -110,7 +110,7 @@ def test_compact_source_is_epoch_filtered_and_preserves_canonical_columns() -> N
 
     assert source.startswith("(SELECT ")
     assert '"tenant_id"' in source.split(" FROM ", 1)[0]
-    assert 'FROM "silver_current_silver_core_parties_current_v2"' in source
+    assert 'FROM "silver_current_silver_core_parties_current_v4"' in source
     assert "\"tenant_id\" = 'tenant-1'" in source
     assert "\"compact_epoch_id\" = 'epoch-1'" in source
     assert unresolved_virtual_current_relations(f"SELECT * FROM {source}") == ()
