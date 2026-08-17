@@ -285,12 +285,10 @@ jobs:
 
           echo "Smoke test passed — OIDC + ECR write + base ECS write + AI class service create/update verified"
 
-  # Gate on push events only. In PR-1 there is no push trigger, so
-  # github.event_name is always 'workflow_dispatch' and this job never runs —
-  # regardless of any smoke_test input combination. PR-2 adds push: branches:
-  # [main], at which point merges to main fire this job.
+  # Full deploy runs on normal pushes and on an explicit non-smoke manual
+  # dispatch. Smoke dispatches remain control-plane/IAM validation only.
   build-and-deploy:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.smoke_test)
     needs: [lint-smoke, pre-commit-verify]
     runs-on: ubuntu-latest
     # A deployment must fail with diagnostics rather than leave an Action
