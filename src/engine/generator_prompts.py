@@ -203,36 +203,16 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
 
     candidate_fact_packet = getattr(request.context, "candidate_fact_packet", None) or {}
     if candidate_fact_packet:
-        fact_lines = []
-        for fact in candidate_fact_packet.get("invoice_facts") or []:
-            if not isinstance(fact, dict):
-                continue
-            control_state = _prompt_context.safe_prompt_value(
-                fact.get("current_state"), max_length=64
-            )
-            line = (
-                f"- {fact.get('invoice_ref')}: current amount "
-                f"{fact.get('currency') or ''} {fact.get('current_amount_due')}; "
-                f"due {fact.get('due_date')}; {fact.get('days_overdue')} days overdue; "
-                f"current state {control_state or 'open'}"
-            )
-            if fact.get("purchase_order_reference"):
-                line += "; verified PO " + _prompt_context.safe_prompt_value(
-                    fact.get("purchase_order_reference"), max_length=80
-                )
-            if fact.get("sales_order_reference"):
-                line += "; verified sales order " + _prompt_context.safe_prompt_value(
-                    fact.get("sales_order_reference"), max_length=80
-                )
-            fact_lines.append(line)
+        fact_count = sum(
+            1 for fact in candidate_fact_packet.get("invoice_facts") or [] if isinstance(fact, dict)
+        )
         sections.append(
-            "\n\n**Invoice-Scoped Factual Packet (authoritative):**\n"
-            + ("\n".join(fact_lines) or "- No invoice facts supplied.")
-            + "\nThis packet and the deterministic invoice table are the only financial and "
-            "invoice-history authority for this ordinary collection draft. Do not infer facts "
-            "from the debtor's wider account, old thread wording, party-level promises, "
-            "party-level remittances, manual notes, or historical invoice amounts. If a fact "
-            "is absent, omit it rather than guessing."
+            "\n\n**Invoice-Scoped Factual Packet (authoritative, backend-rendered):**\n"
+            f"- {fact_count} current eligible invoice fact(s) are available only to the deterministic table renderer.\n"
+            "The deterministic invoice table is the only financial and invoice-history authority for this "
+            "ordinary collection draft. Do not author invoice references, amounts, dates, totals, PO/POD, "
+            "or prior-outreach facts in prose. Do not infer facts from the debtor's wider account, old thread "
+            "wording, party-level promises, party-level remittances, or manual notes. If a fact is absent, omit it."
         )
 
     excluded_lines = []
@@ -941,9 +921,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
             "to the listed invoices. Only treat a manual note as collection-driving when the "
             "manual-intervention summary explicitly says so. If the effect is unknown, be "
             "conservative: do not claim AI ownership, do not invent commitments, and avoid "
-            "escalating tone solely from that note. If a recent manual touchpoint includes a "
-            "query update, commitment, or remittance note, reference dates / amounts verbatim. "
-            "Do NOT chase queried invoices as normal collection items, and do NOT escalate tone "
+            "escalating tone solely from that note. Manual notes are never financial authority: "
+            "do not copy their invoice references, dates, amounts, remittance claims, or query "
+            "details into debtor-facing prose. Do NOT chase queried invoices as normal collection items, and do NOT escalate tone "
             "if a live verbal commitment is in flight."
         )
 

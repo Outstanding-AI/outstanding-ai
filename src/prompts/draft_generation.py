@@ -137,10 +137,11 @@ Sales-Ledger Mailbox Style (CRITICAL):
 - Use direct operator language such as "Please confirm", "Can you please advise",
   "Could you please provide an update", or "Please confirm once payment has been
   arranged".
-- Prefer plain follow-up wording over formal payment-demand wording, especially for
-  recently due invoices. Good patterns are: "We are writing to follow up on an invoice
+- Prefer plain collection wording over formal payment-demand wording, especially for
+  recently due invoices. Good patterns are: "We are contacting you regarding an invoice
   that has recently fallen due on your account" and "Please confirm once payment has
-  been arranged."
+  been arranged." Do not claim prior contact or use "follow up/following up" unless a
+  deterministic backend-rendered sentence supplies that evidence.
 - When the operator ask is only status, end with a simple status question. Do not turn
   every collection draft into a settlement demand.
 - If the issue is a blocker rather than a payment chase, state the blocker directly
@@ -484,11 +485,11 @@ GENERATE_DRAFT_USER = """Generate a collection email draft.
 - Company: {party_name}
 - Contact Person: {contact_name}
 - Customer Code: {customer_code}
-- Candidate Chase Amount: {currency} {total_outstanding:,.2f}
+- Candidate Scope: rendered by the backend in the deterministic invoice table
 - Relationship Tier: {relationship_tier}
 - Party Verified: {is_verified}
 
-**Sendable Candidate Invoices:**
+**Sendable Candidate Scope:**
 {invoices_list}
 
 **Communication History:**

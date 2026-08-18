@@ -57,7 +57,7 @@ from .generator_prompts import (
 logger = logging.getLogger(__name__)
 
 DRAFT_PROMPT_TEMPLATE_ID = "draft_generation"
-DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v7_canonical_hello"
+DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v8_guardrail_safe_fallback"
 GUARDRAIL_PIPELINE_VERSION = "silver_application_v3_canonical_hello"
 
 
@@ -302,17 +302,8 @@ class DraftGenerator:
             )
         else:
             invoices_list = (
-                "\n".join(
-                    [
-                        f"- {o.invoice_number or '(no invoice number)'}: "
-                        f"{o.currency or request.context.party.currency or request.context.base_currency} "
-                        f"{(o.net_amount_due_after_credit_native if o.net_amount_due_after_credit_native is not None else o.amount_due):,.2f} "
-                        f"({self._days_overdue(o)} days overdue)"
-                        f"{self._format_credit_adjustment_suffix(o)}"
-                        f"{self._format_verified_procurement_suffix(o)}"
-                        for o in sorted_obligations
-                    ]
-                )
+                f"{len(sorted_obligations)} current eligible invoice(s) will be rendered by the backend. "
+                "Use {INVOICE_TABLE} exactly once and do not repeat, total, or infer any invoice facts in prose."
                 if sorted_obligations
                 else "No specific invoices provided"
             )
@@ -654,7 +645,114 @@ class DraftGenerator:
                 closure_mode=request.closure_mode,
             )
 
+        # A standard collection draft has a backend-rendered invoice table.  If
+        # the model exhausts retries by inventing prose-only financial or
+        # historical facts, use a deliberately fact-free body rather than
+        # strand an otherwise eligible invoice scope.  This is not a bypass:
+        # source-dispute, procurement, and closed-history failures remain hard
+        # blocks, and the entire guardrail suite must pass again.
+        if self._can_use_deterministic_collection_fallback(
+            request=request,
+            prompt_ctx=prompt_ctx,
+            guardrail_result=guardrail_result,
+        ):
+            fallback = DraftGenerationLLMResponse(
+                subject="Overdue invoices requiring attention",
+                body=(
+                    "Hello\n\n"
+                    "Please could you provide an update on the overdue invoices listed below "
+                    "and confirm the expected payment date?\n\n"
+                    "{INVOICE_TABLE}\n\n"
+                    "If you need any information from us to help process payment, please let us know.\n\n"
+                    "Thank you\n\n"
+                    "Kind regards"
+                ),
+                primary_cta="confirm_expected_payment_date",
+                invoices_referenced=[],
+            )
+            fallback_guardrail_start = time.perf_counter()
+            fallback_guardrail_result = guardrail_pipeline.validate(
+                output=fallback.body,
+                context=request.context,
+                subject=fallback.subject,
+                skip_invoice_table=request.skip_invoice_table,
+                trigger_classification=request.trigger_classification,
+                closure_mode=request.closure_mode,
+                tone=request.tone,
+                escalation_level=getattr(request, "escalation_level", None),
+                sender_company=request.sender_company,
+                sender_name=request.sender_name,
+                sender_mailbox_name=request.sender_name if request.sender_persona else None,
+                sender_email=request.sender_email,
+                cc_emails=request.cc_emails or [],
+                reply_anchor_email=(
+                    request.context.communication_tracking.reply_anchor_email
+                    if request.context.communication_tracking
+                    else None
+                ),
+                recipient_name=prompt_ctx.recipient_name,
+                mail_mode=request.context.lane_mail_mode,
+                lane_context=request.context.lane,
+                candidate_obligation_ids=prompt_ctx.candidate_obligation_ids,
+                candidate_invoice_refs=prompt_ctx.candidate_invoice_refs,
+                invoice_outreach_dates=prompt_ctx.invoice_outreach_dates,
+                forbidden_forecast_dates=prompt_ctx.forbidden_forecast_dates,
+                deterministic_prior_outreach=bool(request.context.candidate_fact_packet),
+                authorized_policies=request.context.authorized_policies or {},
+                disable_forbidden_content=bool(request.context.candidate_fact_packet),
+            )
+            timing.guardrail_latencies.append(
+                (time.perf_counter() - fallback_guardrail_start) * 1000
+            )
+            fallback_tokens = fallback_guardrail_result.total_token_usage
+            tokens.total += fallback_tokens.get("total_tokens", 0)
+            tokens.prompt += fallback_tokens.get("prompt_tokens", 0)
+            tokens.completion += fallback_tokens.get("completion_tokens", 0)
+            if not fallback_guardrail_result.should_block:
+                result = fallback
+                guardrail_result = fallback_guardrail_result
+                logger.warning(
+                    "Deterministic guardrail fallback accepted for standard collection draft %s",
+                    request.context.party.customer_code,
+                )
+
         return result, guardrail_result, tokens, timing, response
+
+    @staticmethod
+    def _can_use_deterministic_collection_fallback(
+        *,
+        request: GenerateDraftRequest,
+        prompt_ctx: _PromptContext,
+        guardrail_result: GuardrailPipelineResult | None,
+    ) -> bool:
+        """Allow a fact-free standard-draft fallback only for model prose defects.
+
+        The invoice table is rendered by the backend from the final current
+        candidate scope.  A deterministic prose fallback is safe only when
+        all blockers came from ``factual_grounding`` and none signals an
+        upstream source-dispute, procurement-evidence, or resolved-history
+        constraint that must continue to suppress collection copy.
+        """
+        if (
+            guardrail_result is None
+            or request.skip_invoice_table
+            or request.closure_mode
+            or not prompt_ctx.candidate_obligation_ids
+            or set(guardrail_result.blocking_guardrails) != {"factual_grounding"}
+        ):
+            return False
+
+        nonrecoverable_markers = (
+            "source-disputed",
+            "unverified procurement",
+            "paid/closed",
+        )
+        return not any(
+            any(marker in str(result.message or "").lower() for marker in nonrecoverable_markers)
+            for result in guardrail_result.results
+            if not result.passed
+            and result.severity in (GuardrailSeverity.HIGH, GuardrailSeverity.CRITICAL)
+        )
 
     def _select_candidate_obligations(self, request: GenerateDraftRequest) -> list:
         """Return the upstream-sendable obligations the AI may draft against."""
@@ -1066,7 +1164,10 @@ class DraftGenerator:
             )
         else:
             feedback_lines.append(
-                "\nEnsure the new draft addresses ALL validation issues listed above."
+                "\nThis is a STANDARD collection draft. Include the exact {INVOICE_TABLE} token once. "
+                "Do not author invoice numbers, money amounts, due dates, payment totals, prior-contact wording, "
+                "or PO/POD/procurement claims in prose: the backend supplies the invoice table and any proven "
+                "prior-outreach sentence deterministically. Ensure the new draft addresses ALL validation issues listed above."
             )
 
         return "\n".join(feedback_lines)
