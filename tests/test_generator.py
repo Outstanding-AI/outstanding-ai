@@ -71,7 +71,7 @@ class TestDraftGenerator:
     def test_draft_prompt_prioritises_sales_ledger_mailbox_style(self):
         normalized_prompt = " ".join(GENERATE_DRAFT_SYSTEM.split())
 
-        assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v8_guardrail_safe_fallback"
+        assert DRAFT_PROMPT_TEMPLATE_VERSION == "silver_application_v8_guardrail_fallback"
         assert "Sales-Ledger Mailbox Style (CRITICAL)" in GENERATE_DRAFT_SYSTEM
         assert "Hello -> one concrete invoice/payment issue" in GENERATE_DRAFT_SYSTEM
         assert "first non-empty text line of every email body MUST be exactly: Hello" in (

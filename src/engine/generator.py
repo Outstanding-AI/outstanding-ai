@@ -57,7 +57,10 @@ from .generator_prompts import (
 logger = logging.getLogger(__name__)
 
 DRAFT_PROMPT_TEMPLATE_ID = "draft_generation"
-DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v8_guardrail_safe_fallback"
+# Keep this identifier within the App DB ``LLMRequestLog.prompt_template_version``
+# contract (varchar(40)).  The previous descriptive value was 45 characters and
+# caused every draft's audit insert to fail after the model call completed.
+DRAFT_PROMPT_TEMPLATE_VERSION = "silver_application_v8_guardrail_fallback"
 GUARDRAIL_PIPELINE_VERSION = "silver_application_v3_canonical_hello"
 
 
