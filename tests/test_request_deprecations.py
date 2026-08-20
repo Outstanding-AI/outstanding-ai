@@ -27,16 +27,14 @@ def test_behavior_info_segment_warns_and_backfills():
 
 def test_behavior_info_segment_mismatch_rejected():
     """Duplicate behaviour segment fields must not diverge."""
-    with pytest.raises(ValueError, match="must match behaviour_segment"):
-        BehaviorInfo(segment="ghost", behaviour_segment="reliable_late_payer")
+    with pytest.warns(DeprecationWarning, match="BehaviorInfo.segment is deprecated"):
+        with pytest.raises(ValueError, match="must match behaviour_segment"):
+            BehaviorInfo(segment="ghost", behaviour_segment="reliable_late_payer")
 
 
 def test_generate_request_sender_persona_warns_and_backfills(sample_case_context):
     """Legacy sender persona name/title should hydrate top-level sender fields."""
-    with pytest.warns(
-        DeprecationWarning,
-        match="GenerateDraftRequest.sender_persona.name is deprecated",
-    ):
+    with pytest.warns(DeprecationWarning) as captured:
         request = GenerateDraftRequest.model_validate(
             {
                 "context": sample_case_context.model_dump(mode="python"),
@@ -50,26 +48,33 @@ def test_generate_request_sender_persona_warns_and_backfills(sample_case_context
             }
         )
 
+    messages = {str(warning.message) for warning in captured}
+    assert any("sender_persona.name is deprecated" in message for message in messages)
+    assert any("sender_persona.title is deprecated" in message for message in messages)
     assert request.sender_name == "Sarah Jones"
     assert request.sender_title == "Credit Controller"
 
 
 def test_generate_request_sender_persona_name_mismatch_rejected(sample_case_context):
     """Top-level sender identity stays canonical during the deprecation window."""
-    with pytest.raises(ValueError, match="must match sender_name"):
-        GenerateDraftRequest.model_validate(
-            {
-                "context": sample_case_context.model_dump(mode="python"),
-                "tone": "professional",
-                "objective": "follow_up",
-                "sender_name": "Top Level Sender",
-                "sender_persona": {
-                    "name": "Nested Sender",
-                    "title": "Credit Controller",
-                    "communication_style": "calm and direct",
-                },
-            }
-        )
+    with pytest.warns(
+        DeprecationWarning,
+        match="GenerateDraftRequest.sender_persona.name is deprecated",
+    ):
+        with pytest.raises(ValueError, match="must match sender_name"):
+            GenerateDraftRequest.model_validate(
+                {
+                    "context": sample_case_context.model_dump(mode="python"),
+                    "tone": "professional",
+                    "objective": "follow_up",
+                    "sender_name": "Top Level Sender",
+                    "sender_persona": {
+                        "name": "Nested Sender",
+                        "title": "Credit Controller",
+                        "communication_style": "calm and direct",
+                    },
+                }
+            )
 
 
 def test_communication_info_last_response_snippet_warns():
@@ -113,7 +118,7 @@ def test_case_context_lane_context_duplicate_fields_warn(sample_case_context):
         }
     )
 
-    with pytest.warns(DeprecationWarning, match="LaneContextInfo.invoice_refs is deprecated"):
+    with pytest.warns(DeprecationWarning) as captured:
         request = GenerateDraftRequest.model_validate(
             {
                 "context": payload,
@@ -122,6 +127,11 @@ def test_case_context_lane_context_duplicate_fields_warn(sample_case_context):
             }
         )
 
+    messages = {str(warning.message) for warning in captured}
+    assert any("LaneContextInfo.invoice_refs is deprecated" in message for message in messages)
+    assert any(
+        "LaneContextInfo.outstanding_amount is deprecated" in message for message in messages
+    )
     lane_context = request.context.lane_contexts[0]
     assert lane_context.__dict__["invoice_refs"] == ["INV-12345"]
     assert lane_context.__dict__["outstanding_amount"] == 1500.0

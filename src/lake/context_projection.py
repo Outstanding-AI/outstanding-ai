@@ -97,6 +97,14 @@ def assemble_case_context(
         },
         obligations=obligations,
     )
+    compatibility_lane_contexts = [
+        {
+            key: value
+            for key, value in lane_context.items()
+            if key not in {"invoice_refs", "outstanding_amount"}
+        }
+        for lane_context in lane_contexts
+    ]
     held_commitments, broken_commitments = evidence.commitments_from_lane_contexts(lane_contexts)
     temporal_evidence = case_temporal_evidence or []
 
@@ -148,7 +156,7 @@ def assemble_case_context(
         sendable_obligation_ids=sendable_obligation_ids,
         lane_broken_promises_count=int(party.get("broken_promises_count") or 0),
         lane_last_tone_used=party.get("last_tone_used"),
-        lane_contexts=lane_contexts,
+        lane_contexts=compatibility_lane_contexts,
         mode=candidate.mode or ("multi_lane" if len(lane_contexts) > 1 else "single_lane"),
         debtor_contact=debtor_contact,
         party_contacts=party_contacts,

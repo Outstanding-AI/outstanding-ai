@@ -465,7 +465,9 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
         if len(lane_contexts) > 1 or getattr(request.context, "mode", None) == "multi_lane":
             lane_lines = []
             for lane in lane_contexts:
-                invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
+                lane_payload = lane.model_dump(mode="python")
+                legacy_invoice_refs = lane_payload.get("invoice_refs") or []
+                invoice_refs = ", ".join(legacy_invoice_refs) or "none"
                 tone_ladder = (
                     ", ".join(lane.tone_ladder) if getattr(lane, "tone_ladder", None) else "none"
                 )
@@ -504,7 +506,10 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 )
         else:
             lane = lane_contexts[0]
-            invoice_refs = ", ".join(lane.invoice_refs) if lane.invoice_refs else "none"
+            lane_payload = lane.model_dump(mode="python")
+            legacy_invoice_refs = lane_payload.get("invoice_refs") or []
+            invoice_refs = ", ".join(legacy_invoice_refs) or "none"
+            legacy_outstanding_amount = lane_payload.get("outstanding_amount")
             tone_ladder = (
                 ", ".join(lane.tone_ladder) if getattr(lane, "tone_ladder", None) else "none"
             )
@@ -517,7 +522,7 @@ def build_extra_sections(request, behavior, candidate_obligations=None) -> str:
                 f"- Level Window (days): {lane.max_days_for_level}\n"
                 f"- Tone Ladder: {tone_ladder}\n"
                 f"- Open Invoices: {invoice_refs}\n"
-                f"- Outstanding Amount: {lane.outstanding_amount}\n"
+                f"- Outstanding Amount: {legacy_outstanding_amount}\n"
                 + (
                     "- Scope Rule: continue the single active debtor case thread. The invoice table is the current "
                     "case chase scope; do not add invoices from history.\n"

@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+repo_root=$(git rev-parse --show-toplevel)
+workspace=$(cd "$repo_root/.." && pwd)
+cd "$workspace/Solvix"
+unset VIRTUAL_ENV
+PATH="$HOME/.local/bin:$PATH" \
+UV_CACHE_DIR=/tmp/uv-cache \
+  uv run python scripts/validation/run_precommit_deployment_gate.py --repo ai
