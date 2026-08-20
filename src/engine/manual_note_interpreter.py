@@ -29,8 +29,8 @@ from .audit import build_ai_audit
 from .collection_email_event_classifier import _invalid_response_telemetry, _parse_response_object
 
 PROMPT_TEMPLATE_ID = "manual_note_interpretation"
-PROMPT_TEMPLATE_VERSION = "v4"
-TAXONOMY_VERSION = "manual_note_controls.v1"
+PROMPT_TEMPLATE_VERSION = "v5"
+TAXONOMY_VERSION = "manual_note_controls.v2"
 
 
 class _ManualNoteLLMAssertion(BaseModel):
@@ -75,6 +75,7 @@ class _ManualNoteLLMAssertion(BaseModel):
     reference_evidence_text: str | None = None
     amount_evidence_text: str | None = None
     full_current_balance: bool = False
+    resolves_manual_query_history_ref: str | None = None
     evidence_text: str
     confidence: float
     reason_codes: list[str]
@@ -102,7 +103,11 @@ SOURCE AUTHORITY
 OPERATOR PURPOSE
 - query, commitment, and remittance are authoritative control-family selections. Emit assertions only
   from the selected family. The note determines the transition and extracted fields.
-- chase is collection activity and must produce no query, commitment, or remittance assertion.
+- chase is collection activity and normally produces no query, commitment, or remittance assertion.
+  The sole exception is a query transition=resolved that is explicitly supported by
+  the new note and names exactly one matching opaque history_ref from
+  active_manual_queries for that same selected invoice. Never raise, update, or
+  reopen a control from a chase note.
 - general and internal_note do not constrain the family; extract any control directly supported by the note.
 - If the purpose and prose conflict, or the required facts are absent, abstain rather than changing family.
 
@@ -135,6 +140,18 @@ TRANSITION CONTRACT
 - remittance: received, expected, partially_received, not_received, unmatched, rejected, cancelled, or
   unclear. The verified transition is reserved for accounting and is forbidden for manual notes.
 - other: no_operational_effect or unclear.
+
+ACTIVE MANUAL QUERY HISTORY
+- active_manual_queries is the complete, invoice-scoped set of active manual
+  query controls that this note may resolve. history_ref is an opaque identifier:
+  never invent, transform, reuse across invoices, or treat it as note evidence.
+- A query transition=resolved must have exactly one invoice and must return the
+  exact history_ref of the active manual query it resolves. Do not resolve a
+  Sage query or a query not present in this list.
+- A status update such as "POD received" or "invoice submitted" is not by
+  itself a financial control. It becomes query resolution only when it clearly
+  resolves the active manual query for that same invoice. If that relationship
+  is uncertain, abstain.
 
 TEMPORAL AND CURRENT-STATE REASONING
 - A note may contain multiple dated clauses. Bind each date only to the fact expressed in the same
@@ -219,6 +236,27 @@ _amount_is_explicit_in_span = amount_is_explicit_in_span
 _reference_is_explicit_in_span = reference_is_explicit_in_span
 
 
+def _active_manual_query_history_by_ref(
+    request: ManualNoteInterpretationRequestV1,
+) -> dict[str, tuple[str, str]]:
+    """Return the opaque active-manual-query history bound to each invoice.
+
+    The backend supplies only an opaque history reference to the AI.  The ETL
+    reducer independently rechecks it against live OCS provenance before it
+    performs an append-only resolution, so this helper is a response-shape
+    guard rather than trust in a model-provided control identity.
+    """
+
+    history: dict[str, tuple[str, str]] = {}
+    for row in getattr(request, "active_manual_queries", ()) or ():
+        history_ref = str(getattr(row, "history_ref", "") or "")
+        obligation_id = str(getattr(row, "obligation_id", "") or "")
+        invoice_number = _normalize_ref(getattr(row, "invoice_number", ""))
+        if history_ref and obligation_id and invoice_number:
+            history[history_ref] = (obligation_id, invoice_number)
+    return history
+
+
 def _validate_optional_field_evidence(
     *,
     note: str,
@@ -255,12 +293,16 @@ def _validated_assertions(
         )
         for row in request.existing_controls
     }
+    active_manual_query_history = _active_manual_query_history_by_ref(request)
     purpose = str(request.purpose)
     allowed_types_by_purpose: dict[str, set[str] | None] = {
         "query": {"query"},
         "commitment": {"commitment"},
         "remittance": {"remittance"},
-        "chase": set(),
+        # A chase note can only release a specific, currently active manual
+        # query.  The transition/reference guard below rejects every other
+        # control mutation from this operator purpose.
+        "chase": {"query"},
         "general": None,
         "internal_note": None,
     }
@@ -348,6 +390,7 @@ def _validated_assertions(
                 "asserted_date",
                 "reference",
                 "full_current_balance",
+                "resolves_manual_query_history_ref",
                 "confidence",
                 "reason_codes",
             )
@@ -385,6 +428,21 @@ def _validated_assertions(
                 and not assertion.full_current_balance
             ):
                 raise ValueError("commitment_without_amount_requires_full_current_balance")
+        query_history_ref = str(getattr(assertion, "resolves_manual_query_history_ref", "") or "")
+        if assertion.assertion_type == "query" and assertion.transition == "resolved":
+            if len(assertion.invoice_refs) != 1:
+                raise ValueError("query_resolution_requires_single_invoice_scope")
+            expected_history = active_manual_query_history.get(query_history_ref)
+            invoice_ref = _normalize_ref(assertion.invoice_refs[0])
+            obligation_id = obligation_id_by_ref[invoice_ref]
+            if not expected_history or expected_history != (obligation_id, invoice_ref):
+                raise ValueError("query_resolution_history_ref_mismatch")
+        elif query_history_ref:
+            raise ValueError("manual_query_history_ref_only_for_query_resolution")
+        if str(request.purpose) == "chase" and not (
+            assertion.assertion_type == "query" and assertion.transition == "resolved"
+        ):
+            raise ValueError("chase_note_cannot_create_or_update_control")
         if (
             assertion.assertion_type == "remittance"
             and assertion.transition in {"not_received", "rejected", "cancelled"}
@@ -482,6 +540,17 @@ def _prompt_input(request: ManualNoteInterpretationRequestV1) -> dict[str, objec
                 ),
             }
             for row in request.existing_controls
+        ],
+        "active_manual_queries": [
+            {
+                "history_ref": str(getattr(row, "history_ref", "") or ""),
+                "obligation_id": str(getattr(row, "obligation_id", "") or ""),
+                "invoice_number": str(getattr(row, "invoice_number", "") or ""),
+                "transition": str(getattr(row, "transition", "") or ""),
+                "reason_code": str(getattr(row, "reason_code", "") or ""),
+                "opened_at": str(getattr(row, "opened_at", "") or ""),
+            }
+            for row in getattr(request, "active_manual_queries", ()) or ()
         ],
     }
 
@@ -583,7 +652,9 @@ class ManualNoteInterpreter:
         self,
         request: ManualNoteInterpretationRequestV1,
     ) -> ManualNoteInterpretationResponseV1:
-        if str(request.purpose) == "chase":
+        if str(request.purpose) == "chase" and not (
+            getattr(request, "active_manual_queries", ()) or ()
+        ):
             return ManualNoteInterpretationResponseV1(
                 extraction_status="abstained",
                 assertions=[],
