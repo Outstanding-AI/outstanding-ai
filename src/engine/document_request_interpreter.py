@@ -482,16 +482,11 @@ class DocumentRequestInterpreter:
         if client is not None:
             self._client = client
             return
-        overrides = {
-            provider: model
-            for provider, model in {
-                "vertex": getattr(settings, "collection_email_event_vertex_model", None),
-                "openai": getattr(settings, "collection_email_event_openai_model", None),
-            }.items()
-            if model
-        }
+        openai_model = getattr(settings, "collection_email_event_openai_model", None)
         self._client = LLMProviderWithFallback(
-            primary_provider="vertex", fallback_provider="openai", model_override=overrides
+            primary_provider="openai",
+            fallback_provider="openai",
+            model_override={"openai": openai_model} if openai_model else None,
         )
 
     async def interpret(
