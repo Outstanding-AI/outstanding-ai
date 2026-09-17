@@ -131,6 +131,9 @@ class Settings(BaseSettings):
     collection_email_event_openai_model: Optional[str] = None
     manual_outbound_email_vertex_model: Optional[str] = None
     manual_outbound_email_openai_model: Optional[str] = None
+    # V2 mail semantic evidence is evidence-only, but remains disabled until
+    # its cross-runtime callback and durable lake writer rollout is complete.
+    enable_mail_semantic_evidence_v2: bool = False
 
     # --- Task-specific temperatures ---
     # Override provider defaults per use case for optimal output.
