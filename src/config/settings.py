@@ -127,7 +127,10 @@ class Settings(BaseSettings):
     openrouter_mail_semantic_primary_reasoning_enabled: bool = False
     openrouter_mail_semantic_primary_reasoning_effort: str = "low"
     openrouter_mail_semantic_judge_reasoning_effort: str = "high"
-    openrouter_mail_semantic_allow_fallbacks: bool = False
+    # Allow OpenRouter to fail over only among endpoints that still satisfy
+    # the request's ZDR/data-collection/parameter constraints. This is not a
+    # cross-model fallback.
+    openrouter_mail_semantic_allow_fallbacks: bool = True
     openrouter_mail_semantic_require_parameters: bool = True
     openrouter_mail_semantic_data_collection: str = "deny"
     openrouter_mail_semantic_zdr: bool = True

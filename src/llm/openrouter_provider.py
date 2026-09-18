@@ -1,9 +1,10 @@
 """OpenRouter provider for the evidence-only semantic-mail workload.
 
 This adapter uses OpenRouter's OpenAI-compatible chat-completions endpoint but
-is deliberately a distinct provider.  In particular, semantic-mail calls do
-not inherit the application's Vertex -> OpenAI fallback policy: a provider
-failure is returned to the semantic workflow as a controlled failure/defer.
+is deliberately a distinct provider. Semantic-mail calls never inherit the
+application's Vertex -> OpenAI fallback policy. OpenRouter may fail over only
+between eligible endpoints of the configured model, subject to the request's
+privacy and parameter constraints.
 """
 
 from __future__ import annotations
@@ -96,8 +97,18 @@ def _safe_provider_error_code(response: httpx.Response) -> str:
     return normalized[:80] or "unknown_error"
 
 
+def _safe_retry_after_seconds(response: httpx.Response) -> int | None:
+    """Read a bounded numeric retry hint without retaining provider response content."""
+
+    try:
+        value = int(response.headers.get("retry-after") or "")
+    except ValueError:
+        return None
+    return value if 0 <= value <= 3600 else None
+
+
 class OpenRouterProvider(BaseLLMProvider):
-    """Direct, no-fallback OpenRouter chat-completions provider."""
+    """Direct OpenRouter chat-completions provider with privacy-filtered failover."""
 
     def __init__(
         self,
@@ -250,7 +261,9 @@ class OpenRouterProvider(BaseLLMProvider):
             raise LLMProviderUnavailableError("OpenRouter request failed") from exc
 
         if response.status_code == 429:
-            raise LLMRateLimitedError("OpenRouter rate limited the semantic request")
+            retry_after = _safe_retry_after_seconds(response)
+            suffix = f" retry_after_seconds={retry_after}" if retry_after is not None else ""
+            raise LLMRateLimitedError(f"OpenRouter rate limited the semantic request{suffix}")
         if response.status_code in {400, 422}:
             raise LLMStructuredOutputError(
                 f"OpenRouter rejected the semantic request: {_safe_provider_error_code(response)}"

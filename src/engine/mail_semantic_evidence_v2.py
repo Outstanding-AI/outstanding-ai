@@ -119,6 +119,31 @@ procurement instructions. A request_information event needs an explicit request
 that the recipient provide or send a document. A query needs an explicit
 challenge, correction request or unresolved issue; ordinary address, delivery
 or account-administration traffic is not a collection query.
+
+Classify the asserted business issue, not merely the grammatical form of a
+question. A request for clarification that asserts a price, quantity, payment
+allocation, credit, duplication, missing delivery, or other discrepancy is a
+`query`, even when it also asks for information. `request_information` applies
+when the current message asks the recipient to send/provide a document or data
+without asserting that the underlying charge or obligation is wrong. A
+`payment_timing_dispute` is limited to an asserted disagreement about payment
+timing, processing, or a promised payment date; do not use it for an ordinary
+invoice/price discrepancy.
+
+Do not double-count one issue. A request to check, confirm, explain, correct,
+or resolve an asserted discrepancy is part of the same `query`, not a separate
+`request_information` event. Conversely, a standalone request for a copy of
+an invoice, statement, POD, remittance advice, or other document is
+`request_information`; do not add `query` merely because the message contains
+an account update, preference, acknowledgement, or a question-form sentence.
+Emit multiple events only when the current author makes independently
+grounded business claims with separate meanings.
+
+For source-supported lifecycle values: use `opened` for a newly asserted
+query, `updated` for a continued/revised query, and `resolved` only for an
+explicit resolution. Use `requested` for a document/data request. Use
+`reported` for an actual payment/remittance claim, not for a future payment
+expectation or an approval-only statement.
 """
 
 _FAMILY_ALIASES = {"document_request": "request_information"}
@@ -147,11 +172,19 @@ def _normalize_known_model_aliases(value: object) -> object:
         family = event.get("family")
         if isinstance(family, str):
             event["family"] = _FAMILY_ALIASES.get(family, family)
-        event["evidence"] = _normalize_evidence_supports(event.get("evidence"))
+        event["evidence"] = _normalize_evidence_list(event.get("evidence"))
         events.append(event)
     normalized["semantic_events"] = events
-    normalized["response_evidence"] = _normalize_evidence_supports(value.get("response_evidence"))
+    normalized["response_evidence"] = _normalize_evidence_list(value.get("response_evidence"))
     return normalized
+
+
+def _normalize_evidence_list(value: object) -> object:
+    """Accept one otherwise-valid evidence object where a model omitted list brackets."""
+
+    if isinstance(value, dict):
+        value = [value]
+    return _normalize_evidence_supports(value)
 
 
 def _normalize_evidence_supports(value: object) -> object:
@@ -573,12 +606,10 @@ class MailSemanticEvidenceInterpreterV3:
             system_prompt=f"{_SYSTEM_PROMPT}\n{_EVENT_ENUM_GUIDANCE}",
             user_prompt=json.dumps(prompt_input, ensure_ascii=True, sort_keys=True, default=str),
             temperature=settings.classification_temperature,
-            # DeepSeek's routed strict-schema path has returned HTTP 200 with
-            # no choices in local boundary verification. Request JSON-object
-            # mode and retain the existing strict Pydantic + exact-span
-            # validation below until a provider-specific schema route proves
-            # it can complete this contract reliably.
-            json_mode=True,
+            # The privacy-filtered provider route now accepts strict schema
+            # requests on a synthetic live probe. Keep the local Pydantic and
+            # exact-span checks below as a second boundary.
+            response_schema=_LLMResponse,
             reasoning_effort=settings.openrouter_mail_semantic_primary_reasoning_effort,
             reasoning_enabled=settings.openrouter_mail_semantic_primary_reasoning_enabled,
             caller="mail_semantic_evidence_v3",

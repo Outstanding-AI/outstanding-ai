@@ -80,10 +80,12 @@ async def test_openrouter_provider_treats_rate_limit_as_retryable_provider_failu
         api_key="test-secret",
         model="deepseek/deepseek-v4-flash",
         base_url="https://router.test/api/v1",
-        transport=httpx.MockTransport(lambda _request: httpx.Response(429)),
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(429, headers={"retry-after": "42"})
+        ),
     )
 
-    with pytest.raises(LLMRateLimitedError):
+    with pytest.raises(LLMRateLimitedError, match="retry_after_seconds=42"):
         await provider.complete("system", "synthetic", caller="semantic_mail_test")
 
 
@@ -141,7 +143,7 @@ async def test_openrouter_provider_uses_strict_schema_and_provider_privacy_contr
     assert payload["response_format"]["type"] == "json_schema"
     assert payload["response_format"]["json_schema"]["strict"] is True
     assert payload["provider"] == {
-        "allow_fallbacks": False,
+        "allow_fallbacks": True,
         "require_parameters": True,
         "data_collection": "deny",
         "zdr": True,

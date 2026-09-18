@@ -169,8 +169,8 @@ async def test_enabled_interpreter_uses_injected_no_fallback_primary_and_returns
     assert result.admission.identity_revision == "identity-terminal-1"
     assert len(fake.calls) == 1
     assert "model_override" not in fake.calls[0]["user_prompt"]
-    assert fake.calls[0]["json_mode"] is True
-    assert "response_schema" not in fake.calls[0]
+    assert fake.calls[0].get("json_mode", False) is False
+    assert fake.calls[0]["response_schema"].__name__ == "_LLMResponse"
 
 
 @pytest.mark.asyncio
@@ -208,6 +208,20 @@ async def test_document_request_aliases_are_normalized_before_strict_validation(
     assert result.disposition == "accepted"
     assert result.semantic_events[0].family == "request_information"
     assert result.semantic_events[0].evidence[0].supports == ["operational_state"]
+
+
+@pytest.mark.asyncio
+async def test_single_response_evidence_object_is_normalized_to_a_list(monkeypatch) -> None:
+    payload = _accepted_payload()
+    payload["response_evidence"] = payload["response_evidence"][0]
+    fake = _FakePrimaryProvider(payload)
+    interpreter = MailSemanticEvidenceInterpreterV3(primary_provider=fake)
+    monkeypatch.setattr(settings, "enable_mail_semantic_evidence_v3", True)
+
+    result = await interpreter.interpret(_request())
+
+    assert result.disposition == "accepted"
+    assert len(result.response_evidence) == 1
 
 
 @pytest.mark.asyncio
