@@ -37,6 +37,7 @@ from src.api.routes import (
     health,
     identify_collection_chain,
     interpret_collection_email_v2,
+    interpret_collection_email_v3,
     interpret_invoice_document_request,
     interpret_manual_note,
     persona,
@@ -261,6 +262,7 @@ app.include_router(classify.router, tags=["Classification"])
 app.include_router(classify_collection_email_event.router, tags=["Classification"])
 app.include_router(extract_collection_email_facts.router, tags=["Classification"])
 app.include_router(interpret_collection_email_v2.router, tags=["Classification"])
+app.include_router(interpret_collection_email_v3.router, tags=["Classification"])
 app.include_router(identify_collection_chain.router, tags=["Classification"])
 app.include_router(interpret_manual_note.router, tags=["Classification"])
 app.include_router(interpret_invoice_document_request.router, tags=["Document Requests"])

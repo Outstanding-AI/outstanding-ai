@@ -13,6 +13,7 @@ from .base import (
     LLMResponse,
 )
 from .openai_provider import OpenAIProvider
+from .openrouter_provider import OpenRouterProvider
 from .vertex_provider import VertexProvider
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,13 @@ class LLMProviderWithFallback:
             return OpenAIProvider(
                 model=self._model_override.get("openai") or settings.openai_model,
                 temperature=settings.openai_temperature,
+            )
+        if name == "openrouter":
+            return OpenRouterProvider(
+                model=(
+                    self._model_override.get("openrouter")
+                    or settings.openrouter_mail_semantic_primary_model
+                ),
             )
         if name == "anthropic":
             raise ValueError(

@@ -92,7 +92,7 @@ class Settings(BaseSettings):
         return paths
 
     # --- LLM Provider Selection ---
-    llm_provider: str = "vertex"  # "vertex", "openai", "anthropic"
+    llm_provider: str = "vertex"  # "vertex", "openai", "openrouter", "anthropic"
 
     # --- Vertex AI Configuration (PRIMARY) ---
     vertex_project_id: str = "production-493814"
@@ -111,6 +111,26 @@ class Settings(BaseSettings):
     # fingerprint in each audit row records the exact served snapshot.
     openai_model: str = "gpt-5.6-luna"
     openai_temperature: float = 0.3
+
+    # --- OpenRouter semantic-mail configuration (feature-gated) ---
+    # This provider is intentionally scoped to evidence-only semantic mail.
+    # It is not an application-wide fallback for Vertex or OpenAI callers.
+    openrouter_api_key: Optional[str] = Field(None, repr=False)
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_mail_semantic_primary_model: str = "deepseek/deepseek-v4-flash-0731"
+    openrouter_mail_semantic_judge_model: str = "deepseek/deepseek-v4-flash-0731"
+    openrouter_mail_semantic_timeout_seconds: float = 60.0
+    openrouter_mail_semantic_max_input_tokens: int = 131_072
+    openrouter_mail_semantic_max_completion_tokens: int = 8_192
+    # Keep the initial primary extraction in JSON-producing mode. Low reasoning
+    # remains an evaluated alternative after it proves a measurable quality lift.
+    openrouter_mail_semantic_primary_reasoning_enabled: bool = False
+    openrouter_mail_semantic_primary_reasoning_effort: str = "low"
+    openrouter_mail_semantic_judge_reasoning_effort: str = "high"
+    openrouter_mail_semantic_allow_fallbacks: bool = False
+    openrouter_mail_semantic_require_parameters: bool = True
+    openrouter_mail_semantic_data_collection: str = "deny"
+    openrouter_mail_semantic_zdr: bool = True
 
     # --- Anthropic Configuration (OPTIONAL third provider) ---
     # Only activated when ANTHROPIC_API_KEY is set.
@@ -131,9 +151,11 @@ class Settings(BaseSettings):
     collection_email_event_openai_model: Optional[str] = None
     manual_outbound_email_vertex_model: Optional[str] = None
     manual_outbound_email_openai_model: Optional[str] = None
-    # V2 mail semantic evidence is evidence-only, but remains disabled until
-    # its cross-runtime callback and durable lake writer rollout is complete.
+    # Keep the deployed V2 endpoint independently configurable while V3 is
+    # introduced as an opt-in contract.  Neither endpoint is enabled by
+    # default, and V3 must never change V2 provider selection or behaviour.
     enable_mail_semantic_evidence_v2: bool = False
+    enable_mail_semantic_evidence_v3: bool = False
 
     # --- Task-specific temperatures ---
     # Override provider defaults per use case for optimal output.
@@ -203,6 +225,8 @@ class Settings(BaseSettings):
             return self.vertex_model
         if provider_name == "openai":
             return self.openai_model
+        if provider_name == "openrouter":
+            return self.openrouter_mail_semantic_primary_model
         if provider_name == "anthropic":
             return self.anthropic_model
         return "unknown"
@@ -212,6 +236,7 @@ class Settings(BaseSettings):
             "vertex_config": self.vertex_wif_path().is_file(),
             "ecs_task_role": self.running_on_ecs(),
             "openai": bool(self.openai_api_key),
+            "openrouter": bool(self.openrouter_api_key),
             "anthropic": bool(self.anthropic_api_key),
         }
 
