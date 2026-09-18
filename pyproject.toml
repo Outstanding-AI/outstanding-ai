@@ -10,7 +10,7 @@ dependencies = [
     "uvicorn>=0.27.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "solvix-contracts==0.12.95",
+    "solvix-contracts==0.12.96",
 
     # LLM Providers
     "langchain-core>=1.4.0",
@@ -26,6 +26,8 @@ dependencies = [
     "tenacity>=8.2.0",
     "python-dotenv>=1.2.2",
     "httpx>=0.26.0",
+    # Direct security floor for CVE-2026-63374 and CVE-2026-64847.
+    "anyio==4.14.2",
     "nest-asyncio>=1.5.0",
 
     # Google API (for Vertex retry handling)
@@ -64,4 +66,4 @@ build-backend = "hatchling.build"
 packages = ["src"]
 
 [tool.uv.sources]
-solvix-contracts = { git = "https://github.com/Outstanding-AI/outstanding-backend.git", tag = "contracts-v0.12.95", subdirectory = "contracts" }
+solvix-contracts = { git = "https://github.com/Outstanding-AI/outstanding-backend.git", tag = "contracts-v0.12.96", subdirectory = "contracts" }
