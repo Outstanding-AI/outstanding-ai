@@ -305,6 +305,25 @@ jobs:
       CONTAINER_NAME: ai-engine
       AI_CLASS_SPECS: "large:2048:4096 xlarge:4096:8192"
       ECS_CREATE_CLASS_SERVICES: ${{ vars.ECS_CREATE_CLASS_SERVICES || 'true' }}
+      # Semantic mail remains dormant until a separately approved admission
+      # rollout.  These values configure only the isolated AI provider seam;
+      # they never enable backend admission or send mail content by themselves.
+      ENABLE_MAIL_SEMANTIC_EVIDENCE_V2: ${{ vars.ENABLE_MAIL_SEMANTIC_EVIDENCE_V2 || 'false' }}
+      ENABLE_MAIL_SEMANTIC_EVIDENCE_V3: ${{ vars.ENABLE_MAIL_SEMANTIC_EVIDENCE_V3 || 'false' }}
+      OPENROUTER_API_KEY_SECRET_ARN: ${{ secrets.OPENROUTER_API_KEY_SECRET_ARN || '' }}
+      OPENROUTER_BASE_URL: ${{ vars.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1' }}
+      OPENROUTER_MAIL_SEMANTIC_PRIMARY_MODEL: ${{ vars.OPENROUTER_MAIL_SEMANTIC_PRIMARY_MODEL || 'deepseek/deepseek-v4-flash-0731' }}
+      OPENROUTER_MAIL_SEMANTIC_JUDGE_MODEL: ${{ vars.OPENROUTER_MAIL_SEMANTIC_JUDGE_MODEL || 'deepseek/deepseek-v4-flash-0731' }}
+      OPENROUTER_MAIL_SEMANTIC_TIMEOUT_SECONDS: ${{ vars.OPENROUTER_MAIL_SEMANTIC_TIMEOUT_SECONDS || '60' }}
+      OPENROUTER_MAIL_SEMANTIC_MAX_INPUT_TOKENS: ${{ vars.OPENROUTER_MAIL_SEMANTIC_MAX_INPUT_TOKENS || '131072' }}
+      OPENROUTER_MAIL_SEMANTIC_MAX_COMPLETION_TOKENS: ${{ vars.OPENROUTER_MAIL_SEMANTIC_MAX_COMPLETION_TOKENS || '8192' }}
+      OPENROUTER_MAIL_SEMANTIC_PRIMARY_REASONING_ENABLED: ${{ vars.OPENROUTER_MAIL_SEMANTIC_PRIMARY_REASONING_ENABLED || 'false' }}
+      OPENROUTER_MAIL_SEMANTIC_PRIMARY_REASONING_EFFORT: ${{ vars.OPENROUTER_MAIL_SEMANTIC_PRIMARY_REASONING_EFFORT || 'low' }}
+      OPENROUTER_MAIL_SEMANTIC_JUDGE_REASONING_EFFORT: ${{ vars.OPENROUTER_MAIL_SEMANTIC_JUDGE_REASONING_EFFORT || 'high' }}
+      OPENROUTER_MAIL_SEMANTIC_ALLOW_FALLBACKS: ${{ vars.OPENROUTER_MAIL_SEMANTIC_ALLOW_FALLBACKS || 'true' }}
+      OPENROUTER_MAIL_SEMANTIC_REQUIRE_PARAMETERS: ${{ vars.OPENROUTER_MAIL_SEMANTIC_REQUIRE_PARAMETERS || 'true' }}
+      OPENROUTER_MAIL_SEMANTIC_DATA_COLLECTION: ${{ vars.OPENROUTER_MAIL_SEMANTIC_DATA_COLLECTION || 'deny' }}
+      OPENROUTER_MAIL_SEMANTIC_ZDR: ${{ vars.OPENROUTER_MAIL_SEMANTIC_ZDR || 'true' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -421,6 +440,68 @@ jobs:
             --task-definition "$TASK_FAMILY" \
             --query taskDefinition \
             > task-definition.json
+
+      - name: Configure dormant semantic-mail provider seam
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          path = "task-definition.json"
+          payload = json.load(open(path))
+          configured_environment = {
+              name: os.environ[name]
+              for name in (
+                  "ENABLE_MAIL_SEMANTIC_EVIDENCE_V2",
+                  "ENABLE_MAIL_SEMANTIC_EVIDENCE_V3",
+                  "OPENROUTER_BASE_URL",
+                  "OPENROUTER_MAIL_SEMANTIC_PRIMARY_MODEL",
+                  "OPENROUTER_MAIL_SEMANTIC_JUDGE_MODEL",
+                  "OPENROUTER_MAIL_SEMANTIC_TIMEOUT_SECONDS",
+                  "OPENROUTER_MAIL_SEMANTIC_MAX_INPUT_TOKENS",
+                  "OPENROUTER_MAIL_SEMANTIC_MAX_COMPLETION_TOKENS",
+                  "OPENROUTER_MAIL_SEMANTIC_PRIMARY_REASONING_ENABLED",
+                  "OPENROUTER_MAIL_SEMANTIC_PRIMARY_REASONING_EFFORT",
+                  "OPENROUTER_MAIL_SEMANTIC_JUDGE_REASONING_EFFORT",
+                  "OPENROUTER_MAIL_SEMANTIC_ALLOW_FALLBACKS",
+                  "OPENROUTER_MAIL_SEMANTIC_REQUIRE_PARAMETERS",
+                  "OPENROUTER_MAIL_SEMANTIC_DATA_COLLECTION",
+                  "OPENROUTER_MAIL_SEMANTIC_ZDR",
+              )
+          }
+          enabled = any(
+              value.strip().lower() in {"1", "true", "yes", "on"}
+              for name, value in configured_environment.items()
+              if name.startswith("ENABLE_MAIL_SEMANTIC_EVIDENCE_")
+          )
+          secret_arn = os.environ["OPENROUTER_API_KEY_SECRET_ARN"].strip()
+          if enabled and not secret_arn:
+              raise SystemExit("OpenRouter secret ARN is required before semantic evidence can be enabled")
+          configured_container = False
+          for container in payload["containerDefinitions"]:
+              if container["name"] != os.environ["CONTAINER_NAME"]:
+                  continue
+              configured_container = True
+              environment = [
+                  item
+                  for item in container.get("environment", [])
+                  if item.get("name") not in configured_environment
+              ]
+              environment.extend(
+                  {"name": name, "value": value}
+                  for name, value in sorted(configured_environment.items())
+              )
+              container["environment"] = environment
+              secrets = [item for item in container.get("secrets", []) if item.get("name") != "OPENROUTER_API_KEY"]
+              if secret_arn:
+                  secrets.append({"name": "OPENROUTER_API_KEY", "valueFrom": secret_arn})
+              container["secrets"] = secrets
+          if not configured_container:
+              raise SystemExit(
+                  f"Task definition does not contain {os.environ['CONTAINER_NAME']!r}"
+              )
+          json.dump(payload, open(path, "w"))
+          PY
 
       - name: Render new image into task definition
         id: render
